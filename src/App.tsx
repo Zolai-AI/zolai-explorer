@@ -5,6 +5,7 @@ import { Dashboard } from './routes/Dashboard'
 import { Word } from './routes/Word'
 import { Analyze } from './routes/Analyze'
 import { Search } from './routes/Search'
+import { Rag } from './routes/Rag'
 import { NotFound } from './routes/NotFound'
 import { queryClient } from './lib/queryClient'
 
@@ -19,6 +20,7 @@ export function App() {
             <Route path="word/:word" element={<Word />} />
             <Route path="analyze" element={<Analyze />} />
             <Route path="search" element={<Search />} />
+            <Route path="rag" element={<Rag />} />
             <Route path="*" element={<NotFound />} />
           </Route>
         </Routes>
