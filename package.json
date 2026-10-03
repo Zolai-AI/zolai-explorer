@@ -1,0 +1,35 @@
+{
+  "name": "zolai-explorer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Studio workbench for the live Zolai Core API",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "typecheck": "tsc -b --force --pretty",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "deploy": "vite build && bash scripts/deploy.sh"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "5.104.1",
+    "lucide-react": "1.51.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-router-dom": "7.18.4",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "4.3.3",
+    "@types/node": "24.19.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.1",
+    "tailwindcss": "4.3.3",
+    "typescript": "~5.9.3",
+    "vite": "8.3.2",
+    "vitest": "5.0.3"
+  }
+}
