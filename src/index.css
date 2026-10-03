@@ -1,4 +1,11 @@
-@import 'tailwindcss';
+/*
+ * Tailwind 4 without `source(none)` auto-detects every non-ignored file in the
+ * project, including the Markdown docs — where prose words like "static" were
+ * being emitted as real utilities. Scanning only the TS/TSX sources keeps the
+ * bundle deterministic and stops documentation from changing build hashes.
+ */
+@import 'tailwindcss' source(none);
+@source './**/*.{ts,tsx}';
 
 @theme {
   --font-sans:
