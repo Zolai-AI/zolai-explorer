@@ -3,6 +3,8 @@ import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { AppShell } from './components/AppShell'
 import { Dashboard } from './routes/Dashboard'
 import { Word } from './routes/Word'
+import { Analyze } from './routes/Analyze'
+import { Search } from './routes/Search'
 import { NotFound } from './routes/NotFound'
 import { queryClient } from './lib/queryClient'
 
@@ -15,6 +17,8 @@ export function App() {
             <Route index element={<Dashboard />} />
             <Route path="word" element={<Word />} />
             <Route path="word/:word" element={<Word />} />
+            <Route path="analyze" element={<Analyze />} />
+            <Route path="search" element={<Search />} />
             <Route path="*" element={<NotFound />} />
           </Route>
         </Routes>
