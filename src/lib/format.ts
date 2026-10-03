@@ -7,12 +7,6 @@ export function formatCount(n: number | null | undefined): string {
   return INT.format(Math.trunc(n))
 }
 
-export function formatCompact(n: number | null | undefined): string {
-  if (typeof n !== 'number' || !Number.isFinite(n)) return '—'
-  if (Math.abs(n) < 1000) return String(Math.trunc(n))
-  return new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(n)
-}
-
 /** Uptime in seconds → `3d 4h 12m`. */
 export function formatUptime(seconds: number | null | undefined): string {
   if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds < 0) return '—'

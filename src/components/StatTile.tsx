@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { formatCompact, formatCount } from '../lib/format'
+import { formatCount } from '../lib/format'
 
 export function StatTile({
   label,
@@ -51,7 +51,13 @@ export function StatTile({
   return <div className={className}>{body}</div>
 }
 
-/** Compact single-number badge used inside cards. */
+/**
+ * Compact single-number badge used inside cards.
+ *
+ * Renders the **exact** count, not a compact abbreviation: a word frequency of
+ * 5.2K is useless for corpus work, and these values are all small enough to
+ * read in full — no compact abbreviation, so corpus counts stay auditable.
+ */
 export function Metric({
   label,
   value,
@@ -65,7 +71,7 @@ export function Metric({
     <div className="min-w-0 rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2">
       <p className="text-[10px] font-medium tracking-wider text-slate-500 uppercase">{label}</p>
       <p className="mt-0.5 text-lg font-semibold text-slate-100 tabular-nums">
-        {typeof value === 'number' ? formatCompact(value) : value}
+        {typeof value === 'number' ? formatCount(value) : value}
       </p>
       {hint && <p className="text-[10px] text-slate-500">{hint}</p>}
     </div>

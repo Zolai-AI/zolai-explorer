@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Activity, CircleAlert, CircleCheck, Loader2 } from 'lucide-react'
-import { HEALTH_URL, apiGet, isApiError } from '../lib/api'
+import { HEALTH_URL, apiGetAbsolute, isApiError } from '../lib/api'
 import { HealthSchema, parseOrThrow, type Health } from '../lib/schemas'
 import { formatUptime } from '../lib/format'
 
@@ -11,7 +11,7 @@ export function useHealth() {
   return useQuery({
     queryKey: ['health'],
     queryFn: async ({ signal }): Promise<Health> =>
-      parseOrThrow(HealthSchema, await apiGet<unknown>(HEALTH_URL, { signal }), 'health'),
+      parseOrThrow(HealthSchema, await apiGetAbsolute<unknown>(HEALTH_URL, { signal }), 'health'),
     staleTime: 15_000,
     refetchInterval: 30_000,
     retry: 1,

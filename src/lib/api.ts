@@ -73,6 +73,12 @@ export type ApiRequestOptions = {
   body?: unknown
   signal?: AbortSignal
   timeoutMs?: number
+  /**
+   * Use `path` verbatim instead of joining it onto `API_BASE`. Required for
+   * endpoints that live *outside* the versioned surface — `/health` is public
+   * and is served at the origin root, not at `/api/v1/health`.
+   */
+  absolute?: boolean
 }
 
 /** Absolute URL for an API path — relative paths are joined onto `API_BASE`. */
@@ -112,7 +118,7 @@ function detailFromPayload(payload: unknown): string {
 
 export async function apiFetch<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
   const { method = 'GET', body, signal, timeoutMs = REQUEST_TIMEOUT_MS } = options
-  const url = resolveUrl(path)
+  const url = options.absolute ? path : resolveUrl(path)
 
   const headers: Record<string, string> = { Accept: 'application/json' }
   const key = getApiKey()
@@ -205,6 +211,12 @@ export async function apiFetch<T>(path: string, options: ApiRequestOptions = {})
 
 export const apiGet = <T>(path: string, options: Omit<ApiRequestOptions, 'method' | 'body'> = {}) =>
   apiFetch<T>(path, { ...options, method: 'GET' })
+
+/** GET an origin-relative path without the `/api/v1` prefix (e.g. `/health`). */
+export const apiGetAbsolute = <T>(
+  path: string,
+  options: Omit<ApiRequestOptions, 'method' | 'body' | 'absolute'> = {},
+) => apiFetch<T>(path, { ...options, method: 'GET', absolute: true })
 
 export const apiPost = <T>(
   path: string,

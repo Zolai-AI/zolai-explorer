@@ -1,5 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ApiError, HEALTH_URL, REQUEST_TIMEOUT_MS, apiFetch, isApiError, resolveUrl } from './api'
+import {
+  ApiError,
+  HEALTH_URL,
+  REQUEST_TIMEOUT_MS,
+  apiFetch,
+  apiGet,
+  apiGetAbsolute,
+  isApiError,
+  resolveUrl,
+} from './api'
 import { API_KEY_STORAGE_KEY, __setStorageForTests } from './key'
 import type { StorageLike } from './key'
 
@@ -236,5 +245,24 @@ describe('url resolution', () => {
   it('keeps /health outside the /api/v1 prefix', () => {
     expect(HEALTH_URL.endsWith('/health')).toBe(true)
     expect(HEALTH_URL).not.toContain('/api/v1')
+  })
+
+  it('fetches /health verbatim, not as /api/v1/health', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ status: 'ok', uptime_s: 5 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    // Regression guard: /health lives at the origin root, outside /api/v1.
+    await apiGetAbsolute(HEALTH_URL)
+
+    expect(lastCall(fetchMock)[0]).toBe('/health')
+  })
+
+  it('still prefixes ordinary paths onto the API base', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ ok: true }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await apiGet('/knowledge/version')
+
+    expect(lastCall(fetchMock)[0]).toBe('/api/v1/knowledge/version')
   })
 })

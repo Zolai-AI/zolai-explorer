@@ -22,7 +22,7 @@ bun run dev        # http://localhost:5173/explorer/  (proxies /api + /health up
 | `bun run dev` | Vite dev server with `/api` + `/health` proxied to `https://api.zolai.space` |
 | `bun run build` | `tsc -b` then `vite build` → `dist/` |
 | `bun run typecheck` | Type check only (`tsc -b --force`) |
-| `bun run test` | Vitest suite (51 tests) |
+| `bun run test` | Vitest suite (53 tests) |
 | `bun run deploy` | `vite build` + rsync to pcore-server + `nginx -t` + reload |
 
 Requires **bun** (1.4.1+). Never npm/yarn — this is a workspace-wide convention.
@@ -128,13 +128,13 @@ The same list is rendered as cards on `/links` under "Known API gaps".
 bun run test
 ```
 
-51 Vitest specs across three files:
+53 Vitest specs across three files:
 
 - `src/lib/api.test.ts` — 401 → `ApiError` with `needsKey`; 15s timeout budget and abort →
   `timeout` / `aborted` distinction; transport failure → `network`; **empty body tolerated** instead
   of `JSON.parse('')`; malformed JSON → `parse`; FastAPI 422 envelope flattened to one line;
-  `X-API-Key` header present only when a key is stored and never in the URL; URL resolution keeps
-  `/health` outside `/api/v1`.
+  `X-API-Key` header present only when a key is stored and never in the URL; **`/health` fetched
+  verbatim, not as `/api/v1/health`** (regression guard for `apiGetAbsolute`).
 - `src/lib/key.test.ts` — **key store round-trip** (set → get → clear), the `zolai.apiKey` storage
   key, whitespace trimming, blank-as-absent, subscribe/unsubscribe, masking that never reveals the
   middle of a key.
