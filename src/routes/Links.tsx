@@ -55,8 +55,8 @@ const GAPS = [
     body: 'Most entries have no morphology rows; those sections collapse to a "not populated" note rather than a broken panel.',
   },
   {
-    title: '/api/v1/review/stats is not usable',
-    body: 'It answers 422 on this deployment, so this page links at the server-rendered /review/ page instead.',
+    title: '/api/v1/review/stats is not registered',
+    body: 'It answers 200 {"error":"Not found"} — the path does not exist on the versioned surface. The unversioned /review/stats instead 422s, because /review/{item_id} swallows "stats". This page links at the server-rendered /review/ instead.',
   },
   {
     title: 'Authentication is in warn mode',

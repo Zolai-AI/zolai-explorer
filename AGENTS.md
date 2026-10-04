@@ -5,8 +5,8 @@ Working rules for this repo. Read this before changing code.
 ## What this is
 
 A **read-only studio** over the deployed Zolai Core API. It ships a static Vite bundle that nginx
-serves from disk at `https://api.zolai.space/explorer/`. There is no backend of our own — every
-piece of data comes from `https://api.zolai.space` at runtime.
+serves from disk on its own host at `https://studio.zolai.space/`. There is no backend of our own —
+every piece of data comes from `https://api.zolai.space` at runtime, cross-origin.
 
 **Never invent data.** If the API does not return a field, the UI says so. There is no mock layer
 and no fixture fallback in the app code (test payloads live only in `*.test.ts`, and they are
@@ -22,10 +22,14 @@ verbatim captures from the live API).
    inside the workspace; the root `AGENTS.md` forbids cross-repo drift.
 3. **Do not change the API surface to suit the UI.** Endpoint shapes are fixed by the deployed
    server. If a field is missing or empty, render an honest empty state.
-4. **Do not touch the API's `location /`.** nginx must keep proxying `/` to `127.0.0.1:8001`. The
-   SPA only ever lives under `/explorer/`. Always run `sudo nginx -t` **before** any reload.
+4. **The studio lives on its own host.** `vite.config.ts` has `base: '/'`, nginx serves
+   `/var/www/zolai-studio` under `server_name studio.zolai.space`, and `api.zolai.space` only
+   301-redirects `/explorer*` here. Never re-embed the SPA in the API vhost, never change
+   `location /` there (it proxies to `127.0.0.1:8001`), and never put a key in `.env.production` —
+   it is committed and inlined into the public bundle.
 5. **Keep `/health` outside `/api/v1`.** It is public and key-free; the shell and dashboard must
-   render with no key at all.
+   render with no key at all. `API_ORIGIN` + `/health` is what makes that work cross-origin — never
+   build it as `API_BASE + '/health'`.
 
 ## Honesty rules (this is the whole point of the app)
 
@@ -36,7 +40,8 @@ verbatim captures from the live API).
 - `sentence_frequency` is always `0` → render `—`.
 - Empty `forms` / `morphology` / `grammar_usage` → collapse with an explanatory `Empty`, never a
   blank or half-rendered panel.
-- `/api/v1/review/stats` returns 422 → link to `/review/` instead.
+- `/api/v1/review/stats` is not registered (`200 {"error":"Not found"}`); the unversioned
+  `/review/stats` 422s because `/review/{item_id}` matches `stats`. Link to `/review/` instead.
 
 If any of these change upstream, update the gap list in `src/routes/Links.tsx` **and** the matching
 panel in the same commit.
@@ -66,27 +71,29 @@ panel in the same commit.
 
 ```bash
 bun run typecheck    # tsc -b --force
-bun run test         # 51 vitest specs
+bun run test         # 58 vitest specs
 bun run build        # must be warning-free
 ```
 
 After any deploy:
 
 ```bash
-curl -sI https://api.zolai.space/explorer/            | head -1   # 200
-curl -sI https://api.zolai.space/explorer/word/pasian | head -1   # 200 (SPA fallback)
-curl -sI https://api.zolai.space/health               | head -1   # 200 (no regression)
+curl -sI https://studio.zolai.space/            | head -1   # 200
+curl -sI https://studio.zolai.space/word/pasian | head -1   # 200 (SPA fallback)
+curl -sI https://api.zolai.space/health         | head -1   # 200 (no regression)
 ssh pcore-server 'sudo -n nginx -t'
 ```
 
 ## Deploy mechanics
 
-- `scripts/deploy.sh` (wrapped by `bun run deploy`) builds, rsyncs to
-  `pcore-server:/var/www/zolai-explorer/explorer/`, runs `nginx -t`, then reloads. It **does not**
-  edit the nginx config — the snippet in `deploy/nginx/zolai-explorer.conf` is installed by hand.
-- The `explorer/` subdirectory is required: nginx concatenates `root` with the whole `$uri`, so
-  `/explorer/index.html` resolves to `/var/www/zolai-explorer/explorer/index.html`.
-- A backup of the vhost is taken before any config edit.
+- `scripts/deploy.sh` (wrapped by `bun run deploy`) builds, rsyncs `dist/` to
+  `pcore-server:/var/www/zolai-studio`, runs `nginx -t`, then reloads. It **does not** edit the
+  nginx config — the vhost `/etc/nginx/sites-available/zolai-studio` is installed by hand, and its
+  reference copy lives in `deploy/nginx/zolai-explorer.conf`.
+- `--delete` is guarded: the script aborts unless the remote dir ends in `/zolai-studio`.
+- The build must carry an absolute `VITE_API_BASE` (`.env.production`, committed). The script greps
+  the bundle for it and for the absence of `/api/v1/health` before shipping.
+- Back up a vhost before any manual config edit.
 
 ## Context
 

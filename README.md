@@ -1,8 +1,9 @@
 # Zolai Explorer
 
 A **studio workbench** for the live [Zolai Core](https://github.com/Zolai-AI/zolai-core) API — a
-React + Vite + TypeScript + TanStack Query app served alongside the API at
-**<https://api.zolai.space/explorer/>**.
+React + Vite + TypeScript + TanStack Query app served on its own host at
+**<https://studio.zolai.space/>**. It reads the API cross-origin at `https://api.zolai.space`
+(`/explorer*` on that host 301-redirects here).
 
 It is a workbench, not a set of bare JSON forms: every panel renders semantic cards, tables and
 grids, collapses the sections the API has not populated yet, and labels the RAG placeholder answer
@@ -14,7 +15,7 @@ for what it is. The exact payload stays one click away in a collapsible **raw JS
 
 ```bash
 bun install
-bun run dev        # http://localhost:5173/explorer/  (proxies /api + /health upstream)
+bun run dev        # http://localhost:5173/  (proxies /api + /health upstream)
 ```
 
 | Script | What it does |
@@ -22,20 +23,31 @@ bun run dev        # http://localhost:5173/explorer/  (proxies /api + /health up
 | `bun run dev` | Vite dev server with `/api` + `/health` proxied to `https://api.zolai.space` |
 | `bun run build` | `tsc -b` then `vite build` → `dist/` |
 | `bun run typecheck` | Type check only (`tsc -b --force`) |
-| `bun run test` | Vitest suite (53 tests) |
-| `bun run deploy` | `vite build` + rsync to pcore-server + `nginx -t` + reload |
+| `bun run test` | Vitest suite (58 tests) |
+| `bun run deploy` | `vite build` + rsync to `pcore-server:/var/www/zolai-studio` + `nginx -t` + reload |
 
 Requires **bun** (1.4.1+). Never npm/yarn — this is a workspace-wide convention.
 
 ## Environment
 
-Copy `.env.example` to `.env.local`. You do **not** need to set anything for the app to run against
-the production API.
+Copy `.env.example` to `.env.local` for local overrides. You do **not** need to set anything for the
+app to run against the production API.
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `VITE_API_BASE` | `/api/v1` | Versioned API surface. Relative by default, so production is same-origin. Set an absolute URL when hosting elsewhere. |
+| `VITE_API_BASE` | `/api/v1` | Versioned API surface. Relative by default, so the dev server (which proxies `/api` + `/health`) stays same-origin. |
 | `ZOLAI_UPSTREAM` | `https://api.zolai.space` | Dev-proxy target only. |
+
+Because the deployed studio is a **different origin** from the API, the production build pins an
+absolute base in [`.env.production`](.env.production) (committed, no credential in it):
+
+```
+VITE_API_BASE=https://api.zolai.space/api/v1
+```
+
+That is what makes `HEALTH_URL` resolve to `https://api.zolai.space/health` — derived from the API
+**origin**, never `API_BASE + '/health'` (`/api/v1/health` does not exist). `scripts/deploy.sh`
+greps the built bundle for both invariants before shipping it.
 
 ## The API key
 
@@ -66,14 +78,15 @@ storage backend so the round-trip is unit tested without jsdom.
 | `/data` | Full collection table, knowledge version, health | `/knowledge/statistics`, `/knowledge/version`, `/health` |
 | `/links` | Endpoint reference, server-rendered links, known gaps | — |
 
-`/explorer/word/pasian` and every other route deep-link and survive a browser refresh (SPA fallback).
+`/word/pasian` and every other route deep-link and survive a browser refresh (SPA fallback:
+`try_files $uri $uri/ /index.html`).
 
 ## Architecture
 
 ```
 src/
   main.tsx                 entry: StrictMode + createRoot
-  App.tsx                  QueryClientProvider + BrowserRouter(basename=/explorer/)
+  App.tsx                  QueryClientProvider + BrowserRouter(basename=import.meta.env.BASE_URL)
   index.css                Tailwind 4 import + design tokens
   lib/
     api.ts                 typed fetch: X-API-Key, 15s AbortController timeout,
@@ -115,8 +128,9 @@ The app is explicit about the deployment's real capabilities, so a panel is neve
   the rest is a labelled placeholder with the server's own note.
 - **`sentence_frequency` is always 0** → shown as `—`.
 - **`morphology` and `forms` are usually empty** → collapsed with a pointer to the Forms tab.
-- **`/api/v1/review/stats` answers 422** → the Links panel links to the server-rendered `/review/`
-  instead.
+- **`/api/v1/review/stats` is not registered** — it answers `200 {"error":"Not found"}`. The
+  unversioned `/review/stats` 422s instead, because `/review/{item_id}` swallows `stats`. The Links
+  panel links to the server-rendered `/review/` instead.
 - **Auth is in `warn` mode** → unauthenticated requests are accepted today; the API may flip to
   `enforce`. Add a key to be ready.
 
@@ -128,13 +142,15 @@ The same list is rendered as cards on `/links` under "Known API gaps".
 bun run test
 ```
 
-53 Vitest specs across three files:
+58 Vitest specs across three files:
 
 - `src/lib/api.test.ts` — 401 → `ApiError` with `needsKey`; 15s timeout budget and abort →
   `timeout` / `aborted` distinction; transport failure → `network`; **empty body tolerated** instead
   of `JSON.parse('')`; malformed JSON → `parse`; FastAPI 422 envelope flattened to one line;
   `X-API-Key` header present only when a key is stored and never in the URL; **`/health` fetched
-  verbatim, not as `/api/v1/health`** (regression guard for `apiGetAbsolute`).
+  verbatim, not as `/api/v1/health`** (regression guard for `apiGetAbsolute`) — both for the
+  relative dev default and for the **absolute production base**, where
+  `HEALTH_URL === 'https://api.zolai.space/health'` exactly.
 - `src/lib/key.test.ts` — **key store round-trip** (set → get → clear), the `zolai.apiKey` storage
   key, whitespace trimming, blank-as-absent, subscribe/unsubscribe, masking that never reveals the
   middle of a key.
@@ -143,43 +159,35 @@ bun run test
 
 ## Deploy
 
-The SPA is served from disk by nginx, under its own prefix, with no impact on the FastAPI surface.
+The SPA is served from disk by nginx on its **own host**, `studio.zolai.space`, so nothing in the
+API vhost (`location /` → `127.0.0.1:8001`) can be affected by a deploy.
 
 ```
-vite build  →  dist/
-rsync -az --delete dist/  →  pcore-server:/var/www/zolai-explorer/explorer/
-nginx -t && systemctl reload nginx
+vite build  →  dist/                       # VITE_API_BASE from .env.production
+rsync -az --delete dist/  →  pcore-server:/var/www/zolai-studio/
+nginx -t && systemctl reload nginx         # safety check only — no config is edited
 ```
 
-nginx (`/etc/nginx/sites-available/zolai-api`, TLS server block), **above** `location /`:
+nginx (`/etc/nginx/sites-available/zolai-studio`, TLS server block, already installed):
 
 ```nginx
-location = /explorer { return 301 /explorer/; }
+server_name studio.zolai.space;
 
-location /explorer/ {
-    root /var/www/zolai-explorer;
-    try_files $uri $uri/ /explorer/index.html;
-}
+root /var/www/zolai-studio;
+index index.html;
 
-location /explorer/assets/ {
-    root /var/www/zolai-explorer;
-    try_files $uri =404;
-    add_header Cache-Control "public,max-age=31536000,immutable";
-}
-
-location = /explorer/index.html {
-    root /var/www/zolai-explorer;
-    try_files $uri =404;
-    add_header Cache-Control "no-cache";
-}
+location / { try_files $uri $uri/ /index.html; }            # SPA fallback
+location /assets/ { add_header Cache-Control "public,max-age=31536000,immutable"; }
+location = /index.html { add_header Cache-Control "no-cache"; }
 ```
 
-The canonical snippet lives at [`deploy/nginx/zolai-explorer.conf`](deploy/nginx/zolai-explorer.conf).
+The reference copy lives at
+[`deploy/nginx/zolai-explorer.conf`](deploy/nginx/zolai-explorer.conf). `scripts/deploy.sh` never
+edits it — it rsyncs the bundle, validates with `nginx -t`, and reloads. Its `--delete` is guarded:
+the script aborts unless the remote directory ends in `/zolai-studio`.
 
-**Note on the subdirectory.** With `root /var/www/zolai-explorer`, a request for
-`/explorer/index.html` resolves to `/var/www/zolai-explorer/explorer/index.html` — nginx
-concatenates `root` with the full `$uri`. The bundle therefore deploys one level down into
-`explorer/`; dropping `dist/` directly into `/var/www/zolai-explorer` would 404.
+On the API host, `/explorer*` 301-redirects to `https://studio.zolai.space/*` (prefix stripped), so
+old links and bookmarks keep working. CORS on `api.zolai.space` allows `studio.zolai.space`.
 
 ## Stack
 

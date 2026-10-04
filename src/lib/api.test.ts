@@ -266,3 +266,64 @@ describe('url resolution', () => {
     expect(lastCall(fetchMock)[0]).toBe('/api/v1/knowledge/version')
   })
 })
+
+// The deployed studio is cross-origin from the API, so production builds pin an
+// absolute VITE_API_BASE (see `.env.production`). These guards pin the derived
+// origin-root URLs for that configuration.
+describe('url resolution — absolute API base', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    vi.resetModules()
+  })
+
+  /** Re-import `./api` with a stubbed `VITE_API_BASE` — the URLs are import-time. */
+  async function loadWithBase(base: string) {
+    vi.stubEnv('VITE_API_BASE', base)
+    vi.resetModules()
+    return import('./api')
+  }
+
+  it('resolves /health against the API origin, never under /api/v1', async () => {
+    const mod = await loadWithBase('https://api.zolai.space/api/v1')
+
+    expect(mod.API_ORIGIN).toBe('https://api.zolai.space')
+    expect(mod.HEALTH_URL).toBe('https://api.zolai.space/health')
+    expect(mod.HEALTH_URL).not.toContain('/api/v1')
+  })
+
+  it('fetches the absolute /health URL verbatim', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ status: 'ok', uptime_s: 5 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const mod = await loadWithBase('https://api.zolai.space/api/v1')
+
+    await mod.apiGetAbsolute(mod.HEALTH_URL)
+
+    // Regression guard: origin + /health, not origin + /api/v1/health.
+    expect(lastCall(fetchMock)[0]).toBe('https://api.zolai.space/health')
+  })
+
+  it('still joins versioned paths onto the absolute base', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ ok: true }))
+    vi.stubGlobal('fetch', fetchMock)
+    const mod = await loadWithBase('https://api.zolai.space/api/v1')
+
+    await mod.apiGet('/word/pasian')
+
+    expect(lastCall(fetchMock)[0]).toBe('https://api.zolai.space/api/v1/word/pasian')
+  })
+
+  it('derives link-out URLs from the absolute origin', async () => {
+    const mod = await loadWithBase('https://api.zolai.space/api/v1')
+
+    expect(mod.DOCS_URL).toBe('https://api.zolai.space/docs')
+    expect(mod.METRICS_URL).toBe('https://api.zolai.space/metrics')
+    expect(mod.REVIEW_URL).toBe('https://api.zolai.space/review/')
+  })
+
+  it('strips a trailing slash from the configured base', async () => {
+    const mod = await loadWithBase('https://api.zolai.space/api/v1/')
+
+    expect(mod.API_BASE).toBe('https://api.zolai.space/api/v1')
+    expect(mod.HEALTH_URL).toBe('https://api.zolai.space/health')
+  })
+})

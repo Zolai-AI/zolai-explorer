@@ -5,14 +5,18 @@ import tailwindcss from '@tailwindcss/vite'
 /**
  * Zolai Explorer — Studio workbench for the live Zolai Core API.
  *
- * `base: '/explorer/'` serves the SPA from https://api.zolai.space/explorer/
- * alongside the FastAPI surface. Dev requests for `/api/*` and `/health` are
- * proxied to the same origin so local dev and production behave identically.
+ * `base: '/'` serves the SPA from its own host, https://studio.zolai.space/,
+ * where nginx owns `root /var/www/zolai-studio` and falls back to /index.html.
+ * The bundle is therefore cross-origin from the API, so production builds pin
+ * an absolute `VITE_API_BASE` (see `.env.production`).
+ *
+ * Dev requests for `/api/*` and `/health` are proxied to the API host, so the
+ * relative default in `src/lib/api.ts` keeps local dev same-origin.
  */
 const UPSTREAM = process.env.ZOLAI_UPSTREAM ?? 'https://api.zolai.space'
 
 export default defineConfig({
-  base: '/explorer/',
+  base: '/',
   plugins: [react(), tailwindcss()],
   build: {
     outDir: 'dist',
