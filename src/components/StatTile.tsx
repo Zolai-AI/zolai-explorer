@@ -1,7 +1,16 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import { Card, CardContent, CardHeader } from './ui/card'
 import { formatCount } from '../lib/format'
+import { cn } from '../lib/utils'
 
+/**
+ * Dashboard / Data-page stat tile — a shadcn `<Card>`.
+ *
+ * When `to` is set the whole tile is a router link, so the card is wrapped in a
+ * `<Link>` rather than nesting an anchor inside the card body (nested
+ * interactive elements are an accessibility problem).
+ */
 export function StatTile({
   label,
   value,
@@ -17,38 +26,46 @@ export function StatTile({
   to?: string
   accent?: boolean
 }) {
-  const numeric = typeof value === 'number'
   const body = (
     <>
-      <div className="flex items-start justify-between gap-2">
-        <p className="text-xs font-medium tracking-wide text-slate-400 uppercase">{label}</p>
-        {icon && <span className={accent ? 'text-emerald-400' : 'text-slate-600'}>{icon}</span>}
-      </div>
-      <p
-        className={`mt-2 text-2xl font-semibold tracking-tight tabular-nums ${
-          accent ? 'text-emerald-300' : 'text-slate-50'
-        }`}
-      >
-        {numeric ? formatCount(value) : value}
-      </p>
-      {hint && <p className="mt-1 text-xs text-slate-500">{hint}</p>}
+      <CardHeader>
+        {/* Label and icon share one row — CardHeader itself stacks by default. */}
+        <div className="flex items-start justify-between gap-2">
+          <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+            {label}
+          </p>
+          {icon && (
+            <span className={accent ? 'text-primary' : 'text-muted-foreground/70'}>{icon}</span>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent>
+        <p
+          className={cn(
+            'text-2xl font-semibold tracking-tight tabular-nums',
+            accent ? 'text-primary' : 'text-foreground',
+          )}
+        >
+          {typeof value === 'number' ? formatCount(value) : value}
+        </p>
+        {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
+      </CardContent>
     </>
   )
 
-  const className = `block rounded-xl border p-4 transition ${
-    accent
-      ? 'border-emerald-500/25 bg-emerald-500/5 hover:bg-emerald-500/10'
-      : 'border-slate-800 bg-slate-900/60 hover:bg-slate-900'
-  }`
+  const className = cn(
+    'transition',
+    accent ? 'border-primary/25 bg-primary/5 hover:bg-primary/10' : 'hover:bg-muted/60',
+  )
 
   if (to) {
     return (
-      <Link to={to} className={`${className} focus-visible:ring-2`}>
-        {body}
+      <Link to={to} className={cn('block rounded-xl', className)}>
+        <Card className={className}>{body}</Card>
       </Link>
     )
   }
-  return <div className={className}>{body}</div>
+  return <Card className={className}>{body}</Card>
 }
 
 /**
@@ -68,12 +85,12 @@ export function Metric({
   hint?: string
 }) {
   return (
-    <div className="min-w-0 rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2">
-      <p className="text-[10px] font-medium tracking-wider text-slate-500 uppercase">{label}</p>
-      <p className="mt-0.5 text-lg font-semibold text-slate-100 tabular-nums">
+    <div className="min-w-0 rounded-lg border border-border bg-muted/40 px-3 py-2">
+      <p className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase">{label}</p>
+      <p className="mt-0.5 text-lg font-semibold text-foreground tabular-nums">
         {typeof value === 'number' ? formatCount(value) : value}
       </p>
-      {hint && <p className="text-[10px] text-slate-500">{hint}</p>}
+      {hint && <p className="text-[10px] text-muted-foreground">{hint}</p>}
     </div>
   )
 }

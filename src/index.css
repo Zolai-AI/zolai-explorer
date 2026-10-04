@@ -1,16 +1,36 @@
 /*
- * Tailwind 4 without `source(none)` auto-detects every non-ignored file in the
- * project, including the Markdown docs — where prose words like "static" were
- * being emitted as real utilities. Scanning only the TS/TSX sources keeps the
- * bundle deterministic and stops documentation from changing build hashes.
+ * Zolai Explorer — global styles.
+ *
+ * Structure (this file is generated/extended by `shadcn` and must stay in the
+ * shadcn shape so future `bunx shadcn@latest add` runs keep working):
+ *   1. Tailwind 4, scanning only the TS/TSX sources. Without `source(none)`
+ *      Tailwind auto-detects every non-ignored file in the project — including
+ *      the Markdown docs, where prose words like "static" were being emitted as
+ *      real utilities. Restricting the scan keeps the bundle deterministic and
+ *      stops documentation from changing build hashes.
+ *   2. shadcn/ui runtime CSS: `tw-animate-css` (keyframes) + `shadcn/tailwind.css`
+ *      (`scroll-fade-*` scroll affordances used by DataTable) + the Geist font.
+ *   3. Design tokens: `@theme inline` maps the CSS variables below onto Tailwind
+ *      utilities (`bg-background`, `text-muted-foreground`, `border-border`, …).
+ *   4. `:root` = light tokens, `.dark` = dark tokens. shadcn's class strategy —
+ *      `src/lib/theme.ts` toggles `.dark` on `<html>`; the blocking script in
+ *      `index.html` does it before first paint so there is no flash.
+ *
+ * Only `--primary*` and `--ring*` are customised: the app keeps the emerald
+ * brand accent from the previous hand-rolled palette. Everything else is the
+ * stock neutral shadcn token set.
  */
+
 @import 'tailwindcss' source(none);
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+@import '@fontsource-variable/geist';
+
+@custom-variant dark (&:is(.dark *));
+
 @source './**/*.{ts,tsx}';
 
 @theme {
-  --font-sans:
-    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
-    'Noto Sans', sans-serif;
   --font-mono:
     ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
 }
@@ -23,19 +43,23 @@
   }
 
   body {
-    @apply bg-slate-950 text-slate-200 antialiased;
-    font-family: var(--font-sans);
+    @apply bg-background text-foreground antialiased;
   }
 
   :focus-visible {
-    @apply outline-2 outline-offset-2 outline-emerald-400;
+    @apply outline-ring outline-2 outline-offset-2;
+  }
+
+  * {
+    @apply border-border;
   }
 }
 
+/* Thin, theme-aware scrollbar for the panels that scroll internally. */
 @layer utilities {
   .scrollbar-thin {
     scrollbar-width: thin;
-    scrollbar-color: var(--color-slate-700) transparent;
+    scrollbar-color: var(--border) transparent;
   }
 
   .scrollbar-thin::-webkit-scrollbar {
@@ -44,26 +68,235 @@
   }
 
   .scrollbar-thin::-webkit-scrollbar-thumb {
-    @apply rounded-full bg-slate-700;
+    @apply rounded-full bg-border;
   }
 }
 
-@keyframes zolai-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.45;
-  }
+/* `cn-font-heading` is emitted by the shadcn card registry item. */
+@utility cn-font-heading {
+  font-family: var(--font-heading);
 }
 
-.animate-pulse-soft {
-  animation: zolai-pulse 1.6s ease-in-out infinite;
+/*
+ ---break---
+ */
+@theme inline {
+  --font-heading:
+    var(--font-sans);
+  --font-sans:
+    'Geist Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --color-sidebar-ring:
+    var(--sidebar-ring);
+  --color-sidebar-border:
+    var(--sidebar-border);
+  --color-sidebar-accent-foreground:
+    var(--sidebar-accent-foreground);
+  --color-sidebar-accent:
+    var(--sidebar-accent);
+  --color-sidebar-primary-foreground:
+    var(--sidebar-primary-foreground);
+  --color-sidebar-primary:
+    var(--sidebar-primary);
+  --color-sidebar-foreground:
+    var(--sidebar-foreground);
+  --color-sidebar:
+    var(--sidebar);
+  --color-chart-5:
+    var(--chart-5);
+  --color-chart-4:
+    var(--chart-4);
+  --color-chart-3:
+    var(--chart-3);
+  --color-chart-2:
+    var(--chart-2);
+  --color-chart-1:
+    var(--chart-1);
+  --color-ring:
+    var(--ring);
+  --color-input:
+    var(--input);
+  --color-border:
+    var(--border);
+  --color-destructive:
+    var(--destructive);
+  --color-accent-foreground:
+    var(--accent-foreground);
+  --color-accent:
+    var(--accent);
+  --color-muted-foreground:
+    var(--muted-foreground);
+  --color-muted:
+    var(--muted);
+  --color-secondary-foreground:
+    var(--secondary-foreground);
+  --color-secondary:
+    var(--secondary);
+  --color-primary-foreground:
+    var(--primary-foreground);
+  --color-primary:
+    var(--primary);
+  --color-popover-foreground:
+    var(--popover-foreground);
+  --color-popover:
+    var(--popover);
+  --color-card-foreground:
+    var(--card-foreground);
+  --color-card:
+    var(--card);
+  --color-foreground:
+    var(--foreground);
+  --color-background:
+    var(--background);
+  --radius-sm:
+    calc(var(--radius) * 0.6);
+  --radius-md:
+    calc(var(--radius) * 0.8);
+  --radius-lg:
+    var(--radius);
+  --radius-xl:
+    calc(var(--radius) * 1.4);
+  --radius-2xl:
+    calc(var(--radius) * 1.8);
+  --radius-3xl:
+    calc(var(--radius) * 2.2);
+  --radius-4xl:
+    calc(var(--radius) * 2.6);
 }
-
-@media (prefers-reduced-motion: reduce) {
-  .animate-pulse-soft {
-    animation: none;
-  }
+/*
+ ---break---
+ */
+:root {
+  --background:
+    oklch(1 0 0);
+  --foreground:
+    oklch(0.145 0 0);
+  --card:
+    oklch(1 0 0);
+  --card-foreground:
+    oklch(0.145 0 0);
+  --popover:
+    oklch(1 0 0);
+  --popover-foreground:
+    oklch(0.145 0 0);
+  /* Brand accent: emerald-700 on white (≈5.3:1 against --primary-foreground). */
+  --primary:
+    oklch(0.508 0.131 163.224);
+  --primary-foreground:
+    oklch(0.985 0 0);
+  --secondary:
+    oklch(0.97 0 0);
+  --secondary-foreground:
+    oklch(0.205 0 0);
+  --muted:
+    oklch(0.97 0 0);
+  --muted-foreground:
+    oklch(0.556 0 0);
+  --accent:
+    oklch(0.97 0 0);
+  --accent-foreground:
+    oklch(0.205 0 0);
+  --destructive:
+    oklch(0.577 0.245 27.325);
+  --border:
+    oklch(0.922 0 0);
+  --input:
+    oklch(0.922 0 0);
+  --ring:
+    oklch(0.596 0.145 163.225);
+  --chart-1:
+    oklch(0.87 0 0);
+  --chart-2:
+    oklch(0.556 0 0);
+  --chart-3:
+    oklch(0.439 0 0);
+  --chart-4:
+    oklch(0.371 0 0);
+  --chart-5:
+    oklch(0.269 0 0);
+  --radius:
+    0.625rem;
+  --sidebar:
+    oklch(0.985 0 0);
+  --sidebar-foreground:
+    oklch(0.145 0 0);
+  --sidebar-primary:
+    oklch(0.508 0.131 163.224);
+  --sidebar-primary-foreground:
+    oklch(0.985 0 0);
+  --sidebar-accent:
+    oklch(0.97 0 0);
+  --sidebar-accent-foreground:
+    oklch(0.205 0 0);
+  --sidebar-border:
+    oklch(0.922 0 0);
+  --sidebar-ring:
+    oklch(0.708 0 0);
+}
+/*
+ ---break---
+ */
+.dark {
+  --background:
+    oklch(0.145 0 0);
+  --foreground:
+    oklch(0.985 0 0);
+  --card:
+    oklch(0.205 0 0);
+  --card-foreground:
+    oklch(0.985 0 0);
+  --popover:
+    oklch(0.205 0 0);
+  --popover-foreground:
+    oklch(0.985 0 0);
+  /* Brand accent: emerald-400 on near-black, with a dark green foreground. */
+  --primary:
+    oklch(0.765 0.177 163.223);
+  --primary-foreground:
+    oklch(0.205 0.05 163);
+  --secondary:
+    oklch(0.269 0 0);
+  --secondary-foreground:
+    oklch(0.985 0 0);
+  --muted:
+    oklch(0.269 0 0);
+  --muted-foreground:
+    oklch(0.708 0 0);
+  --accent:
+    oklch(0.269 0 0);
+  --accent-foreground:
+    oklch(0.985 0 0);
+  --destructive:
+    oklch(0.704 0.191 22.216);
+  --border:
+    oklch(1 0 0 / 10%);
+  --input:
+    oklch(1 0 0 / 15%);
+  --ring:
+    oklch(0.765 0.177 163.223);
+  --chart-1:
+    oklch(0.87 0 0);
+  --chart-2:
+    oklch(0.556 0 0);
+  --chart-3:
+    oklch(0.439 0 0);
+  --chart-4:
+    oklch(0.371 0 0);
+  --chart-5:
+    oklch(0.269 0 0);
+  --sidebar:
+    oklch(0.205 0 0);
+  --sidebar-foreground:
+    oklch(0.985 0 0);
+  --sidebar-primary:
+    oklch(0.765 0.177 163.223);
+  --sidebar-primary-foreground:
+    oklch(0.205 0.05 163);
+  --sidebar-accent:
+    oklch(0.269 0 0);
+  --sidebar-accent-foreground:
+    oklch(0.985 0 0);
+  --sidebar-border:
+    oklch(1 0 0 / 10%);
+  --sidebar-ring:
+    oklch(0.556 0 0);
 }

@@ -1,7 +1,24 @@
 import type { ReactNode } from 'react'
+import {
+  Card as ShadcnCard,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from './ui/card'
+import { cn } from '../lib/utils'
 
 export type CardTone = 'default' | 'muted' | 'accent'
 
+/**
+ * Every panel in the app is a shadcn `<Card>`.
+ *
+ * The `title` / `subtitle` / `actions` shorthand is kept because all eight
+ * routes use it, but the markup underneath is `CardHeader` / `CardTitle` /
+ * `CardDescription` / `CardAction` / `CardContent` — compose with those directly
+ * when a panel needs a bespoke header (see `CardFooter`).
+ */
 export function Card({
   title,
   subtitle,
@@ -19,31 +36,34 @@ export function Card({
   className?: string
   bodyClassName?: string
 }) {
-  const toneClass =
-    tone === 'accent'
-      ? 'border-emerald-500/30 bg-emerald-500/5'
-      : tone === 'muted'
-        ? 'border-slate-800 bg-slate-900/40'
-        : 'border-slate-800 bg-slate-900/60'
-
   return (
-    <section
-      className={`flex min-w-0 flex-col overflow-hidden rounded-xl border backdrop-blur-sm ${toneClass} ${className}`}
+    <ShadcnCard
+      className={cn(
+        'min-w-0',
+        tone === 'accent' && 'border-primary/30 bg-primary/5',
+        tone === 'muted' && 'bg-muted/40',
+        className,
+      )}
     >
       {(title || actions || subtitle) && (
-        <header className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 px-4 py-3">
+        <CardHeader className="border-b">
           <div className="min-w-0">
-            {title && (
-              <h2 className="truncate text-sm font-semibold tracking-tight text-slate-100">
-                {title}
-              </h2>
-            )}
-            {subtitle && <p className="mt-0.5 text-xs text-slate-400">{subtitle}</p>}
+            {title && <CardTitle className="truncate">{title}</CardTitle>}
+            {subtitle && <CardDescription>{subtitle}</CardDescription>}
           </div>
-          {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
-        </header>
+          {actions && <CardAction>{actions}</CardAction>}
+        </CardHeader>
       )}
-      <div className={`min-w-0 flex-1 px-4 py-4 ${bodyClassName}`}>{children}</div>
-    </section>
+      <CardContent className={cn('min-w-0', bodyClassName)}>{children}</CardContent>
+    </ShadcnCard>
   )
 }
+
+export {
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from './ui/card'

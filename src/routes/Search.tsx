@@ -1,13 +1,27 @@
 import { useState, type FormEvent } from 'react'
 import { Database, Search as SearchIcon, SlidersHorizontal } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { toast } from 'sonner'
 import { useSearch } from '../features/analyze/api'
 import { Card } from '../components/Card'
 import { Empty } from '../components/Empty'
 import { ErrorState } from '../components/ErrorState'
 import { RawJson } from '../components/RawJson'
+import { Skeleton } from '../components/Skeleton'
+import { Badge } from '../components/ui/badge'
+import { Button } from '../components/ui/button'
+import { Input } from '../components/ui/input'
+import { Label } from '../components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select'
 import { formatScore } from '../lib/format'
 import type { SearchHit } from '../lib/schemas'
+import { cn } from '../lib/utils'
 
 const LIMIT_CHOICES = [5, 10, 25, 50]
 
@@ -19,21 +33,30 @@ function splitId(id: string): { source: string; ref: string } {
 }
 
 function sourceTone(source: string): string {
-  if (source.startsWith('bible')) return 'bg-emerald-500/10 text-emerald-300 ring-emerald-500/20'
-  if (source.startsWith('dict')) return 'bg-sky-500/10 text-sky-300 ring-sky-500/20'
-  if (source.startsWith('vocab')) return 'bg-amber-500/10 text-amber-300 ring-amber-500/20'
-  return 'bg-slate-800 text-slate-300 ring-slate-700'
+  if (source.startsWith('bible')) return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+  if (source.startsWith('dict')) return 'border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300'
+  if (source.startsWith('vocab')) return 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300'
+  return 'bg-muted text-foreground'
 }
 
 export function Search() {
   const [query, setQuery] = useState('pasian')
-  const [limit, setLimit] = useState(10)
+  const [limit, setLimit] = useState('10')
   const search = useSearch()
 
   const submit = (event: FormEvent) => {
     event.preventDefault()
     const clean = query.trim()
-    if (clean) search.mutate({ query: clean, limit })
+    if (!clean) return
+    search.mutate(
+      { query: clean, limit: Number(limit) },
+      {
+        onError: (error: unknown) =>
+          toast.error('Search failed', {
+            description: error instanceof Error ? error.message : String(error),
+          }),
+      },
+    )
   }
 
   const results = search.data?.results ?? []
@@ -45,11 +68,11 @@ export function Search() {
   return (
     <div className="flex flex-col gap-5">
       <header>
-        <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight text-slate-50">
-          <SearchIcon className="size-5 text-emerald-400" aria-hidden />
+        <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
+          <SearchIcon className="size-5 text-primary" aria-hidden />
           Corpus search
         </h1>
-        <p className="mt-1 max-w-prose text-sm text-slate-400">
+        <p className="mt-1 max-w-prose text-sm text-muted-foreground">
           Lexical retrieval across the dictionary and Bible collections. Every hit reports its source
           table and lexical score — this is exact/substring matching, not semantic search.
         </p>
@@ -58,50 +81,45 @@ export function Search() {
       <Card
         title="Query"
         subtitle="POST /search"
-        actions={
-          <SlidersHorizontal className="size-4 text-slate-600" aria-hidden />
-        }
+        actions={<SlidersHorizontal className="text-muted-foreground/70" aria-hidden />}
       >
         <form onSubmit={submit} className="flex flex-col gap-3">
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="min-w-0 flex-1">
-              <label htmlFor="search-query" className="block text-xs font-medium text-slate-300">
-                Query
-              </label>
-              <input
+          {/* Mobile-first: stacked fields, side by side from `sm`. */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_auto_auto] sm:items-end">
+            <div className="min-w-0">
+              <Label htmlFor="search-query">Query</Label>
+              <Input
                 id="search-query"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="pasian, gam, thupha…"
                 autoComplete="off"
                 spellCheck={false}
-                className="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-sm text-slate-100 placeholder:text-slate-600 focus:border-emerald-500 focus:outline-none"
+                className="mt-1.5 h-10 font-mono"
               />
             </div>
-            <div>
-              <label htmlFor="search-limit" className="block text-xs font-medium text-slate-300">
-                Limit
-              </label>
-              <select
-                id="search-limit"
-                value={limit}
-                onChange={(event) => setLimit(Number(event.target.value))}
-                className="mt-1.5 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-emerald-500 focus:outline-none"
-              >
-                {LIMIT_CHOICES.map((choice) => (
-                  <option key={choice} value={choice}>
-                    {choice}
-                  </option>
-                ))}
-              </select>
+            <div className="sm:w-28">
+              <Label htmlFor="search-limit">Limit</Label>
+              <Select value={limit} onValueChange={setLimit}>
+                <SelectTrigger id="search-limit" className="mt-1.5 h-10 w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {LIMIT_CHOICES.map((choice) => (
+                    <SelectItem key={choice} value={String(choice)}>
+                      {choice}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            <button
+            <Button
               type="submit"
               disabled={!query.trim() || search.isPending}
-              className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
+              className="h-10 sm:w-auto"
             >
               {search.isPending ? 'Searching…' : 'Search'}
-            </button>
+            </Button>
           </div>
         </form>
       </Card>
@@ -131,14 +149,15 @@ export function Search() {
         ) : (
           <div className="flex flex-col gap-4">
             <div className="flex flex-wrap items-center gap-1.5">
-              <Database className="size-3.5 text-slate-600" aria-hidden />
+              <Database className="size-3.5 text-muted-foreground/70" aria-hidden />
               {Object.entries(grouped).map(([source, count]) => (
-                <span
+                <Badge
                   key={source}
-                  className={`rounded-md px-2 py-0.5 font-mono text-[11px] ring-1 ${sourceTone(source)}`}
+                  variant="outline"
+                  className={cn('font-mono', sourceTone(source))}
                 >
                   {source} × {count}
-                </span>
+                </Badge>
               ))}
             </div>
 
@@ -159,32 +178,23 @@ export function Search() {
 function HitRow({ hit, rank }: { hit: SearchHit; rank: number }) {
   const { ref } = splitId(hit.id)
   return (
-    <li className="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+    <li className="rounded-lg border bg-muted/40 p-3">
       <header className="mb-1.5 flex flex-wrap items-center gap-2">
-        <span className="text-[10px] text-slate-600 tabular-nums">#{rank}</span>
-        <span
-          className={`rounded px-1.5 py-0.5 font-mono text-[11px] ring-1 ${sourceTone(hit.source)}`}
-        >
+        <span className="text-[10px] text-muted-foreground tabular-nums">#{rank}</span>
+        <Badge variant="outline" className={cn('font-mono', sourceTone(hit.source))}>
           {hit.source}
-        </span>
-        {ref && (
-          <span className="font-mono text-[11px] text-emerald-300">{ref}</span>
-        )}
-        <span className="ml-auto text-[11px] text-slate-500 tabular-nums">
+        </Badge>
+        {ref && <span className="font-mono text-[11px] text-primary">{ref}</span>}
+        <span className="ml-auto text-[11px] text-muted-foreground tabular-nums">
           score {formatScore(hit.score)}
         </span>
       </header>
-      <p className="text-xs leading-relaxed break-words text-slate-200">
-        {hit.text || <span className="text-slate-600 italic">empty text</span>}
-      </p>
+      <p className="text-xs leading-relaxed break-words">{hit.text || <span className="text-muted-foreground italic">empty text</span>}</p>
       <div className="mt-2 flex flex-wrap items-center gap-2">
-        <Link
-          to={`/word/${encodeURIComponent(ref || hit.id)}`}
-          className="text-[11px] font-medium text-emerald-400 underline underline-offset-4 transition hover:text-emerald-300"
-        >
-          Open in word explorer →
-        </Link>
-        <span className="font-mono text-[10px] text-slate-600">id={hit.id}</span>
+        <Button variant="link" size="xs" className="h-auto max-lg:h-10 px-0 text-xs" asChild>
+          <Link to={`/word/${encodeURIComponent(ref || hit.id)}`}>Open in word explorer →</Link>
+        </Button>
+        <span className="font-mono text-[10px] text-muted-foreground">id={hit.id}</span>
       </div>
     </li>
   )
@@ -194,10 +204,10 @@ function SearchSkeleton() {
   return (
     <div className="flex flex-col gap-2" aria-busy="true">
       {[0, 1, 2].map((i) => (
-        <div key={i} className="rounded-lg border border-slate-800 p-3">
-          <div className="mb-2 h-2.5 w-32 rounded bg-slate-800" />
-          <div className="h-3 w-full rounded bg-slate-800" />
-          <div className="mt-1.5 h-3 w-3/4 rounded bg-slate-800" />
+        <div key={i} className="rounded-lg border p-3">
+          <Skeleton className="mb-2 h-2.5 w-32" />
+          <Skeleton className="h-3 w-full" />
+          <Skeleton className="mt-1.5 h-3 w-3/4" />
         </div>
       ))}
       <span className="sr-only">Searching…</span>

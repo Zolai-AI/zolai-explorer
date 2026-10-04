@@ -1,11 +1,17 @@
 import { useState, type FormEvent } from 'react'
 import { Info, ScanText, Sparkles, Tags } from 'lucide-react'
+import { toast } from 'sonner'
 import { useAnalyzeParagraph, useAnalyzeSentence } from '../features/analyze/api'
 import { Card } from '../components/Card'
 import { Empty } from '../components/Empty'
 import { ErrorState } from '../components/ErrorState'
 import { RawJson } from '../components/RawJson'
 import { Metric } from '../components/StatTile'
+import { Skeleton } from '../components/Skeleton'
+import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert'
+import { Button } from '../components/ui/button'
+import { Label } from '../components/ui/label'
+import { Textarea } from '../components/ui/textarea'
 import type { ParagraphAnalysis, SentenceAnalysis } from '../lib/schemas'
 import { isNonEmptyArray, isNonEmptyRecord } from '../lib/format'
 
@@ -22,11 +28,20 @@ export function Analyze() {
   const sentence = useAnalyzeSentence()
   const paragraph = useAnalyzeParagraph()
 
+  /** Mutations surface failures twice: inline via ErrorState, and as a toast. */
+  const reportFailure = (which: string) => (error: unknown) => {
+    toast.error(`${which} failed`, {
+      description: error instanceof Error ? error.message : String(error),
+    })
+  }
+
   const runSentence = () => {
-    if (text.trim()) sentence.mutate(text.trim())
+    const clean = text.trim()
+    if (clean) sentence.mutate(clean, { onError: reportFailure('Sentence analysis') })
   }
   const runParagraph = () => {
-    if (text.trim()) paragraph.mutate(text.trim())
+    const clean = text.trim()
+    if (clean) paragraph.mutate(clean, { onError: reportFailure('Paragraph analysis') })
   }
 
   const onSubmit = (event: FormEvent) => {
@@ -37,11 +52,11 @@ export function Analyze() {
   return (
     <div className="flex flex-col gap-5">
       <header>
-        <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight text-slate-50">
-          <ScanText className="size-5 text-emerald-400" aria-hidden />
+        <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
+          <ScanText className="size-5 text-primary" aria-hidden />
           Analyze text
         </h1>
-        <p className="mt-1 max-w-prose text-sm text-slate-400">
+        <p className="mt-1 max-w-prose text-sm text-muted-foreground">
           Sentence tokenisation and paragraph segmentation against the live Zolai tokenizer. The API
           is the authority on what exists; panels that are not yet populated say so.
         </p>
@@ -49,59 +64,61 @@ export function Analyze() {
 
       <Card title="Input" subtitle="POST /analyze/sentence · POST /analyze/paragraph">
         <form onSubmit={onSubmit} className="flex flex-col gap-3">
-          <label htmlFor="analyze-text" className="text-xs font-medium text-slate-300">
-            Zolai text
-          </label>
-          <textarea
+          <Label htmlFor="analyze-text">Zolai text</Label>
+          <Textarea
             id="analyze-text"
             value={text}
             onChange={(event) => setText(event.target.value)}
             rows={4}
             spellCheck={false}
             placeholder="Pasian in leitung a piangsak hi."
-            className="w-full resize-y rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-sm leading-relaxed text-slate-100 placeholder:text-slate-600 focus:border-emerald-500 focus:outline-none"
+            className="font-mono"
           />
 
           <div className="flex flex-wrap gap-1.5">
             {SAMPLES.map((sample) => (
-              <button
+              <Button
                 key={sample}
                 type="button"
+                variant="outline"
+                size="xs"
                 onClick={() => setText(sample)}
-                className="rounded-md border border-slate-800 px-2 py-0.5 font-mono text-[11px] text-slate-400 transition hover:border-slate-600 hover:text-slate-200"
+                className="max-lg:h-10 font-mono font-normal"
               >
                 {sample}
-              </button>
+              </Button>
             ))}
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <button
+            <Button
               type="submit"
               disabled={!text.trim() || sentence.isPending}
-              className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
+              className="max-lg:h-10"
             >
               {sentence.isPending ? 'Analyzing…' : 'Analyze sentence'}
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
+              variant="outline"
               onClick={runParagraph}
               disabled={!text.trim() || paragraph.isPending}
-              className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+              className="max-lg:h-10"
             >
               {paragraph.isPending ? 'Segmenting…' : 'Analyze paragraph'}
-            </button>
+            </Button>
             {(sentence.isSuccess || paragraph.isSuccess) && (
-              <button
+              <Button
                 type="button"
+                variant="ghost"
                 onClick={() => {
                   sentence.reset()
                   paragraph.reset()
                 }}
-                className="rounded-lg px-3 py-2 text-xs text-slate-500 transition hover:text-slate-300"
+                className="max-lg:h-10 text-muted-foreground"
               >
                 Clear results
-              </button>
+              </Button>
             )}
           </div>
         </form>
@@ -111,7 +128,7 @@ export function Analyze() {
         <Card
           title="Sentence analysis"
           subtitle="POST /analyze/sentence"
-          actions={<Tags className="size-4 text-slate-600" aria-hidden />}
+          actions={<Tags className="text-muted-foreground/70" aria-hidden />}
         >
           {sentence.isPending ? (
             <SkeletonLines />
@@ -130,7 +147,7 @@ export function Analyze() {
         <Card
           title="Paragraph analysis"
           subtitle="POST /analyze/paragraph"
-          actions={<Sparkles className="size-4 text-slate-600" aria-hidden />}
+          actions={<Sparkles className="text-muted-foreground/70" aria-hidden />}
         >
           {paragraph.isPending ? (
             <SkeletonLines />
@@ -173,7 +190,7 @@ function SentenceResult({ data }: { data: SentenceAnalysis }) {
       </div>
 
       <section>
-        <h3 className="text-xs font-semibold tracking-wide text-slate-400 uppercase">Tokens</h3>
+        <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Tokens</h3>
         {data.tokens.length === 0 ? (
           <Empty compact title="No tokens" hint="The tokeniser returned an empty list for this input." />
         ) : (
@@ -181,10 +198,10 @@ function SentenceResult({ data }: { data: SentenceAnalysis }) {
             {data.tokens.map((token, index) => (
               <li
                 key={`${token}-${index}`}
-                className="flex items-baseline gap-1 rounded-md border border-slate-800 bg-slate-950/60 px-2 py-1"
+                className="flex items-baseline gap-1 rounded-md border bg-muted/50 px-2 py-1"
               >
-                <span className="font-mono text-sm text-emerald-200">{token}</span>
-                <span className="text-[10px] text-slate-600 tabular-nums">{index}</span>
+                <span className="font-mono text-sm text-primary">{token}</span>
+                <span className="text-[10px] text-muted-foreground tabular-nums">{index}</span>
               </li>
             ))}
           </ol>
@@ -193,15 +210,16 @@ function SentenceResult({ data }: { data: SentenceAnalysis }) {
 
       {/* Verified gap: the live API returns pos/grammar/entities as [] today. */}
       {!hasPos && !hasGrammar && !hasEntities && (
-        <p className="flex gap-2 rounded-lg border border-slate-800 bg-slate-950/50 px-3 py-2 text-xs leading-relaxed text-slate-400">
-          <Info className="mt-0.5 size-3.5 shrink-0 text-slate-500" aria-hidden />
-          <span>
+        <Alert>
+          <Info aria-hidden />
+          <AlertTitle>Tagging not populated upstream</AlertTitle>
+          <AlertDescription>
             The live deployment returns <span className="font-mono">pos</span>,{' '}
-            <span className="font-mono">grammar</span> and <span className="font-mono">entities</span> as
-            empty arrays. Tagging is planned behind the discovery pipeline — this panel will fill in
-            automatically once it lands.
-          </span>
-        </p>
+            <span className="font-mono">grammar</span> and <span className="font-mono">entities</span>{' '}
+            as empty arrays. Tagging is planned behind the discovery pipeline — this panel will fill
+            in automatically once it lands.
+          </AlertDescription>
+        </Alert>
       )}
 
       <RawJson data={data} label="raw /analyze/sentence" />
@@ -233,7 +251,7 @@ function ParagraphResult({ data }: { data: ParagraphAnalysis }) {
       </div>
 
       <section>
-        <h3 className="text-xs font-semibold tracking-wide text-slate-400 uppercase">Sentences</h3>
+        <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Sentences</h3>
         {data.sentences.length === 0 ? (
           <Empty compact title="No sentences" hint="Segmentation returned an empty list." />
         ) : (
@@ -241,14 +259,12 @@ function ParagraphResult({ data }: { data: ParagraphAnalysis }) {
             {data.sentences.map((sentence, index) => (
               <li
                 key={index}
-                className="flex gap-2 rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2"
+                className="flex gap-2 rounded-lg border bg-muted/40 px-3 py-2"
               >
-                <span className="text-[10px] text-slate-600 tabular-nums">{index + 1}</span>
-                <span className="min-w-0 flex-1 text-xs leading-relaxed text-slate-200">
-                  {sentence}
-                </span>
+                <span className="text-[10px] text-muted-foreground tabular-nums">{index + 1}</span>
+                <span className="min-w-0 flex-1 text-xs leading-relaxed">{sentence}</span>
                 {tokensPerSentence[index] !== undefined && (
-                  <span className="shrink-0 font-mono text-[10px] text-slate-600">
+                  <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
                     {tokensPerSentence[index]} tok
                   </span>
                 )}
@@ -259,12 +275,13 @@ function ParagraphResult({ data }: { data: ParagraphAnalysis }) {
       </section>
 
       {typeof analysis.note === 'string' && analysis.note && (
-        <p className="flex gap-2 rounded-lg border border-slate-800 bg-slate-950/50 px-3 py-2 text-xs leading-relaxed text-slate-400">
-          <Info className="mt-0.5 size-3.5 shrink-0 text-slate-500" aria-hidden />
-          <span>
-            Server note: <span className="font-mono text-slate-300">{analysis.note}</span>
-          </span>
-        </p>
+        <Alert>
+          <Info aria-hidden />
+          <AlertTitle>Server note</AlertTitle>
+          <AlertDescription>
+            <span className="font-mono">{analysis.note}</span>
+          </AlertDescription>
+        </Alert>
       )}
 
       <RawJson data={data} label="raw /analyze/paragraph" />
@@ -276,11 +293,7 @@ function SkeletonLines() {
   return (
     <div className="space-y-2.5" aria-busy="true">
       {[92, 78, 84, 60].map((width) => (
-        <div
-          key={width}
-          className="animate-pulse-soft h-3 rounded bg-slate-800"
-          style={{ width: `${width}%` }}
-        />
+        <Skeleton key={width} className="h-3" style={{ width: `${width}%` }} />
       ))}
       <span className="sr-only">Loading…</span>
     </div>

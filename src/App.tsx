@@ -9,26 +9,31 @@ import { Rag } from './routes/Rag'
 import { Data } from './routes/Data'
 import { Links } from './routes/Links'
 import { NotFound } from './routes/NotFound'
+import { Toaster } from './components/ui/sonner'
+import { TooltipProvider } from './components/ui/tooltip'
 import { queryClient } from './lib/queryClient'
 
 export function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter basename={import.meta.env.BASE_URL}>
-        <Routes>
-          <Route element={<AppShell />}>
-            <Route index element={<Dashboard />} />
-            <Route path="word" element={<Word />} />
-            <Route path="word/:word" element={<Word />} />
-            <Route path="analyze" element={<Analyze />} />
-            <Route path="search" element={<Search />} />
-            <Route path="rag" element={<Rag />} />
-            <Route path="data" element={<Data />} />
-            <Route path="links" element={<Links />} />
-            <Route path="*" element={<NotFound />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
+      <TooltipProvider>
+        <BrowserRouter basename={import.meta.env.BASE_URL}>
+          <Routes>
+            <Route element={<AppShell />}>
+              <Route index element={<Dashboard />} />
+              <Route path="word" element={<Word />} />
+              <Route path="word/:word" element={<Word />} />
+              <Route path="analyze" element={<Analyze />} />
+              <Route path="search" element={<Search />} />
+              <Route path="rag" element={<Rag />} />
+              <Route path="data" element={<Data />} />
+              <Route path="links" element={<Links />} />
+              <Route path="*" element={<NotFound />} />
+            </Route>
+          </Routes>
+          <Toaster position="bottom-right" />
+        </BrowserRouter>
+      </TooltipProvider>
     </QueryClientProvider>
   )
 }

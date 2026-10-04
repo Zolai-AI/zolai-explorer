@@ -1,5 +1,7 @@
-import { AlertTriangle, KeyRound, RefreshCw, WifiOff, Clock } from 'lucide-react'
+import { AlertTriangle, Clock, KeyRound, RefreshCw, WifiOff } from 'lucide-react'
 import { ApiError, isApiError } from '../lib/api'
+import { Alert, AlertDescription, AlertTitle } from './ui/alert'
+import { Button } from './ui/button'
 import { Empty } from './Empty'
 
 function describe(error: unknown): {
@@ -64,29 +66,25 @@ export function ErrorState({
 }) {
   const { title, message, hint, Icon, retryable } = describe(error)
   return (
-    <div
-      role="alert"
-      className={`flex gap-3 rounded-lg border border-rose-500/30 bg-rose-500/5 ${
-        compact ? 'p-3' : 'p-4'
-      }`}
-    >
-      <Icon className="mt-0.5 size-4 shrink-0 text-rose-400" aria-hidden />
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold text-rose-200">{title}</p>
-        <p className="mt-1 text-xs leading-relaxed break-words text-rose-200/80">{message}</p>
-        {hint && <p className="mt-1 text-xs text-rose-200/60">{hint}</p>}
+    <Alert variant="destructive" className={compact ? 'p-3' : 'p-4'}>
+      <Icon aria-hidden />
+      <AlertTitle>{title}</AlertTitle>
+      <AlertDescription className="break-words">
+        {message}
+        {hint && <span className="mt-1 block opacity-80">{hint}</span>}
         {onRetry && retryable && (
-          <button
-            type="button"
+          <Button
+            variant="outline"
+            size="xs"
             onClick={onRetry}
-            className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-rose-400/40 px-2.5 py-1 text-xs font-medium text-rose-200 transition hover:bg-rose-400/10"
+            className="mt-2 border-destructive/40 text-destructive hover:bg-destructive/10"
           >
-            <RefreshCw className="size-3.5" aria-hidden />
+            <RefreshCw aria-hidden />
             Retry
-          </button>
+          </Button>
         )}
-      </div>
-    </div>
+      </AlertDescription>
+    </Alert>
   )
 }
 

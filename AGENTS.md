@@ -52,7 +52,20 @@ panel in the same commit.
 - **Pinned exact versions** in `package.json`. TypeScript stays on `~5.9.3` — 7.x is published but
   the Vite/vitest type tooling has not caught up. Do not "helpfully" bump it.
 - **Tailwind 4** via `@tailwindcss/vite`. No `tailwind.config.js`, no PostCSS config, no CSS modules.
-- **No UI kit.** Components are hand-rolled in `src/components/`. Do not add one.
+  The token layer is CSS-first: `@theme inline`, `@custom-variant dark`, `:root` / `.dark` blocks in
+  `src/index.css`.
+- **UI kit is shadcn/ui** (`components.json` committed, style `radix-nova`, aliases `@/` → `src/`).
+  Primitives live in `src/components/ui/` and are **vendored copies** — the CLI writes them in and
+  you own them afterwards. Add new ones with `bunx shadcn@latest add -y -o <component>`; never
+  hand-write a primitive or fork one under a new name. App-level composition belongs in
+  `src/components/` (`Card`, `DataTable`, `Empty`, …) built *from* the primitives.
+- **Theme is class-based.** `.dark` on `<html>`, preference `system | light | dark` persisted under
+  `zolai.theme`. Resolution logic is pure in `src/lib/theme.ts` (unit tested); the **blocking script
+  in `index.html` must stay in sync with it** — it is what prevents a flash of the wrong theme.
+- **Mobile-first.** Base classes are the small-screen layout; scale up with `sm:` / `md:` / `lg:`.
+  Navigation is a `<Sheet>` drawer below `lg` and a persistent sidebar from `lg`. Interactive
+  controls carry `max-lg:h-10`/`max-lg:h-11` for a 40px+ touch target. Tables must stay usable at
+  375px: use `hideBelow` column priority plus the scrolling container, never a fixed layout.
 - **One TanStack Query hook per endpoint** in `src/features/<area>/api.ts`. `GET`s are queries;
   the `POST` endpoints (`/analyze/*`, `/search`, `/rag`) are mutations — they run on demand, not on
   mount.
@@ -71,7 +84,7 @@ panel in the same commit.
 
 ```bash
 bun run typecheck    # tsc -b --force
-bun run test         # 58 vitest specs
+bun run test         # 90 vitest specs
 bun run build        # must be warning-free
 ```
 
@@ -82,6 +95,13 @@ curl -sI https://studio.zolai.space/            | head -1   # 200
 curl -sI https://studio.zolai.space/word/pasian | head -1   # 200 (SPA fallback)
 curl -sI https://api.zolai.space/health         | head -1   # 200 (no regression)
 ssh pcore-server 'sudo -n nginx -t'
+```
+
+After any CSS change, confirm **both** themes ship in the built stylesheet:
+
+```bash
+grep -o ':root{[^}]*}' dist/assets/*.css | head -c 120   # light tokens
+grep -o '\.dark{[^}]*}' dist/assets/*.css | head -c 120 # dark tokens
 ```
 
 ## Deploy mechanics

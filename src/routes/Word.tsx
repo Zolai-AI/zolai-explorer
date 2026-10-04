@@ -27,6 +27,10 @@ import { Metric } from '../components/StatTile'
 import { RawJson } from '../components/RawJson'
 import { SkeletonCard } from '../components/Skeleton'
 import { DataTable, type Column } from '../components/DataTable'
+import { Badge } from '../components/ui/badge'
+import { Button } from '../components/ui/button'
+import { Input } from '../components/ui/input'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import type { Collocation, Evidence, Pattern, WordContext, Word } from '../lib/schemas'
 import { formatCount, formatScore, isNonEmptyArray, isNonEmptyRecord, percent } from '../lib/format'
 
@@ -55,9 +59,6 @@ export function Word() {
   const evidence = useWordEvidence(word)
   const forms = useWordForms(word)
 
-  const activeQuery = { contexts, collocations, patterns, evidence, forms }[tab]
-  const activeHint = WORD_SUB_RESOURCES.find((r) => r.key === tab)?.hint ?? ''
-
   const isEmptyEntry =
     entry.isSuccess &&
     entry.data.frequency === 0 &&
@@ -69,63 +70,61 @@ export function Word() {
       <header className="flex flex-col gap-3">
         <div className="flex flex-wrap items-end justify-between gap-2">
           <div>
-            <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight text-slate-50">
-              <BookOpen className="size-5 text-emerald-400" aria-hidden />
+            <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
+              <BookOpen className="size-5 text-primary" aria-hidden />
               Word explorer
             </h1>
-            <p className="mt-1 text-sm text-slate-400">
+            <p className="mt-1 text-sm text-muted-foreground">
               One dictionary entry plus its five live sub-resources. Sections the API leaves empty
               say so instead of rendering a broken panel.
             </p>
           </div>
           {entry.data && (
-            <p className="font-mono text-sm text-slate-300">
+            <p className="font-mono text-sm">
               {entry.data.word}
-              <span className="ml-2 text-xs text-slate-500">
+              <span className="ml-2 text-xs text-muted-foreground">
                 conf {formatScore(entry.data.confidence)}
               </span>
             </p>
           )}
         </div>
 
-        <form onSubmit={submit} className="flex flex-wrap items-center gap-2">
+        <form onSubmit={submit} className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <div className="relative min-w-0 flex-1">
             <Search
-              className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-500"
+              className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
               aria-hidden
             />
-            <input
+            <Input
               value={input}
               onChange={(event) => setInput(event.target.value)}
               placeholder="Zolai word, e.g. pasian"
               aria-label="Word to explore"
               autoComplete="off"
               spellCheck={false}
-              className="w-full rounded-lg border border-slate-700 bg-slate-900 py-2 pr-3 pl-9 font-mono text-sm text-slate-100 placeholder:font-sans placeholder:text-slate-600 focus:border-emerald-500 focus:outline-none"
+              className="h-10 pr-3 pl-9 font-mono placeholder:font-sans"
             />
           </div>
-          <button
-            type="submit"
-            disabled={!input.trim()}
-            className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
-          >
+          <Button type="submit" disabled={!input.trim()} className="h-10">
             Explore
-          </button>
+          </Button>
         </form>
 
         <div className="flex flex-wrap gap-1.5">
           {SUGGESTIONS.map((suggestion) => (
-            <Link
+            <Button
               key={suggestion}
-              to={`/word/${suggestion}`}
-              className={`rounded-md border px-2 py-0.5 font-mono text-xs transition ${
+              asChild
+              variant="outline"
+              size="xs"
+              className={`max-lg:h-10 font-mono ${
                 suggestion === word
-                  ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
-                  : 'border-slate-800 text-slate-400 hover:border-slate-600 hover:text-slate-200'
+                  ? 'border-primary/40 bg-primary/10 text-primary'
+                  : 'text-muted-foreground'
               }`}
             >
-              {suggestion}
-            </Link>
+              <Link to={`/word/${suggestion}`}>{suggestion}</Link>
+            </Button>
           ))}
         </div>
       </header>
@@ -144,62 +143,57 @@ export function Word() {
           title={`No entry for "${word}"`}
           hint="The live API answered 200 with all-zero counts, meaning the word is not in the lexicon yet."
         >
-          <Link
-            to="/search"
-            className="mt-1 text-xs font-medium text-emerald-400 underline underline-offset-4"
-          >
-            Try corpus search instead
-          </Link>
+          <Button asChild variant="link" size="xs" className="mt-1 h-auto max-lg:h-10 px-0">
+            <Link to="/search">Try corpus search instead</Link>
+          </Button>
         </Empty>
       ) : (
         <>
           <WordSummary data={entry.data} />
           <RawJson data={entry.data} label="raw /word/{w}" />
 
-          <section aria-label="Word sub-resources">
-            <div
-              role="tablist"
-              aria-label="Word sub-resources"
-              className="flex flex-wrap gap-1.5 border-b border-slate-800 pb-2"
-            >
-              {WORD_SUB_RESOURCES.map((resource) => (
-                <button
-                  key={resource.key}
-                  role="tab"
-                  type="button"
-                  aria-selected={tab === resource.key}
-                  onClick={() => setTab(resource.key)}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
-                    tab === resource.key
-                      ? 'bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30'
-                      : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-                  }`}
-                >
-                  {resource.label}
-                </button>
-              ))}
-            </div>
+          <Tabs value={tab} onValueChange={(value) => setTab(value as WordSubResource)}>
+            <section aria-label="Word sub-resources">
+              {/* Scrollable on phones rather than wrapping into 3 rows. */}
+              <TabsList className="scrollbar-thin w-full justify-start overflow-x-auto">
+                {WORD_SUB_RESOURCES.map((resource) => (
+                  <TabsTrigger
+                    key={resource.key}
+                    value={resource.key}
+                    className="max-lg:h-10 shrink-0"
+                  >
+                    {resource.label}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
 
-            <p className="mt-2 font-mono text-[11px] text-slate-600">{activeHint}</p>
-
-            <div className="mt-3">
-              {activeQuery.isPending ? (
-                <SkeletonCard lines={6} title={false} />
-              ) : activeQuery.isError ? (
-                <ErrorState error={activeQuery.error} compact />
-              ) : (
-                <SubResourcePanel
-                  tab={tab}
-                  word={word}
-                  contexts={contexts.data?.contexts ?? []}
-                  collocations={collocations.data?.collocations ?? []}
-                  patterns={patterns.data?.patterns ?? []}
-                  evidence={evidence.data?.evidence ?? []}
-                  forms={forms.data?.forms ?? []}
-                />
-              )}
-            </div>
-          </section>
+              {WORD_SUB_RESOURCES.map((resource) => {
+                const query = { contexts, collocations, patterns, evidence, forms }[resource.key]
+                return (
+                  <TabsContent key={resource.key} value={resource.key} className="mt-3">
+                    <p className="font-mono text-[11px] text-muted-foreground">{resource.hint}</p>
+                    <div className="mt-3">
+                      {query.isPending ? (
+                        <SkeletonCard lines={6} title={false} />
+                      ) : query.isError ? (
+                        <ErrorState error={query.error} compact />
+                      ) : (
+                        <SubResourcePanel
+                          tab={resource.key}
+                          word={word}
+                          contexts={contexts.data?.contexts ?? []}
+                          collocations={collocations.data?.collocations ?? []}
+                          patterns={patterns.data?.patterns ?? []}
+                          evidence={evidence.data?.evidence ?? []}
+                          forms={forms.data?.forms ?? []}
+                        />
+                      )}
+                    </div>
+                  </TabsContent>
+                )
+              })}
+            </section>
+          </Tabs>
         </>
       )}
     </div>
@@ -221,7 +215,7 @@ function WordSummary({ data }: { data: Word }) {
         title="Frequency and provenance"
         subtitle="GET /word/{w}"
         className="lg:col-span-2"
-        actions={<Layers className="size-4 text-slate-600" aria-hidden />}
+        actions={<Layers className="text-muted-foreground/70" aria-hidden />}
       >
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Metric label="Frequency" value={data.frequency} hint="token count" />
@@ -242,7 +236,7 @@ function WordSummary({ data }: { data: Word }) {
         <Card
           title="Morphology"
           subtitle={morphologyEmpty ? 'empty on the live API' : 'agglutinative decomposition'}
-          actions={<GitBranch className="size-4 text-slate-600" aria-hidden />}
+          actions={<GitBranch className="text-muted-foreground/70" aria-hidden />}
         >
           {morphologyEmpty ? (
             <Empty
@@ -272,7 +266,7 @@ function WordSummary({ data }: { data: Word }) {
               {data.grammar_usage.map((row, index) => (
                 <li
                   key={index}
-                  className="rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2 font-mono text-[11px] text-slate-300"
+                  className="rounded-lg border bg-muted/40 px-3 py-2 font-mono text-[11px]"
                 >
                   {formatValue(row)}
                 </li>
@@ -286,7 +280,7 @@ function WordSummary({ data }: { data: Word }) {
         title="Examples"
         subtitle="definition and corpus snippets"
         className="lg:col-span-3"
-        actions={<Quote className="size-4 text-slate-600" aria-hidden />}
+        actions={<Quote className="text-muted-foreground/70" aria-hidden />}
       >
         {data.examples.length === 0 ? (
           <Empty compact title="No examples" hint="This entry has no stored snippets." />
@@ -295,7 +289,7 @@ function WordSummary({ data }: { data: Word }) {
             {data.examples.map((example, index) => (
               <li
                 key={`${example}-${index}`}
-                className="rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2 text-xs leading-relaxed break-words text-slate-300"
+                className="rounded-lg border bg-muted/40 px-3 py-2 text-xs leading-relaxed break-words"
               >
                 {example}
               </li>
@@ -330,21 +324,22 @@ function TagRow({
 }) {
   return (
     <div className="mt-3 flex flex-wrap items-center gap-1.5">
-      <span className="text-[10px] font-medium tracking-wider text-slate-500 uppercase">{label}</span>
+      <span className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase">{label}</span>
       {values.length === 0 ? (
-        <span className="text-xs text-slate-500">{emptyLabel}</span>
+        <span className="text-xs text-muted-foreground">{emptyLabel}</span>
       ) : (
         values.map((tag) => (
-          <span
+          <Badge
             key={tag}
-            className={`rounded-md px-2 py-0.5 font-mono text-[11px] ${
+            variant="outline"
+            className={`font-mono ${
               tone === 'sky'
-                ? 'bg-sky-500/10 text-sky-300 ring-1 ring-sky-500/20'
-                : 'bg-slate-800 text-slate-300'
+                ? 'border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300'
+                : ''
             }`}
           >
             {tag}
-          </span>
+          </Badge>
         ))
       )}
     </div>
@@ -359,8 +354,8 @@ function DefinitionList({ rows }: { rows: [string, string][] }) {
     <dl className="space-y-1.5 text-xs">
       {rows.map(([key, value]) => (
         <div key={key} className="flex gap-2">
-          <dt className="shrink-0 font-mono text-slate-500">{key}</dt>
-          <dd className="min-w-0 break-words text-slate-200">{value}</dd>
+          <dt className="shrink-0 font-mono text-muted-foreground">{key}</dt>
+          <dd className="min-w-0 break-words">{value}</dd>
         </div>
       ))}
     </dl>
@@ -411,30 +406,22 @@ function ContextsPanel({ word, rows }: { word: string; rows: WordContext[] }) {
   }
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-xs text-slate-500">
+      <p className="text-xs text-muted-foreground">
         {rows.length} parallel EN/ZO verses. Columns come from separate translation variants.
       </p>
       <div className="flex flex-col gap-2">
         {rows.map((row, index) => (
-          <article
-            key={`${row.ref}-${index}`}
-            className="rounded-lg border border-slate-800 bg-slate-950/40 p-3"
-          >
+          <article key={`${row.ref}-${index}`} className="rounded-lg border bg-muted/40 p-3">
             <header className="mb-2 flex flex-wrap items-center gap-2">
-              <span className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-[11px] text-emerald-300">
+              <Badge variant="secondary" className="font-mono">
                 {row.ref}
-              </span>
-              <span className="font-mono text-[11px] text-slate-500">{row.source}</span>
+              </Badge>
+              <span className="font-mono text-[11px] text-muted-foreground">{row.source}</span>
             </header>
             <div className="grid gap-2 lg:grid-cols-3">
-              <Paragraph label="EN (KJV)" text={row.en} className="text-slate-300" />
-              <Paragraph label="ZO TDB77" text={row.zo_tdb77} className="text-emerald-200/90" />
-              <Paragraph
-                label="ZO Tedim 2010"
-                text={row.zo_tedim2010}
-                className="text-slate-400"
-                hideBelow="lg"
-              />
+              <Paragraph label="EN (KJV)" text={row.en} />
+              <Paragraph label="ZO TDB77" text={row.zo_tdb77} className="text-primary" />
+              <Paragraph label="ZO Tedim 2010" text={row.zo_tedim2010} className="text-muted-foreground" hideBelow="lg" />
             </div>
           </article>
         ))}
@@ -466,10 +453,8 @@ function Paragraph({
             : ''
   return (
     <div className={hide}>
-      <p className="text-[10px] font-medium tracking-wider text-slate-500 uppercase">{label}</p>
-      <p
-        className={`mt-0.5 text-xs leading-relaxed ${className} ${text ? '' : 'text-slate-600 italic'}`}
-      >
+      <p className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase">{label}</p>
+      <p className={`mt-0.5 text-xs leading-relaxed ${className} ${text ? '' : 'text-muted-foreground italic'}`}>
         {text || 'not stored'}
       </p>
     </div>
@@ -482,19 +467,21 @@ function CollocationsPanel({ rows }: { rows: Collocation[] }) {
       key: 'word1',
       header: 'Left',
       mono: true,
-      cell: (row) => <span className="text-slate-400">{row.word1}</span>,
+      hideBelow: 'sm',
+      cell: (row) => <span className="text-muted-foreground">{row.word1}</span>,
     },
     {
       key: 'word2',
       header: 'Partner',
       mono: true,
       sortValue: (row) => row.word2,
-      cell: (row) => <span className="text-slate-100">{row.word2}</span>,
+      cell: (row) => row.word2,
     },
     {
       key: 'frequency',
       header: 'Freq',
       align: 'right',
+      mono: true,
       sortValue: (row) => row.frequency,
       cell: (row) => formatCount(row.frequency),
     },
@@ -502,9 +489,10 @@ function CollocationsPanel({ rows }: { rows: Collocation[] }) {
       key: 'pmi',
       header: 'PMI',
       align: 'right',
+      mono: true,
       sortValue: (row) => row.pmi,
       cell: (row) => (
-        <span className={row.pmi > 0 ? 'text-emerald-300' : 'text-slate-600'}>
+        <span className={row.pmi > 0 ? 'text-primary' : 'text-muted-foreground'}>
           {row.pmi > 0 ? formatScore(row.pmi) : '0 (not scored)'}
         </span>
       ),
@@ -517,110 +505,163 @@ function CollocationsPanel({ rows }: { rows: Collocation[] }) {
       rows={rows}
       rowKey={(row, index) => `${row.word1}-${row.word2}-${index}`}
       caption="Collocations with frequency and pointwise mutual information"
-      empty={
-        <Empty title="No collocations" hint="The live endpoint returned an empty list for this word." />
-      }
+      empty={<Empty title="No collocations" hint="The live endpoint returned an empty list for this word." />}
     />
   )
 }
 
 function PatternsPanel({ rows }: { rows: Pattern[] }) {
-  if (rows.length === 0) {
-    return (
-      <Empty
-        title="No observed patterns"
-        hint="Patterns are mined from the corpus; few are confirmed for this word yet."
-      />
-    )
-  }
-  return (
-    <div className="flex flex-col gap-2">
-      {rows.map((row, index) => (
-        <article
-          key={row.pattern_id || index}
-          className="rounded-lg border border-slate-800 bg-slate-950/40 p-3"
-        >
-          <header className="flex flex-wrap items-center gap-2">
-            <span className="font-mono text-sm text-emerald-300">{row.pattern}</span>
-            {row.status && (
-              <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] tracking-wide text-slate-400 uppercase">
-                {row.status}
-              </span>
-            )}
-            <span className="font-mono text-[11px] text-slate-600">{row.pattern_id}</span>
-            <span className="ml-auto text-[11px] text-slate-500">
-              conf {row.confidence === null ? '—' : formatScore(row.confidence)}
-            </span>
-          </header>
+  const columns: Column<Pattern>[] = [
+    {
+      key: 'pattern',
+      header: 'Pattern',
+      mono: true,
+      sortValue: (row) => row.pattern,
+      cell: (row) => (
+        <span className="flex flex-col gap-1">
+          <span className="text-primary">{row.pattern}</span>
           {row.description && (
-            <p className="mt-1.5 text-xs leading-relaxed text-slate-300">{row.description}</p>
+            <span className="text-xs font-sans break-words whitespace-normal text-muted-foreground">
+              {row.description}
+            </span>
           )}
-          {row.function && (
-            <p className="mt-1 text-[11px] text-slate-500">
-              <span className="uppercase">function:</span> {row.function}
-            </p>
-          )}
-          {isNonEmptyArray(row.examples) && (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {row.examples.map((example) => (
-                <span
-                  key={example}
-                  className="rounded bg-slate-800/80 px-1.5 py-0.5 font-mono text-[11px] text-slate-400"
-                >
-                  {example}
-                </span>
-              ))}
-            </div>
-          )}
-        </article>
-      ))}
-    </div>
+        </span>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      hideBelow: 'sm',
+      sortValue: (row) => row.status,
+      cell: (row) =>
+        row.status ? <Badge variant="secondary">{row.status}</Badge> : <span className="text-muted-foreground">—</span>,
+    },
+    {
+      key: 'function',
+      header: 'Function',
+      hideBelow: 'lg',
+      sortValue: (row) => row.function,
+      cell: (row) => row.function || <span className="text-muted-foreground">—</span>,
+    },
+    {
+      key: 'examples',
+      header: 'Examples',
+      hideBelow: 'xl',
+      cell: (row) => (
+        <span className="text-muted-foreground">
+          {isNonEmptyArray(row.examples) ? row.examples.join(' · ') : '—'}
+        </span>
+      ),
+    },
+    {
+      key: 'id',
+      header: 'ID',
+      mono: true,
+      hideBelow: 'xl',
+      cell: (row) => <span className="text-muted-foreground">{row.pattern_id}</span>,
+    },
+    {
+      key: 'confidence',
+      header: 'Conf',
+      align: 'right',
+      mono: true,
+      sortValue: (row) => row.confidence ?? -1,
+      cell: (row) => (row.confidence === null ? '—' : formatScore(row.confidence)),
+    },
+  ]
+
+  return (
+    <DataTable
+      columns={columns}
+      rows={rows}
+      rowKey={(row, index) => row.pattern_id || String(index)}
+      caption="Observed grammar patterns for this word"
+      empty={
+        <Empty
+          title="No observed patterns"
+          hint="Patterns are mined from the corpus; few are confirmed for this word yet."
+        />
+      }
+    />
   )
 }
 
 function EvidencePanel({ rows }: { rows: Evidence[] }) {
-  if (rows.length === 0) {
-    return (
-      <Empty
-        title="No evidence records"
-        hint="Provenance tiers are attached when the knowledge pipeline records a source."
-      />
-    )
-  }
-  return (
-    <div className="flex flex-col gap-2">
-      {rows.map((row, index) => (
-        <article
-          key={`${row.source_type}-${index}`}
-          className="flex flex-col gap-2 rounded-lg border border-slate-800 bg-slate-950/40 p-3 sm:flex-row sm:items-start"
+  const columns: Column<Evidence>[] = [
+    {
+      key: 'tier',
+      header: 'Tier',
+      mono: true,
+      sortValue: (row) => row.tier,
+      cell: (row) => (
+        <Badge
+          variant="outline"
+          className="border-emerald-500/30 bg-emerald-500/10 font-mono text-emerald-700 dark:text-emerald-300"
         >
-          <div className="flex shrink-0 gap-1.5 sm:w-40 sm:flex-col">
-            <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 font-mono text-[11px] text-emerald-300 ring-1 ring-emerald-500/20">
-              tier {row.tier}
-            </span>
-            <span className="font-mono text-[11px] text-slate-500">{row.source_type}</span>
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-xs leading-relaxed break-words text-slate-200">
-              {row.text || <span className="text-slate-600 italic">no excerpt stored</span>}
-            </p>
-            <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
-              <span className="inline-flex items-center gap-1">
-                <ShieldCheck className="size-3" aria-hidden />
-                conf {formatScore(row.confidence)}
-              </span>
-              {Object.entries(row.metadata)
-                .slice(0, 4)
-                .map(([key, value]) => (
-                  <span key={key} className="font-mono">
-                    {key}={typeof value === 'object' ? '…' : String(value ?? '—')}
-                  </span>
-                ))}
-            </div>
-          </div>
-        </article>
-      ))}
-    </div>
+          tier {row.tier}
+        </Badge>
+      ),
+    },
+    {
+      key: 'source_type',
+      header: 'Source',
+      mono: true,
+      hideBelow: 'sm',
+      sortValue: (row) => row.source_type,
+      cell: (row) => <span className="text-muted-foreground">{row.source_type}</span>,
+    },
+    {
+      key: 'text',
+      header: 'Excerpt',
+      cell: (row) =>
+        row.text ? (
+          <span className="whitespace-normal break-words">{row.text}</span>
+        ) : (
+          <span className="text-muted-foreground italic">no excerpt stored</span>
+        ),
+    },
+    {
+      key: 'metadata',
+      header: 'Metadata',
+      mono: true,
+      hideBelow: 'lg',
+      cell: (row) => (
+        <span className="text-muted-foreground">
+          {Object.entries(row.metadata)
+            .slice(0, 4)
+            .map(([key, value]) => `${key}=${typeof value === 'object' ? '…' : String(value ?? '—')}`)
+            .join(' ') || '—'}
+        </span>
+      ),
+    },
+    {
+      key: 'confidence',
+      header: 'Conf',
+      align: 'right',
+      mono: true,
+      sortValue: (row) => row.confidence,
+      cell: (row) => (
+        <span className="inline-flex items-center justify-end gap-1">
+          <ShieldCheck className="size-3" aria-hidden />
+          {formatScore(row.confidence)}
+        </span>
+      ),
+    },
+  ]
+
+  return (
+    <DataTable
+      columns={columns}
+      rows={rows}
+      rowKey={(row, index) => `${row.source_type}-${index}`}
+      caption="Tiered provenance records for this word"
+      empty={
+        <Empty
+          title="No evidence records"
+          hint="Provenance tiers are attached when the knowledge pipeline records a source."
+        />
+      }
+    />
   )
 }
 
@@ -635,20 +676,24 @@ function FormsPanel({ word, forms }: { word: string; forms: string[] }) {
   }
   return (
     <div className="flex flex-col gap-3">
-      <p className="flex items-center gap-1.5 text-xs text-slate-500">
+      <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <Repeat className="size-3.5" aria-hidden />
         {forms.length} observed forms — select one to explore it directly.
       </p>
       <div className="flex flex-wrap gap-1.5">
         {forms.map((form) => (
-          <Link
+          <Button
             key={form}
-            to={`/word/${encodeURIComponent(form)}`}
-            className="group inline-flex items-center gap-1 rounded-md border border-slate-800 px-2 py-1 font-mono text-xs text-slate-300 transition hover:border-emerald-500/40 hover:text-emerald-300"
+            asChild
+            variant="outline"
+            size="xs"
+            className="group max-lg:h-10 gap-1 font-mono"
           >
-            {form}
-            <Link2 className="size-3 text-slate-600 group-hover:text-emerald-500" aria-hidden />
-          </Link>
+            <Link to={`/word/${encodeURIComponent(form)}`}>
+              {form}
+              <Link2 className="size-3 text-muted-foreground group-hover:text-primary" aria-hidden />
+            </Link>
+          </Button>
         ))}
       </div>
     </div>

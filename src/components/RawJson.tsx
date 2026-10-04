@@ -1,10 +1,14 @@
 import { useMemo, useState } from 'react'
 import { ChevronRight } from 'lucide-react'
+import { cn } from '../lib/utils'
 
 /**
  * Collapsible raw-JSON disclosure for power users. Rich panels render semantic
  * cards/tables; this keeps the exact payload one click away without dumping
  * JSON into the primary reading experience.
+ *
+ * Deliberately a native `<details>`: it works before hydration, needs no JS,
+ * and stays out of the way of the shadcn components.
  */
 export function RawJson({
   data,
@@ -30,17 +34,22 @@ export function RawJson({
     <details
       open={open}
       onToggle={(event) => setOpen((event.currentTarget as HTMLDetailsElement).open)}
-      className="rounded-lg border border-slate-800/80 bg-slate-950/50"
+      className="group overflow-hidden rounded-lg border border-border bg-muted/30"
     >
-      <summary className="flex cursor-pointer list-none items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-400 transition select-none hover:text-slate-200">
+      <summary
+        className={cn(
+          'flex min-h-10 cursor-pointer list-none items-center gap-1.5 px-3 py-2 text-xs font-medium text-muted-foreground select-none',
+          'hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
+        )}
+      >
         <ChevronRight
-          className={`size-3.5 transition-transform ${open ? 'rotate-90' : ''}`}
+          className="size-3.5 transition-transform group-open:rotate-90"
           aria-hidden
         />
         {label}
       </summary>
       <pre
-        className="scrollbar-thin max-h-56 overflow-auto border-t border-slate-800/80 px-3 py-3 font-mono text-[11px] leading-relaxed text-slate-300"
+        className="scrollbar-thin overflow-auto border-t border-border px-3 py-3 font-mono text-[11px] leading-relaxed text-foreground"
         style={{ maxHeight }}
       >
         {text}

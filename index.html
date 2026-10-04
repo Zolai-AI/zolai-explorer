@@ -1,10 +1,40 @@
 <!doctype html>
-<html lang="en" class="dark">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="dark" />
+    <!--
+      Declares both schemes; the pre-paint script below narrows it to the
+      resolved theme so the browser does not paint a light form-control theme
+      under a dark page (or the reverse). Mirrored by `applyThemeDocument()` in
+      `src/lib/theme.ts`.
+    -->
+    <meta name="color-scheme" content="light dark" />
+    <!--
+      Theme bootstrap — runs BEFORE first paint, so there is no flash of the
+      wrong theme. Keep these rules in sync with `resolveTheme()` /
+      `applyThemeDocument()` in `src/lib/theme.ts`; `theme.test.ts` guards it.
+    -->
+    <script>
+      ;(function () {
+        try {
+          var stored = localStorage.getItem('zolai.theme')
+          var pref =
+            stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'system'
+          var dark =
+            pref === 'dark' ||
+            (pref === 'system' &&
+              window.matchMedia('(prefers-color-scheme: dark)').matches)
+          document.documentElement.classList.toggle('dark', dark)
+          document.documentElement.style.colorScheme = dark ? 'dark' : 'light'
+          var meta = document.querySelector('meta[name="color-scheme"]')
+          if (meta) meta.setAttribute('content', dark ? 'dark light' : 'light dark')
+        } catch (e) {
+          /* storage or matchMedia blocked — fall through to the light default */
+        }
+      })()
+    </script>
     <meta
       name="description"
       content="Zolai Explorer — a studio workbench for the Zolai Core knowledge API: word explorer, sentence analysis, search and RAG retrieval."

@@ -1,22 +1,16 @@
 import { useMemo, type ReactNode } from 'react'
-import {
-  BarChart3,
-  Boxes,
-  Database,
-  FileCode2,
-  GitCommit,
-  HeartPulse,
-  RefreshCw,
-  ScrollText,
-} from 'lucide-react'
+import { BarChart3, Boxes, Database, FileCode2, GitCommit, HeartPulse, RefreshCw, ScrollText } from 'lucide-react'
 import { useKnowledgeVersion, useStatistics } from '../features/data/api'
 import { healthLevel, useHealth } from '../components/HealthPill'
 import { Card } from '../components/Card'
 import { Empty } from '../components/Empty'
 import { ErrorPanel } from '../components/ErrorState'
 import { RawJson } from '../components/RawJson'
+import { Skeleton } from '../components/Skeleton'
 import { DataTable, type Column } from '../components/DataTable'
 import { StatTile } from '../components/StatTile'
+import { Badge } from '../components/ui/badge'
+import { Button } from '../components/ui/button'
 import { HEALTH_URL } from '../lib/api'
 import { formatCount, formatTimestamp, formatUptime } from '../lib/format'
 
@@ -35,12 +29,14 @@ const GROUPS: { test: RegExp; label: string; icon: typeof Boxes }[] = [
   { test: /^KG /i, label: 'Knowledge graph', icon: Database },
 ]
 
+type Row = { label: string; count: number; group: string; icon: typeof Boxes }
+
 export function Data() {
   const stats = useStatistics()
   const version = useKnowledgeVersion()
   const health = useHealth()
 
-  const rows = useMemo(() => {
+  const rows: Row[] = useMemo(() => {
     const entries = stats.data?.stats ?? {}
     return Object.entries(entries)
       .map(([label, count]) => {
@@ -56,15 +52,17 @@ export function Data() {
     return [...map.entries()].sort((a, b) => b[1] - a[1])
   }, [rows])
 
-  const columns: Column<(typeof rows)[number]>[] = [
+  const grandTotal = useMemo(() => rows.reduce((sum, row) => sum + row.count, 0), [rows])
+
+  const columns: Column<Row>[] = [
     {
       key: 'label',
       header: 'Collection',
       sortValue: (row) => row.label,
       cell: (row) => (
         <span className="flex items-center gap-2">
-          <row.icon className="size-3.5 shrink-0 text-slate-600" aria-hidden />
-          <span className="text-slate-200">{row.label}</span>
+          <row.icon className="size-3.5 shrink-0 text-muted-foreground/70" aria-hidden />
+          <span>{row.label}</span>
         </span>
       ),
     },
@@ -73,40 +71,33 @@ export function Data() {
       header: 'Group',
       hideBelow: 'sm',
       sortValue: (row) => row.group,
-      cell: (row) => (
-        <span className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-[11px] text-slate-400">
-          {row.group}
-        </span>
-      ),
+      cell: (row) => <Badge variant="secondary">{row.group}</Badge>,
     },
     {
       key: 'count',
       header: 'Rows',
       align: 'right',
+      mono: true,
       sortValue: (row) => row.count,
-      cell: (row) => <span className="tabular-nums text-slate-100">{formatCount(row.count)}</span>,
+      cell: (row) => formatCount(row.count),
     },
     {
       key: 'share',
       header: 'Share',
       align: 'right',
       hideBelow: 'lg',
-      sortValue: (row) => {
-        const total = rows.reduce((sum, r) => sum + r.count, 0)
-        return total === 0 ? 0 : row.count / total
-      },
+      sortValue: (row) => (grandTotal === 0 ? 0 : row.count / grandTotal),
       cell: (row) => {
-        const total = rows.reduce((sum, r) => sum + r.count, 0)
-        const share = total === 0 ? 0 : row.count / total
+        const share = grandTotal === 0 ? 0 : row.count / grandTotal
         return (
           <span className="inline-flex items-center justify-end gap-2">
-            <span className="hidden h-1.5 w-16 overflow-hidden rounded-full bg-slate-800 sm:inline-block">
+            <span className="hidden h-1.5 w-16 overflow-hidden rounded-full bg-muted sm:inline-block">
               <span
-                className="block h-full rounded-full bg-emerald-500/70"
+                className="block h-full rounded-full bg-primary"
                 style={{ width: `${Math.max(share * 100, 1)}%` }}
               />
             </span>
-            <span className="tabular-nums text-slate-400">{(share * 100).toFixed(1)}%</span>
+            <span className="tabular-nums text-muted-foreground">{(share * 100).toFixed(1)}%</span>
           </span>
         )
       },
@@ -117,33 +108,33 @@ export function Data() {
     <div className="flex flex-col gap-5">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight text-slate-50">
-            <Database className="size-5 text-emerald-400" aria-hidden />
+          <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
+            <Database className="size-5 text-primary" aria-hidden />
             Data and service
           </h1>
-          <p className="mt-1 max-w-prose text-sm text-slate-400">
+          <p className="mt-1 max-w-prose text-sm text-muted-foreground">
             Every collection the deployed container reports, the knowledge version it is serving, and
             the health of the process behind it.
           </p>
         </div>
-        <button
-          type="button"
+        <Button
+          variant="outline"
           onClick={() => {
             void stats.refetch()
             void version.refetch()
             void health.refetch()
           }}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:bg-slate-800"
+          className="max-lg:h-10"
         >
-          <RefreshCw className="size-3.5" aria-hidden />
+          <RefreshCw aria-hidden />
           Refresh all
-        </button>
+        </Button>
       </header>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatTile
           label="Total rows"
-          value={rows.reduce((sum, row) => sum + row.count, 0)}
+          value={grandTotal}
           icon={<Boxes className="size-4" aria-hidden />}
           accent
         />
@@ -160,10 +151,10 @@ export function Data() {
         <Card
           title="Knowledge version"
           subtitle="GET /knowledge/version"
-          actions={<GitCommit className="size-4 text-slate-600" aria-hidden />}
+          actions={<GitCommit className="text-muted-foreground/70" aria-hidden />}
         >
           {version.isPending ? (
-            <p className="text-sm text-slate-400">Loading…</p>
+            <p className="text-sm text-muted-foreground">Loading…</p>
           ) : version.isError ? (
             <ErrorPanel error={version.error} onRetry={() => void version.refetch()} />
           ) : (
@@ -185,10 +176,10 @@ export function Data() {
         <Card
           title="Service health"
           subtitle="GET /health — public, no API key"
-          actions={<HeartPulse className="size-4 text-slate-600" aria-hidden />}
+          actions={<HeartPulse className="text-muted-foreground/70" aria-hidden />}
         >
           {health.isPending ? (
-            <p className="text-sm text-slate-400">Checking…</p>
+            <p className="text-sm text-muted-foreground">Loading…</p>
           ) : health.isError ? (
             <ErrorPanel error={health.error} onRetry={() => void health.refetch()} />
           ) : (
@@ -210,12 +201,12 @@ export function Data() {
       <Card
         title="Collections"
         subtitle="GET /knowledge/statistics"
-        actions={<span className="font-mono text-[11px] text-slate-500">{HEALTH_URL}</span>}
+        actions={<span className="font-mono text-[11px] text-muted-foreground">{HEALTH_URL}</span>}
       >
         {stats.isPending ? (
           <div className="space-y-2" aria-busy="true">
             {[0, 1, 2, 3, 4].map((i) => (
-              <div key={i} className="h-8 animate-pulse-soft rounded bg-slate-800" />
+              <Skeleton key={i} className="h-8" />
             ))}
             <span className="sr-only">Loading…</span>
           </div>
@@ -244,14 +235,14 @@ export function Data() {
               const share = total === 0 ? 0 : count / total
               return (
                 <li key={group} className="flex items-center gap-3">
-                  <span className="w-36 shrink-0 truncate text-xs text-slate-300">{group}</span>
-                  <span className="h-2 flex-1 overflow-hidden rounded-full bg-slate-800">
+                  <span className="w-28 shrink-0 truncate text-xs sm:w-36">{group}</span>
+                  <span className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
                     <span
-                      className="block h-full rounded-full bg-emerald-500/60"
+                      className="block h-full rounded-full bg-primary"
                       style={{ width: `${Math.max(share * 100, 1.5)}%` }}
                     />
                   </span>
-                  <span className="w-24 shrink-0 text-right font-mono text-xs text-slate-400 tabular-nums">
+                  <span className="w-20 shrink-0 text-right font-mono text-xs text-muted-foreground tabular-nums sm:w-24">
                     {formatCount(count)}
                   </span>
                 </li>
@@ -267,8 +258,8 @@ export function Data() {
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="min-w-0">
-      <dt className="text-[10px] font-medium tracking-wider text-slate-500 uppercase">{label}</dt>
-      <dd className="mt-0.5 truncate text-slate-200">{children}</dd>
+      <dt className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase">{label}</dt>
+      <dd className="mt-0.5 truncate">{children}</dd>
     </div>
   )
 }

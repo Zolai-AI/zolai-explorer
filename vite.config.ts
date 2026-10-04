@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
@@ -18,6 +19,10 @@ const UPSTREAM = process.env.ZOLAI_UPSTREAM ?? 'https://api.zolai.space'
 export default defineConfig({
   base: '/',
   plugins: [react(), tailwindcss()],
+  resolve: {
+    // shadcn/ui resolves every component through the `@/` alias (components.json).
+    alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
+  },
   build: {
     outDir: 'dist',
     sourcemap: false,

@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { Inbox } from 'lucide-react'
+import { cn } from '../lib/utils'
 
 /**
  * Honest empty state. `hint` should explain *why* it is empty (e.g. "not yet
@@ -20,13 +21,14 @@ export function Empty({
 }) {
   return (
     <div
-      className={`flex flex-col items-center justify-center rounded-lg border border-dashed border-slate-700/70 bg-slate-950/40 text-center ${
-        compact ? 'gap-1 px-3 py-4' : 'gap-2 px-4 py-8'
-      }`}
+      className={cn(
+        'flex flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/30 text-center',
+        compact ? 'gap-1 px-3 py-4' : 'gap-2 px-4 py-8',
+      )}
     >
-      <span className="text-slate-600">{icon ?? <Inbox className="size-5" aria-hidden />}</span>
-      <p className={`text-slate-300 ${compact ? 'text-xs' : 'text-sm'} font-medium`}>{title}</p>
-      {hint && <p className="max-w-prose text-xs leading-relaxed text-slate-500">{hint}</p>}
+      <span className="text-muted-foreground/60">{icon ?? <Inbox className="size-5" aria-hidden />}</span>
+      <p className={cn('font-medium text-foreground', compact ? 'text-xs' : 'text-sm')}>{title}</p>
+      {hint && <p className="max-w-prose text-xs leading-relaxed text-muted-foreground">{hint}</p>}
       {children}
     </div>
   )

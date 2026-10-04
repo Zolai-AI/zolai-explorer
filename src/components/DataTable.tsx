@@ -1,27 +1,58 @@
 import { useMemo, useState, type ReactNode } from 'react'
-import { ArrowDown, ArrowUp } from 'lucide-react'
+import {
+  getCoreRowModel,
+  getSortedRowModel,
+  useLegacyTable,
+  type LegacyColumnDef,
+} from '@tanstack/react-table/legacy'
+import { flexRender, type RowData, type SortingState } from '@tanstack/react-table'
+import { ArrowDown, ArrowUp, ChevronsUpDown } from 'lucide-react'
+import {
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from './ui/table'
+import { Button } from './ui/button'
+import {
+  alignClass,
+  dataTableSortFn,
+  hideBelowClass,
+  type HideBelow,
+} from '../lib/datatable'
+import { cn } from '../lib/utils'
 
 export type Column<T> = {
   key: string
   header: ReactNode
-  /** Cell renderer. Return a primitive for built-in numeric/right alignment. */
+  /** Cell renderer. */
   cell: (row: T, index: number) => ReactNode
   align?: 'left' | 'right' | 'center'
   /** Numeric sort key; omit to make the column unsortable. */
   sortValue?: (row: T) => number | string
   /** Hide the column below the given breakpoint to keep 375px usable. */
-  hideBelow?: 'sm' | 'md' | 'lg' | 'xl'
+  hideBelow?: HideBelow
   mono?: boolean
 }
 
-const HIDE_CLASS: Record<NonNullable<Column<unknown>['hideBelow']>, string> = {
-  sm: 'hidden sm:table-cell',
-  md: 'hidden md:table-cell',
-  lg: 'hidden lg:table-cell',
-  xl: 'hidden xl:table-cell',
-}
-
-export function DataTable<T>({
+/**
+ * Sortable, responsive table built on shadcn `<Table>` + TanStack Table.
+ *
+ * - **Sorting** is TanStack's row-sorting feature over an `accessorFn` that
+ *   returns the column's `sortValue`; the comparator lives in
+ *   `src/lib/datatable.ts` so it is unit tested.
+ * - **Responsive hiding** is pure CSS: a `hideBelow` column renders
+ *   `hidden md:table-cell`, so 375px keeps the priority columns and the rest
+ *   appear as the viewport grows. Columns marked `hideBelow` must never be the
+ *   only place a value appears.
+ * - **Horizontal scroll**: shadcn's table container scrolls, and
+ *   `scroll-fade-x` fades the edges so a clipped column is visibly clipped
+ *   rather than silently cut.
+ */
+export function DataTable<T extends RowData>({
   columns,
   rows,
   rowKey,
@@ -34,97 +65,115 @@ export function DataTable<T>({
   caption?: string
   empty?: ReactNode
 }) {
-  const [sort, setSort] = useState<{ key: string; dir: 'asc' | 'desc' } | null>(null)
+  const [sorting, setSorting] = useState<SortingState>([])
 
-  const sorted = useMemo(() => {
-    if (!sort) return rows
-    const column = columns.find((c) => c.key === sort.key)
-    if (!column?.sortValue) return rows
-    const factor = sort.dir === 'asc' ? 1 : -1
-    return [...rows].sort((a, b) => {
-      const av = column.sortValue!(a)
-      const bv = column.sortValue!(b)
-      if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * factor
-      return String(av).localeCompare(String(bv)) * factor
-    })
-  }, [rows, sort, columns])
+  const specs = useMemo(() => new Map(columns.map((column) => [column.key, column])), [columns])
+
+  const defs = useMemo<LegacyColumnDef<T>[]>(
+    () =>
+      columns.map((column) => ({
+        id: column.key,
+        // TanStack needs an accessor even for display columns; a sortable
+        // column resolves its sortValue, an unsortable one resolves null.
+        accessorFn: column.sortValue ? (row: T) => column.sortValue?.(row) : () => null,
+        // Function form: TanStack types a header template as `string | (ctx) => any`,
+        // and every header here is a ReactNode.
+        header: () => column.header,
+        cell: (info) => column.cell(info.row.original, info.row.index),
+        enableSorting: Boolean(column.sortValue),
+        sortFn: column.sortValue ? dataTableSortFn : undefined,
+        sortDescFirst: true,
+      })),
+    [columns],
+  )
+
+  const table = useLegacyTable({
+    data: rows,
+    columns: defs,
+    // Reuse the caller's key so row identity survives re-sorts.
+    getRowId: (row, index) => rowKey(row, index),
+    state: { sorting },
+    onSortingChange: setSorting,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+  })
 
   if (rows.length === 0 && empty) return <>{empty}</>
 
-  const toggle = (column: Column<T>) => {
-    if (!column.sortValue) return
-    setSort((prev) =>
-      prev?.key === column.key
-        ? { key: column.key, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
-        : { key: column.key, dir: 'desc' },
-    )
-  }
-
   return (
-    <div className="scrollbar-thin -mx-1 overflow-x-auto px-1">
-      <table className="w-full min-w-full border-collapse text-left text-sm">
-        {caption && <caption className="sr-only">{caption}</caption>}
-        <thead>
-          <tr className="border-b border-slate-800">
-            {columns.map((column) => {
-              const align = column.align ?? 'left'
-              const active = sort?.key === column.key
+    <Table containerClassName="scrollbar-thin scroll-fade-x">
+      {caption && <TableCaption className="sr-only">{caption}</TableCaption>}
+      <TableHeader>
+        {table.getHeaderGroups().map((headerGroup) => (
+          <TableRow key={headerGroup.id}>
+            {headerGroup.headers.map((header) => {
+              const spec = specs.get(header.column.id)
+              const sorted = header.column.getIsSorted()
+              const align = alignClass(spec?.align)
               return (
-                <th
-                  key={column.key}
+                <TableHead
+                  key={header.id}
                   scope="col"
-                  aria-sort={active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined}
-                  className={`px-3 py-2 text-xs font-semibold tracking-wide whitespace-nowrap text-slate-400 uppercase ${
-                    align === 'right' ? 'text-right' : align === 'center' ? 'text-center' : 'text-left'
-                  } ${column.hideBelow ? HIDE_CLASS[column.hideBelow] : ''}`}
+                  aria-sort={
+                    sorted === 'asc'
+                      ? 'ascending'
+                      : sorted === 'desc'
+                        ? 'descending'
+                        : undefined
+                  }
+                  className={cn(align, header.column.getCanSort() && 'p-0', hideBelowClass(spec?.hideBelow))}
                 >
-                  {column.sortValue ? (
-                    <button
-                      type="button"
-                      onClick={() => toggle(column)}
-                      className="inline-flex items-center gap-1 transition hover:text-slate-200"
+                  {header.column.getCanSort() ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={header.column.getToggleSortingHandler()}
+                      className={cn(
+                        '-ml-2 h-9 gap-1 px-2 font-semibold tracking-wide text-muted-foreground uppercase hover:text-foreground',
+                        align === 'right' && '-mr-2 ml-auto flex-row-reverse',
+                        align === 'center' && 'mx-auto flex-row-reverse',
+                      )}
                     >
-                      {column.header}
-                      {active &&
-                        (sort.dir === 'asc' ? (
-                          <ArrowUp className="size-3" aria-hidden />
-                        ) : (
-                          <ArrowDown className="size-3" aria-hidden />
-                        ))}
-                    </button>
+                      {flexRender(header.column.columnDef.header, header.getContext())}
+                      {sorted === 'asc' ? (
+                        <ArrowUp aria-hidden />
+                      ) : sorted === 'desc' ? (
+                        <ArrowDown aria-hidden />
+                      ) : (
+                        <ChevronsUpDown className="opacity-40" aria-hidden />
+                      )}
+                    </Button>
                   ) : (
-                    column.header
+                    flexRender(header.column.columnDef.header, header.getContext())
                   )}
-                </th>
+                </TableHead>
               )
             })}
-          </tr>
-        </thead>
-        <tbody>
-          {sorted.map((row, index) => (
-            <tr
-              key={rowKey(row, index)}
-              className="border-b border-slate-800/60 transition last:border-0 hover:bg-slate-800/25"
-            >
-              {columns.map((column) => {
-                const align = column.align ?? 'left'
-                return (
-                  <td
-                    key={column.key}
-                    className={`px-3 py-2 align-top text-slate-300 ${
-                      align === 'right' ? 'text-right' : align === 'center' ? 'text-center' : 'text-left'
-                    } ${column.mono ? 'font-mono text-xs' : ''} ${
-                      column.hideBelow ? HIDE_CLASS[column.hideBelow] : ''
-                    }`}
-                  >
-                    {column.cell(row, index)}
-                  </td>
-                )
-              })}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </TableRow>
+        ))}
+      </TableHeader>
+      <TableBody>
+        {table.getRowModel().rows.map((row) => (
+          <TableRow key={row.id}>
+            {row.getVisibleCells().map((cell) => {
+              const spec = specs.get(cell.column.id)
+              return (
+                <TableCell
+                  key={cell.id}
+                  className={cn(
+                    alignClass(spec?.align),
+                    'max-lg:whitespace-normal',
+                    spec?.mono && 'font-mono text-xs',
+                    hideBelowClass(spec?.hideBelow),
+                  )}
+                >
+                  {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                </TableCell>
+              )
+            })}
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
   )
 }

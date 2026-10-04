@@ -3,6 +3,9 @@ import { Activity, CircleAlert, CircleCheck, Loader2 } from 'lucide-react'
 import { HEALTH_URL, apiGetAbsolute, isApiError } from '../lib/api'
 import { HealthSchema, parseOrThrow, type Health } from '../lib/schemas'
 import { formatUptime } from '../lib/format'
+import { Badge } from './ui/badge'
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
+import { cn } from '../lib/utils'
 
 export type HealthLevel = 'ok' | 'degraded' | 'down'
 
@@ -28,14 +31,10 @@ export function healthLevel(data: Health | undefined, error: unknown): HealthLev
   return 'degraded'
 }
 
-const STYLES: Record<HealthLevel, { dot: string; text: string; ring: string }> = {
-  ok: { dot: 'bg-emerald-400', text: 'text-emerald-300', ring: 'border-emerald-500/30 bg-emerald-500/10' },
-  degraded: {
-    dot: 'bg-amber-400',
-    text: 'text-amber-300',
-    ring: 'border-amber-500/30 bg-amber-500/10',
-  },
-  down: { dot: 'bg-rose-400', text: 'text-rose-300', ring: 'border-rose-500/30 bg-rose-500/10' },
+const STYLES: Record<HealthLevel, { dot: string; variant: 'default' | 'secondary' | 'destructive' }> = {
+  ok: { dot: 'bg-emerald-500', variant: 'default' },
+  degraded: { dot: 'bg-amber-500', variant: 'secondary' },
+  down: { dot: 'bg-destructive', variant: 'destructive' },
 }
 
 const ICONS: Record<HealthLevel, typeof Activity> = {
@@ -59,28 +58,28 @@ export function HealthPill({ className = '' }: { className?: string }) {
       : 'Checking /health…'
 
   return (
-    <span
-      title={title}
-      aria-live="polite"
-      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${style.ring} ${style.text} ${className}`}
-    >
-      {isPending ? (
-        <Loader2 className="size-3.5 animate-spin" aria-hidden />
-      ) : (
-        <>
-          <span className="relative flex size-1.5">
-            <span className={`absolute inline-flex size-full rounded-full ${style.dot} opacity-60`} />
-            <span className={`relative inline-flex size-1.5 rounded-full ${style.dot}`} />
-          </span>
-          <Icon className="hidden size-3.5 sm:inline" aria-hidden />
-        </>
-      )}
-      <span className="font-mono whitespace-nowrap">{statusText}</span>
-      {!isPending && !error && (
-        <span className="hidden font-mono whitespace-nowrap text-slate-400 sm:inline">
-          · {formatUptime(data.uptime_s)}
-        </span>
-      )}
-    </span>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Badge
+          variant={style.variant}
+          aria-live="polite"
+          className={cn('max-lg:h-7 gap-1.5 font-medium', className)}
+        >
+          {isPending ? (
+            <Loader2 className="animate-spin" aria-hidden />
+          ) : (
+            <>
+              <span className="relative flex size-1.5">
+                <span className={cn('absolute inline-flex size-full rounded-full opacity-60 animate-ping', style.dot)} />
+                <span className={cn('relative inline-flex size-1.5 rounded-full', style.dot)} />
+              </span>
+              <Icon className="hidden size-3.5 sm:inline" aria-hidden />
+            </>
+          )}
+          <span className="font-mono whitespace-nowrap">{statusText}</span>
+        </Badge>
+      </TooltipTrigger>
+      <TooltipContent className="font-mono">{title}</TooltipContent>
+    </Tooltip>
   )
 }

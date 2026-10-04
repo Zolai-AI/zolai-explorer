@@ -1,7 +1,7 @@
 # Zolai Explorer
 
 A **studio workbench** for the live [Zolai Core](https://github.com/Zolai-AI/zolai-core) API — a
-React + Vite + TypeScript + TanStack Query app served on its own host at
+React + Vite + TypeScript + shadcn/ui + TanStack Query app served on its own host at
 **<https://studio.zolai.space/>**. It reads the API cross-origin at `https://api.zolai.space`
 (`/explorer*` on that host 301-redirects here).
 
@@ -23,7 +23,7 @@ bun run dev        # http://localhost:5173/  (proxies /api + /health upstream)
 | `bun run dev` | Vite dev server with `/api` + `/health` proxied to `https://api.zolai.space` |
 | `bun run build` | `tsc -b` then `vite build` → `dist/` |
 | `bun run typecheck` | Type check only (`tsc -b --force`) |
-| `bun run test` | Vitest suite (58 tests) |
+| `bun run test` | Vitest suite (90 tests) |
 | `bun run deploy` | `vite build` + rsync to `pcore-server:/var/www/zolai-studio` + `nginx -t` + reload |
 
 Requires **bun** (1.4.1+). Never npm/yarn — this is a workspace-wide convention.
@@ -86,8 +86,9 @@ storage backend so the round-trip is unit tested without jsdom.
 ```
 src/
   main.tsx                 entry: StrictMode + createRoot
-  App.tsx                  QueryClientProvider + BrowserRouter(basename=import.meta.env.BASE_URL)
-  index.css                Tailwind 4 import + design tokens
+  App.tsx                  QueryClientProvider + TooltipProvider + BrowserRouter
+                           (basename=import.meta.env.BASE_URL) + <Toaster>
+  index.css                Tailwind 4 + shadcn token layer (:root light / .dark dark)
   lib/
     api.ts                 typed fetch: X-API-Key, 15s AbortController timeout,
                            ApiError{status,message,kind,needsKey}, empty-body tolerance
@@ -95,12 +96,65 @@ src/
     schemas.ts             one tolerant zod schema per endpoint
     queryClient.ts         retry:1 (skipped for 4xx), staleTime 60s, no refetch on focus
     format.ts              number / uptime / timestamp / score formatters
+    theme.ts               pure light/dark resolution + persistence (unit tested)
+    useTheme.ts            useThemePreference / useResolvedTheme (React bindings for theme.ts)
+    datatable.ts           sort comparator, breakpoint-hiding map, alignment map (unit tested)
   components/              AppShell, Sidebar, TopBar, KeyDialog, HealthPill, StatTile, Card,
-                           Empty, ErrorState, Skeleton, RawJson, DataTable
+                           Empty, ErrorState, Skeleton, RawJson, DataTable, ThemeToggle
+  components/ui/           shadcn/ui (vendored — see below)
   features/<area>/api.ts   one TanStack Query hook per endpoint
   routes/                  Dashboard, Word, Analyze, Search, Rag, Data, Links, NotFound
   lib/*.test.ts            vitest suites
 ```
+
+### UI layer — shadcn/ui
+
+`components.json` is committed and the `ui/` folder is **vendored shadcn code**, not a dependency
+you import: the CLI copies the files in, you own them afterwards. Re-run the CLI the canonical way
+when adding a primitive:
+
+```bash
+bunx shadcn@latest add -y -o <component>     # or `init` to re-apply config
+```
+
+Installed: `button` `card` `table` `input` `textarea` `dialog` `alert-dialog` `badge` `tabs`
+`skeleton` `separator` `select` `dropdown-menu` `tooltip` `sheet` `scroll-area` `alert` `label`
+`sonner`.
+
+Three registry files needed small local edits, all documented in place:
+
+- `ui/table.tsx` — added an optional `containerClassName` so `DataTable` can put shadcn's
+  `scroll-fade-x` affordance on the element that actually scrolls.
+- `ui/{dialog,sheet,select,dropdown-menu}.tsx` — `IconPlaceholder` (a shadcn-"create"-app import
+  that does not exist here) resolved to the lucide icons it names.
+- `ui/sonner.tsx` — wired to `src/lib/theme.ts` instead of `next-themes`.
+
+### Theme
+
+Class-based `.dark` on `<html>`, three preferences — `system | light | dark` — persisted under
+`zolai.theme`.
+
+- **No flash.** `index.html` runs a small *blocking* script in `<head>` that resolves the
+  preference and sets the class, `style.colorScheme` and `<meta name="color-scheme">` before first
+  paint. `src/lib/theme.test.ts` asserts the script is present, comes before the module entrypoint,
+  and encodes the same rules as `src/lib/theme.ts`.
+- The TopBar switch shows sun/moon for the resolved theme and names the three choices in the menu.
+- `system` follows `prefers-color-scheme` live via `matchMedia`.
+- Only `--primary*` / `--ring*` are customised (emerald, the previous brand accent); the rest is the
+  stock neutral shadcn token set, so light and dark both ship in one CSS file.
+
+### Responsive strategy
+
+Authored mobile-first — base classes are the small-screen layout and `sm:` / `md:` / `lg:` scale up.
+
+| Concern | Approach |
+|---------|----------|
+| Navigation | `<Sheet>` drawer with a hamburger below `lg`; persistent 15rem sidebar from `lg` |
+| Grids | `grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4` |
+| Forms | stacked fields, `sm:grid-cols-[1fr_auto_auto]` side by side |
+| Tables | per-column `hideBelow` priority (`hidden md:table-cell`) plus a scrolling container with `scroll-fade-x`, so 375px shows the priority columns and never breaks the page |
+| Touch | `max-lg:h-10` (40px) / `max-lg:h-11` on interactive controls below `lg` |
+| Word sub-resources | shadcn `<Tabs>` with a horizontally scrollable `<TabsList>` |
 
 ### Design decisions
 
@@ -142,7 +196,7 @@ The same list is rendered as cards on `/links` under "Known API gaps".
 bun run test
 ```
 
-58 Vitest specs across three files:
+90 Vitest specs across five files:
 
 - `src/lib/api.test.ts` — 401 → `ApiError` with `needsKey`; 15s timeout budget and abort →
   `timeout` / `aborted` distinction; transport failure → `network`; **empty body tolerated** instead
@@ -156,6 +210,13 @@ bun run test
   middle of a key.
 - `src/lib/schemas.test.ts` — every endpoint parsed from a **live-captured** payload, including the
   all-zero unknown-word response and the empty `pos`/`grammar`/`entities` sentence.
+- `src/lib/theme.test.ts` — preference parsing (only `system|light|dark`, corrupt values fall back),
+  `system` collapsing against `prefers-color-scheme`, the `system → light → dark` cycle, the
+  `localStorage` round-trip plus recovery from a throwing/blocked store, `.dark` + `colorScheme` +
+  `<meta>` application, and the **no-flash guard on `index.html`**.
+- `src/lib/datatable.test.ts` — the table sort comparator (numeric, locale-aware, natural ordering,
+  nullish/NaN last), the TanStack `sortFn` built from it, the `hideBelow` → `hidden md:table-cell`
+  map and the alignment map.
 
 ## Deploy
 
@@ -195,11 +256,15 @@ Verified latest stable at build time, pinned exactly:
 
 `react@19.3.0` · `react-dom@19.3.0` · `vite@8.3.2` · `@vitejs/plugin-react@6.1.1` ·
 `typescript@~5.9.3` (7.x is latest but the tooling lags, so 5.9 is pinned) · `tailwindcss@4.3.3` ·
-`@tailwindcss/vite@4.3.3` · `@tanstack/react-query@5.104.1` · `react-router-dom@7.18.4` ·
-`lucide-react@1.51.0` · `zod@4.6.5` · `vitest@5.0.3` (dev).
+`@tailwindcss/vite@4.3.3` · `@tanstack/react-query@5.104.1` · `@tanstack/react-table@9.2.4` ·
+`react-router-dom@7.18.4` · `lucide-react@1.51.0` · `zod@4.6.5` · `vitest@5.0.3` (dev).
 
-Tailwind 4 via the Vite plugin — no `tailwind.config.js`, no PostCSS. No UI kit: every component is
-hand-rolled and lives in `src/components/`.
+UI: `shadcn@4.21.1` (CLI + the `shadcn/tailwind.css` utilities), `radix-ui@1.6.7`,
+`class-variance-authority@0.7.1`, `cn@0.4.0`, `sonner@2.0.8`, `tw-animate-css@1.4.0`,
+`@fontsource-variable/geist@5.3.0`.
+
+Tailwind 4 via the Vite plugin — no `tailwind.config.js`, no PostCSS. The token layer is Tailwind v4
+CSS-first (`@theme inline` + `@custom-variant dark`), not a JS config.
 
 ## Licence and credits
 

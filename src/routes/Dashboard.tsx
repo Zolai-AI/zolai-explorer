@@ -24,6 +24,8 @@ import { Empty } from '../components/Empty'
 import { ErrorPanel } from '../components/ErrorState'
 import { RawJson } from '../components/RawJson'
 import { SkeletonGrid } from '../components/Skeleton'
+import { DataTable, type Column } from '../components/DataTable'
+import { Button } from '../components/ui/button'
 import { DOCS_URL, METRICS_URL, REVIEW_URL } from '../lib/api'
 import { formatCount, formatTimestamp, formatUptime } from '../lib/format'
 
@@ -92,32 +94,72 @@ export function Dashboard() {
     }))
   }, [stats.data])
 
-  const unlabelled = useMemo(() => {
-    const entries = stats.data?.stats ?? {}
-    return Object.entries(entries).filter(
-      ([key]) => !TILE_MAP.some((spec) => spec.match.test(key)),
-    )
-  }, [stats.data])
+  /** Every reported collection, sorted — the flat table under the tiles. */
+  const allRows = useMemo(
+    () =>
+      Object.entries(stats.data?.stats ?? {})
+        .map(([label, count]) => ({ label, count }))
+        .sort((a, b) => b.count - a.count),
+    [stats.data],
+  )
 
   const totalRows = useMemo(
     () => Object.values(stats.data?.stats ?? {}).reduce((sum, n) => sum + n, 0),
     [stats.data],
   )
 
+  const allColumns: Column<(typeof allRows)[number]>[] = [
+    {
+      key: 'label',
+      header: 'Collection',
+      sortValue: (row) => row.label,
+      cell: (row) => <span className="text-foreground">{row.label}</span>,
+    },
+    {
+      key: 'count',
+      header: 'Rows',
+      align: 'right',
+      mono: true,
+      sortValue: (row) => row.count,
+      cell: (row) => formatCount(row.count),
+    },
+    {
+      key: 'share',
+      header: 'Share',
+      align: 'right',
+      hideBelow: 'lg',
+      sortValue: (row) => (totalRows === 0 ? 0 : row.count / totalRows),
+      cell: (row) => {
+        const share = totalRows === 0 ? 0 : row.count / totalRows
+        return (
+          <span className="inline-flex items-center justify-end gap-2">
+            <span className="hidden h-1.5 w-16 overflow-hidden rounded-full bg-muted sm:inline-block">
+              <span
+                className="block h-full rounded-full bg-primary"
+                style={{ width: `${Math.max(share * 100, 1)}%` }}
+              />
+            </span>
+            <span className="tabular-nums text-muted-foreground">{(share * 100).toFixed(1)}%</span>
+          </span>
+        )
+      },
+    },
+  ]
+
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight text-slate-50 sm:text-2xl">
+          <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">
             Zolai Core knowledge base
           </h1>
-          <p className="mt-1 max-w-prose text-sm text-slate-400">
+          <p className="mt-1 max-w-prose text-sm text-muted-foreground">
             Live counts from the deployed API, plus service health and the knowledge version the
             container is serving.
           </p>
         </div>
         {stats.data && (
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-muted-foreground">
             <span className="tabular-nums">{formatCount(totalRows)}</span> rows across{' '}
             <span className="tabular-nums">{Object.keys(stats.data.stats).length}</span> collections
           </p>
@@ -149,29 +191,41 @@ export function Dashboard() {
               ))}
           </div>
         )}
-
-        {unlabelled.length > 0 && (
-          <p className="mt-3 text-xs text-slate-500">
-            Also reported:{' '}
-            {unlabelled.map(([key, value]) => (
-              <span key={key} className="mr-2 font-mono">
-                {key}={formatCount(value)}
-              </span>
-            ))}
-          </p>
-        )}
       </section>
+
+      <Card
+        title="All collections"
+        subtitle="every row the endpoint reports — including collections without a dashboard tile"
+        actions={
+          <Button asChild variant="outline" size="sm" className="max-lg:h-10">
+            <Link to="/data">Grouped view</Link>
+          </Button>
+        }
+      >
+        {stats.isPending ? (
+          <p className="text-sm text-muted-foreground">Loading…</p>
+        ) : stats.isError ? (
+          <ErrorPanel error={stats.error} onRetry={() => void stats.refetch()} />
+        ) : allRows.length === 0 ? (
+          <Empty title="No collections" hint="The API returned an empty stats object." />
+        ) : (
+          <DataTable
+            columns={allColumns}
+            rows={allRows}
+            rowKey={(row) => row.label}
+            caption="Every collection reported by /knowledge/statistics with its row count"
+          />
+        )}
+      </Card>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card
           title="Service health"
           subtitle="GET /health — public, no API key"
-          actions={
-            <HeartPulse className="size-4 text-slate-600" aria-hidden />
-          }
+          actions={<HeartPulse className="text-muted-foreground/70" aria-hidden />}
         >
           {health.isPending ? (
-            <p className="text-sm text-slate-400">Checking…</p>
+            <p className="text-sm text-muted-foreground">Checking…</p>
           ) : health.isError ? (
             <ErrorPanel error={health.error} onRetry={() => void health.refetch()} />
           ) : (
@@ -192,10 +246,10 @@ export function Dashboard() {
         <Card
           title="Knowledge version"
           subtitle="GET /knowledge/version"
-          actions={<GitCommit className="size-4 text-slate-600" aria-hidden />}
+          actions={<GitCommit className="text-muted-foreground/70" aria-hidden />}
         >
           {version.isPending ? (
-            <p className="text-sm text-slate-400">Loading…</p>
+            <p className="text-sm text-muted-foreground">Loading…</p>
           ) : version.isError ? (
             <ErrorPanel error={version.error} onRetry={() => void version.refetch()} />
           ) : (
@@ -216,7 +270,7 @@ export function Dashboard() {
       </div>
 
       <section aria-label="Quick jump">
-        <h2 className="mb-3 text-sm font-semibold tracking-wide text-slate-300 uppercase">
+        <h2 className="mb-3 text-sm font-semibold tracking-wide text-muted-foreground uppercase">
           Jump to a workbench
         </h2>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -224,17 +278,17 @@ export function Dashboard() {
             <Link
               key={jump.to}
               to={jump.to}
-              className="group flex flex-col gap-2 rounded-xl border border-slate-800 bg-slate-900/60 p-4 transition hover:border-emerald-500/30 hover:bg-slate-900"
+              className="group hover:bg-muted/60 focus-visible:ring-ring flex flex-col gap-2 rounded-xl border p-4 transition focus-visible:ring-2 focus-visible:outline-none"
             >
               <span className="flex items-center justify-between">
-                <jump.icon className="size-4 text-emerald-400" aria-hidden />
+                <jump.icon className="size-4 text-primary" aria-hidden />
                 <ArrowRight
-                  className="size-3.5 text-slate-600 transition group-hover:translate-x-0.5 group-hover:text-slate-300"
+                  className="size-3.5 text-muted-foreground/60 transition group-hover:translate-x-0.5 group-hover:text-foreground"
                   aria-hidden
                 />
               </span>
-              <span className="text-sm font-semibold text-slate-100">{jump.title}</span>
-              <span className="text-xs leading-relaxed text-slate-400">{jump.body}</span>
+              <span className="text-sm font-semibold">{jump.title}</span>
+              <span className="text-xs leading-relaxed text-muted-foreground">{jump.body}</span>
             </Link>
           ))}
         </div>
@@ -244,20 +298,21 @@ export function Dashboard() {
         <ul className="grid gap-2 sm:grid-cols-3">
           {EXTERNAL_LINKS.map((link) => (
             <li key={link.href}>
-              <a
-                href={link.href}
-                target="_blank"
-                rel="noreferrer noopener"
-                className="flex items-start gap-2 rounded-lg border border-slate-800 px-3 py-2 transition hover:border-slate-600 hover:bg-slate-800/40"
+              <Button
+                variant="outline"
+                asChild
+                className="h-auto max-lg:min-h-11 w-full items-start justify-start gap-2 px-3 py-2 text-left"
               >
-                <ExternalLink className="mt-0.5 size-3.5 shrink-0 text-slate-500" aria-hidden />
-                <span className="min-w-0">
-                  <span className="block text-xs font-medium text-slate-200">{link.label}</span>
-                  <span className="block truncate font-mono text-[11px] text-slate-500">
-                    {link.note}
+                <a href={link.href} target="_blank" rel="noreferrer noopener">
+                  <ExternalLink className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                  <span className="min-w-0">
+                    <span className="block text-xs font-medium">{link.label}</span>
+                    <span className="block font-mono text-[11px] text-muted-foreground">
+                      {link.note}
+                    </span>
                   </span>
-                </span>
-              </a>
+                </a>
+              </Button>
             </li>
           ))}
         </ul>
@@ -269,8 +324,8 @@ export function Dashboard() {
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="min-w-0">
-      <dt className="text-[10px] font-medium tracking-wider text-slate-500 uppercase">{label}</dt>
-      <dd className="mt-0.5 truncate text-slate-200">{children}</dd>
+      <dt className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase">{label}</dt>
+      <dd className="mt-0.5 truncate">{children}</dd>
     </div>
   )
 }

@@ -1,18 +1,24 @@
 import { useState, type FormEvent } from 'react'
-import {
-  AlertTriangle,
-  BookOpen,
-  MessageSquareQuote,
-  Quote,
-  ScrollText,
-  Sparkles,
-} from 'lucide-react'
+import { AlertTriangle, BookOpen, MessageSquareQuote, Quote, ScrollText, Sparkles } from 'lucide-react'
+import { toast } from 'sonner'
 import { RAG_LIMITS, useRag } from '../features/rag/api'
 import { Card } from '../components/Card'
 import { Empty } from '../components/Empty'
 import { ErrorState } from '../components/ErrorState'
 import { RawJson } from '../components/RawJson'
 import { Metric } from '../components/StatTile'
+import { Skeleton } from '../components/Skeleton'
+import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert'
+import { Button } from '../components/ui/button'
+import { Input } from '../components/ui/input'
+import { Label } from '../components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select'
 import { formatCount } from '../lib/format'
 import type { RagResult } from '../lib/schemas'
 
@@ -29,50 +35,56 @@ const SAMPLES = ['Pasian', 'gam', 'thupha', 'kei ding', 'bang hang pai na hiam']
  */
 function PlaceholderNotice() {
   return (
-    <div
-      role="note"
-      className="flex gap-2.5 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3"
-    >
-      <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-400" aria-hidden />
-      <div className="min-w-0 text-xs leading-relaxed text-amber-100">
-        <p className="font-semibold text-amber-200">Placeholder answer — not LLM-generated</p>
-        <p className="mt-1 text-amber-100/80">
-          This deployment runs the lexical retrieval path only. The{' '}
-          <span className="font-mono">answer</span> below is a template echo of the snippets it
-          retrieved, and the server holds a placeholder{' '}
-          <span className="font-mono">GEMINI_API_KEY</span> so no model is called. Treat the{' '}
-          <span className="font-mono">context</span> and <span className="font-mono">citations</span>{' '}
-          as the real output.
-        </p>
-      </div>
-    </div>
+    <Alert className="border-amber-500/40 bg-amber-500/10 text-amber-900 dark:text-amber-200">
+      <AlertTriangle aria-hidden />
+      <AlertTitle>Placeholder answer — not LLM-generated</AlertTitle>
+      <AlertDescription className="text-amber-800/90 dark:text-amber-100/80">
+        This deployment runs the lexical retrieval path only. The{' '}
+        <span className="font-mono">answer</span> below is a template echo of the snippets it
+        retrieved, and the server holds a placeholder <span className="font-mono">GEMINI_API_KEY</span>{' '}
+        so no model is called. Treat the <span className="font-mono">context</span> and{' '}
+        <span className="font-mono">citations</span> as the real output.
+      </AlertDescription>
+    </Alert>
   )
 }
 
 export function Rag() {
   const [question, setQuestion] = useState(SAMPLES[0])
-  const [limit, setLimit] = useState<number>(RAG_LIMITS[1])
+  const [limit, setLimit] = useState<string>(String(RAG_LIMITS[1]))
   const rag = useRag()
 
   const submit = (event: FormEvent) => {
     event.preventDefault()
     const clean = question.trim()
-    if (clean) rag.mutate({ question: clean, limit })
+    if (!clean) return
+    rag.mutate(
+      { question: clean, limit: Number(limit) },
+      {
+        onError: (error: unknown) =>
+          toast.error('Retrieval failed', {
+            description: error instanceof Error ? error.message : String(error),
+          }),
+      },
+    )
   }
 
   const data = rag.data
   const citations = data?.citations ?? []
   const answerIsPlaceholderEcho =
-    !data || data.retrieved_count === 0 || data.answer.trim() === '' || /^Based on \d+ sources:/i.test(data.answer.trim())
+    !data ||
+    data.retrieved_count === 0 ||
+    data.answer.trim() === '' ||
+    /^Based on \d+ sources:/i.test(data.answer.trim())
 
   return (
     <div className="flex flex-col gap-5">
       <header>
-        <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight text-slate-50">
-          <MessageSquareQuote className="size-5 text-emerald-400" aria-hidden />
+        <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
+          <MessageSquareQuote className="size-5 text-primary" aria-hidden />
           RAG retrieval
         </h1>
-        <p className="mt-1 max-w-prose text-sm text-slate-400">
+        <p className="mt-1 max-w-prose text-sm text-muted-foreground">
           Retrieval-augmented generation endpoint, shown honestly: the retrieved context and
           citations are real corpus data, the answer is a placeholder.
         </p>
@@ -80,59 +92,57 @@ export function Rag() {
 
       <PlaceholderNotice />
 
-      <Card title="Question" subtitle="POST /rag" actions={<Sparkles className="size-4 text-slate-600" aria-hidden />}>
+      <Card
+        title="Question"
+        subtitle="POST /rag"
+        actions={<Sparkles className="text-muted-foreground/70" aria-hidden />}
+      >
         <form onSubmit={submit} className="flex flex-col gap-3">
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="min-w-0 flex-1">
-              <label htmlFor="rag-question" className="block text-xs font-medium text-slate-300">
-                Question or Zolai query
-              </label>
-              <input
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_auto_auto] sm:items-end">
+            <div className="min-w-0">
+              <Label htmlFor="rag-question">Question or Zolai query</Label>
+              <Input
                 id="rag-question"
                 value={question}
                 onChange={(event) => setQuestion(event.target.value)}
                 placeholder="Pasian"
                 autoComplete="off"
                 spellCheck={false}
-                className="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-600 focus:border-emerald-500 focus:outline-none"
+                className="mt-1.5 h-10"
               />
             </div>
-            <div>
-              <label htmlFor="rag-limit" className="block text-xs font-medium text-slate-300">
-                Limit
-              </label>
-              <select
-                id="rag-limit"
-                value={limit}
-                onChange={(event) => setLimit(Number(event.target.value))}
-                className="mt-1.5 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-emerald-500 focus:outline-none"
-              >
-                {RAG_LIMITS.map((choice) => (
-                  <option key={choice} value={choice}>
-                    {choice}
-                  </option>
-                ))}
-              </select>
+            <div className="sm:w-28">
+              <Label htmlFor="rag-limit">Limit</Label>
+              <Select value={limit} onValueChange={setLimit}>
+                <SelectTrigger id="rag-limit" className="mt-1.5 h-10 w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {RAG_LIMITS.map((choice) => (
+                    <SelectItem key={choice} value={String(choice)}>
+                      {choice}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            <button
-              type="submit"
-              disabled={!question.trim() || rag.isPending}
-              className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
-            >
+            <Button type="submit" disabled={!question.trim() || rag.isPending} className="h-10">
               {rag.isPending ? 'Retrieving…' : 'Retrieve'}
-            </button>
+            </Button>
           </div>
 
           <div className="flex flex-wrap gap-1.5">
             {SAMPLES.map((sample) => (
-              <button
+              <Button
                 key={sample}
                 type="button"
+                variant="outline"
+                size="xs"
                 onClick={() => setQuestion(sample)}
-                className="rounded-md border border-slate-800 px-2 py-0.5 font-mono text-[11px] text-slate-400 transition hover:border-slate-600 hover:text-slate-200"
+                className="max-lg:h-10 font-mono font-normal"
               >
                 {sample}
-              </button>
+              </Button>
             ))}
           </div>
         </form>
@@ -147,15 +157,12 @@ export function Rag() {
           <ErrorState error={rag.error} compact />
         </Card>
       ) : !data ? (
-        <Empty
-          title="No retrieval yet"
-          hint="Submit a question to retrieve corpus snippets with citations."
-        />
+        <Empty title="No retrieval yet" hint="Submit a question to retrieve corpus snippets with citations." />
       ) : (
         <>
           <Card
             title="Retrieval summary"
-            actions={<BookOpen className="size-4 text-slate-600" aria-hidden />}
+            actions={<BookOpen className="text-muted-foreground/70" aria-hidden />}
           >
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <Metric label="Retrieved" value={formatCount(data.retrieved_count)} hint="snippets" />
@@ -175,7 +182,7 @@ export function Rag() {
             tone="muted"
           >
             {data.answer ? (
-              <pre className="scrollbar-thin max-h-48 overflow-auto whitespace-pre-wrap rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 font-mono text-xs leading-relaxed text-amber-100/90">
+              <pre className="scrollbar-thin max-h-48 overflow-auto rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 font-mono text-xs leading-relaxed whitespace-pre-wrap text-amber-900 dark:text-amber-100">
                 {data.answer}
               </pre>
             ) : (
@@ -186,10 +193,10 @@ export function Rag() {
           <Card
             title="Retrieved context"
             subtitle="the real retrieval output"
-            actions={<ScrollText className="size-4 text-slate-600" aria-hidden />}
+            actions={<ScrollText className="text-muted-foreground/70" aria-hidden />}
           >
             {data.context ? (
-              <pre className="scrollbar-thin max-h-72 overflow-auto whitespace-pre-wrap rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 font-mono text-xs leading-relaxed text-slate-300">
+              <pre className="scrollbar-thin max-h-72 overflow-auto rounded-lg border bg-muted/40 px-3 py-2 font-mono text-xs leading-relaxed whitespace-pre-wrap">
                 {data.context}
               </pre>
             ) : (
@@ -203,7 +210,7 @@ export function Rag() {
           <Card
             title="Citations"
             subtitle={`${citations.length} source${citations.length === 1 ? '' : 's'}`}
-            actions={<Quote className="size-4 text-slate-600" aria-hidden />}
+            actions={<Quote className="text-muted-foreground/70" aria-hidden />}
           >
             <CitationList data={data} />
           </Card>
@@ -217,25 +224,20 @@ export function Rag() {
 
 function CitationList({ data }: { data: RagResult }) {
   if (data.citations.length === 0) {
-    return (
-      <Empty
-        title="No citations"
-        hint="Citations appear only when the retrieval returns snippets."
-      />
-    )
+    return <Empty title="No citations" hint="Citations appear only when the retrieval returns snippets." />
   }
   return (
     <ol className="flex flex-col gap-2">
       {data.citations.map((citation, index) => (
         <li
           key={`${citation.id}-${index}`}
-          className="flex gap-2.5 rounded-lg border border-slate-800 bg-slate-950/40 p-3"
+          className="flex gap-2.5 rounded-lg border bg-muted/40 p-3"
         >
-          <span className="shrink-0 font-mono text-[11px] text-emerald-400">[{citation.id}]</span>
+          <span className="shrink-0 font-mono text-[11px] text-primary">[{citation.id}]</span>
           <div className="min-w-0 flex-1">
-            <p className="mb-1 font-mono text-[11px] text-slate-500">{citation.source}</p>
-            <p className="text-xs leading-relaxed break-words text-slate-200">
-              {citation.text || <span className="text-slate-600 italic">empty excerpt</span>}
+            <p className="mb-1 font-mono text-[11px] text-muted-foreground">{citation.source}</p>
+            <p className="text-xs leading-relaxed break-words">
+              {citation.text || <span className="text-muted-foreground italic">empty excerpt</span>}
             </p>
           </div>
         </li>
@@ -249,11 +251,11 @@ function RagSkeleton() {
     <div className="flex flex-col gap-3" aria-busy="true">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {[0, 1, 2, 3].map((i) => (
-          <div key={i} className="h-14 rounded-lg bg-slate-800" />
+          <Skeleton key={i} className="h-14" />
         ))}
       </div>
-      <div className="h-24 rounded-lg bg-slate-800" />
-      <div className="h-32 rounded-lg bg-slate-800" />
+      <Skeleton className="h-24" />
+      <Skeleton className="h-32" />
       <span className="sr-only">Retrieving…</span>
     </div>
   )
