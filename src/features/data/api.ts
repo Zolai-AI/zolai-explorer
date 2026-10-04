@@ -3,9 +3,11 @@
 import { useQuery } from '@tanstack/react-query'
 import { apiGet } from '../../lib/api'
 import {
+  FoundationStatsSchema,
   KnowledgeVersionSchema,
   StatisticsSchema,
   parseOrThrow,
+  type FoundationStats,
   type KnowledgeVersion,
   type Statistics,
 } from '../../lib/schemas'
@@ -26,6 +28,25 @@ export function useKnowledgeVersion() {
         KnowledgeVersionSchema,
         await apiGet<unknown>('/knowledge/version', { signal }),
         'knowledge version',
+      ),
+  })
+}
+
+/**
+ * Optional surface: `/foundation/stats` only exists when the deployment
+ * registers the foundation router, so it never retries and callers are expected
+ * to render nothing when it fails rather than surface an error.
+ */
+export function useFoundationStats() {
+  return useQuery({
+    queryKey: ['foundation', 'stats'],
+    retry: false,
+    staleTime: 5 * 60_000,
+    queryFn: async ({ signal }): Promise<FoundationStats> =>
+      parseOrThrow(
+        FoundationStatsSchema,
+        await apiGet<unknown>('/foundation/stats', { signal }),
+        'foundation stats',
       ),
   })
 }

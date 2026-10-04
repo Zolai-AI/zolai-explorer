@@ -1,4 +1,6 @@
-import { useState, type FormEvent } from 'react'
+import { useState } from 'react'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
 import { Database, Search as SearchIcon, SlidersHorizontal } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -10,6 +12,7 @@ import { RawJson } from '../components/RawJson'
 import { Skeleton } from '../components/Skeleton'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
+import { Field, FieldError, FieldLabel } from '../components/ui/field'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
 import {
@@ -20,10 +23,17 @@ import {
   SelectValue,
 } from '../components/ui/select'
 import { formatScore } from '../lib/format'
+import {
+  DEFAULT_SEARCH_LIMIT,
+  SEARCH_LIMIT_CHOICES,
+  searchQuerySchema,
+  submitSearch,
+  type SearchQueryInput,
+} from '../lib/forms'
 import type { SearchHit } from '../lib/schemas'
 import { cn } from '../lib/utils'
 
-const LIMIT_CHOICES = [5, 10, 25, 50]
+const LIMIT_CHOICES = SEARCH_LIMIT_CHOICES
 
 /** Split a `table:ref`-style id into a clickable source + reference pair. */
 function splitId(id: string): { source: string; ref: string } {
@@ -40,23 +50,28 @@ function sourceTone(source: string): string {
 }
 
 export function Search() {
-  const [query, setQuery] = useState('pasian')
-  const [limit, setLimit] = useState('10')
+  const [limit, setLimit] = useState(String(DEFAULT_SEARCH_LIMIT))
   const search = useSearch()
 
-  const submit = (event: FormEvent) => {
-    event.preventDefault()
-    const clean = query.trim()
-    if (!clean) return
-    search.mutate(
-      { query: clean, limit: Number(limit) },
-      {
-        onError: (error: unknown) =>
-          toast.error('Search failed', {
-            description: error instanceof Error ? error.message : String(error),
-          }),
-      },
-    )
+  /**
+   * `useForm` + zod validates the query before the mutation runs; the limit is
+   * a `<Select>` value handed to the pure `submitSearch` handler, which clamps
+   * it and returns the exact payload the API receives.
+   */
+  const form = useForm<SearchQueryInput>({
+    resolver: zodResolver(searchQuerySchema),
+    defaultValues: { query: 'pasian' },
+  })
+
+  const runSearch = (query: string, rawLimit: string) => {
+    const payload = submitSearch({ query, limit: rawLimit })
+    if (!payload.ok) return
+    search.mutate(payload.value, {
+      onError: (error: unknown) =>
+        toast.error('Search failed', {
+          description: error instanceof Error ? error.message : String(error),
+        }),
+    })
   }
 
   const results = search.data?.results ?? []
@@ -83,21 +98,29 @@ export function Search() {
         subtitle="POST /search"
         actions={<SlidersHorizontal className="text-muted-foreground/70" aria-hidden />}
       >
-        <form onSubmit={submit} className="flex flex-col gap-3">
+        <form
+          noValidate
+          className="flex flex-col gap-3"
+          onSubmit={form.handleSubmit((values) => runSearch(values.query, limit))}
+        >
           {/* Mobile-first: stacked fields, side by side from `sm`. */}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_auto_auto] sm:items-end">
-            <div className="min-w-0">
-              <Label htmlFor="search-query">Query</Label>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_auto_auto] sm:items-start">
+            <Field
+              className="min-w-0 gap-1.5"
+              data-invalid={form.formState.errors.query ? 'true' : undefined}
+            >
+              <FieldLabel htmlFor="search-query">Query</FieldLabel>
               <Input
                 id="search-query"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
                 placeholder="pasian, gam, thupha…"
                 autoComplete="off"
                 spellCheck={false}
-                className="mt-1.5 h-10 font-mono"
+                {...form.register('query')}
+                aria-invalid={form.formState.errors.query ? 'true' : undefined}
+                className="h-10 font-mono"
               />
-            </div>
+              <FieldError errors={[form.formState.errors.query]} />
+            </Field>
             <div className="sm:w-28">
               <Label htmlFor="search-limit">Limit</Label>
               <Select value={limit} onValueChange={setLimit}>
@@ -115,7 +138,7 @@ export function Search() {
             </div>
             <Button
               type="submit"
-              disabled={!query.trim() || search.isPending}
+              disabled={search.isPending}
               className="h-10 sm:w-auto"
             >
               {search.isPending ? 'Searching…' : 'Search'}

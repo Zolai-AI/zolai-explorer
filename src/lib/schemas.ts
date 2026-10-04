@@ -40,6 +40,24 @@ export const KnowledgeVersionSchema = z.object({
 })
 export type KnowledgeVersion = z.infer<typeof KnowledgeVersionSchema>
 
+/**
+ * `/foundation/stats` — curation counters for the knowledge pipeline.
+ *
+ * Optional surface: it 404s on deployments that do not register the foundation
+ * router, so the dashboard treats a failure as "this card does not render"
+ * rather than an error the user has to read.
+ */
+export const FoundationStatsSchema = z.object({
+  raw_count: num,
+  staging_count: num,
+  canonical_count: num,
+  evidence_count: num,
+  review_pending_count: num,
+  review_resolved_count: num,
+  batches_count: num,
+})
+export type FoundationStats = z.infer<typeof FoundationStatsSchema>
+
 /* -------------------------------------------------------------------- word */
 
 /** `/word/{w}` collocations use `freq`; the `/collocations` sub-resource uses `frequency`. */

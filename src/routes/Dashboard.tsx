@@ -16,7 +16,7 @@ import {
   Search,
   Sparkles,
 } from 'lucide-react'
-import { useKnowledgeVersion, useStatistics } from '../features/data/api'
+import { useKnowledgeVersion, useFoundationStats, useStatistics } from '../features/data/api'
 import { useHealth } from '../components/HealthPill'
 import { Card } from '../components/Card'
 import { StatTile } from '../components/StatTile'
@@ -25,6 +25,7 @@ import { ErrorPanel } from '../components/ErrorState'
 import { RawJson } from '../components/RawJson'
 import { SkeletonGrid } from '../components/Skeleton'
 import { DataTable, type Column } from '../components/DataTable'
+import { CorpusChart, CurationChart, PipelineChart } from '../components/Charts'
 import { Button } from '../components/ui/button'
 import { DOCS_URL, METRICS_URL, REVIEW_URL } from '../lib/api'
 import { formatCount, formatTimestamp, formatUptime } from '../lib/format'
@@ -85,6 +86,7 @@ export function Dashboard() {
   const stats = useStatistics()
   const version = useKnowledgeVersion()
   const health = useHealth()
+  const foundation = useFoundationStats()
 
   const tiles = useMemo(() => {
     const entries = stats.data?.stats ?? {}
@@ -191,6 +193,35 @@ export function Dashboard() {
               ))}
           </div>
         )}
+      </section>
+
+      <section aria-label="Charts">
+        <h2 className="mb-3 text-sm font-semibold tracking-wide text-muted-foreground uppercase">
+          Charts
+        </h2>
+        <div className="grid gap-4 xl:grid-cols-2">
+          <CorpusChart
+            stats={stats.data?.stats}
+            isPending={stats.isPending}
+            isError={stats.isError}
+            error={stats.error}
+            onRetry={() => void stats.refetch()}
+          />
+          <PipelineChart
+            stats={stats.data?.stats}
+            isPending={stats.isPending}
+            isError={stats.isError}
+            error={stats.error}
+            onRetry={() => void stats.refetch()}
+          />
+          <CurationChart
+            stats={foundation.data}
+            isPending={foundation.isPending}
+            isError={foundation.isError}
+            error={foundation.error}
+            onRetry={() => void foundation.refetch()}
+          />
+        </div>
       </section>
 
       <Card

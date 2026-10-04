@@ -61,3 +61,15 @@ export function alignClass(align: 'left' | 'right' | 'center' | undefined): stri
   if (align === 'center') return 'text-center'
   return 'text-left'
 }
+
+/**
+ * Human range for the pagination footer, e.g. `1–10 of 24 rows`. Pure so the
+ * arithmetic is unit tested and cannot drift from the markup.
+ */
+export function pageRange(pageIndex: number, pageSize: number, totalRows: number): string {
+  if (totalRows <= 0 || pageSize <= 0) return `0 of 0 rows`
+  const first = pageIndex * pageSize + 1
+  const last = Math.min((pageIndex + 1) * pageSize, totalRows)
+  if (first > totalRows) return `0 of ${totalRows} rows`
+  return `${first}\u2013${last} of ${totalRows} rows`
+}

@@ -1,5 +1,15 @@
 {
   "files": [],
+  // The `@/*` mapping is duplicated from `tsconfig.app.json` on purpose: the
+  // shadcn CLI resolves `components.json` aliases (`@/components`, …) through
+  // the ROOT tsconfig only, so without it `bunx shadcn add` writes files into a
+  // literal `./@/` folder instead of `src/`. Keep the two in sync.
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
   "references": [
     { "path": "./tsconfig.app.json" },
     { "path": "./tsconfig.node.json" }

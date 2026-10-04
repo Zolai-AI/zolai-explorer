@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { Button } from './ui/button'
 import { Separator } from './ui/separator'
+import { cn } from '../lib/utils'
 
 export type NavItem = {
   to: string
@@ -36,14 +37,27 @@ export const NAV_ITEMS: NavItem[] = [
  * `aria-current` styling rather than a parallel mechanism.
  *
  * `onNavigate` lets the mobile `<Sheet>` close itself after a tap.
+ *
+ * `collapsed` is the `lg+` icon-rail mode. It is **never** applied below `lg` —
+ * the caller only sets it for the persistent `<aside>`, and the `<Sheet>`
+ * drawer always renders the full-width labelled list.
  */
-export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
+export function Sidebar({
+  onNavigate,
+  collapsed = false,
+}: {
+  onNavigate?: () => void
+  collapsed?: boolean
+}) {
   return (
     <nav
       aria-label="Primary"
-      className="scrollbar-thin flex h-full w-full flex-col gap-1 overflow-y-auto p-3"
+      className={cn(
+        'scrollbar-thin flex h-full w-full flex-col gap-1 overflow-y-auto p-3',
+        collapsed && 'items-center px-1.5',
+      )}
     >
-      <ul className="flex flex-col gap-1">
+      <ul className={cn('flex flex-col gap-1', collapsed && 'w-full')}>
         {NAV_ITEMS.map(({ to, label, icon: Icon, description }) => (
           <li key={to}>
             <NavLink
@@ -57,14 +71,20 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                 <Button
                   variant="ghost"
                   // 44px rows: comfortably past the 40px mobile touch target.
-                  className={`max-lg:h-11 w-full justify-start gap-2.5 px-2.5 ${
+                  className={cn(
+                    'max-lg:h-11 w-full justify-start gap-2.5 px-2.5',
                     isActive
                       ? 'bg-primary/15 text-primary ring-1 ring-primary/30 hover:bg-primary/15'
-                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                  }`}
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                    collapsed && 'justify-center gap-0 px-0',
+                  )}
+                  // Icon-only mode: the label is hidden visually but the
+                  // accessible name and the tooltip title still carry it.
+                  aria-label={collapsed ? label : undefined}
+                  aria-current={isActive ? 'page' : undefined}
                 >
                   <Icon className="size-4.5 shrink-0" aria-hidden />
-                  <span className="truncate">{label}</span>
+                  {!collapsed && <span className="truncate">{label}</span>}
                 </Button>
               )}
             </NavLink>
@@ -72,12 +92,14 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         ))}
       </ul>
 
-      <div className="mt-auto space-y-2 pt-3">
+      <div className={cn('mt-auto space-y-2 pt-3', collapsed && 'w-full')}>
         <Separator />
-        <p className="px-2.5 text-[10px] leading-relaxed text-muted-foreground">
-          Read-only studio for the Zolai Core API. Ground truth: ZVS 2018 orthography, SOV order,
-          ergative <span className="font-mono">in</span>.
-        </p>
+        {!collapsed && (
+          <p className="px-2.5 text-[10px] leading-relaxed text-muted-foreground">
+            Read-only studio for the Zolai Core API. Ground truth: ZVS 2018 orthography, SOV order,
+            ergative <span className="font-mono">in</span>.
+          </p>
+        )}
         <Button
           variant="link"
           size="sm"
@@ -88,10 +110,14 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             href="https://github.com/Zolai-AI"
             target="_blank"
             rel="noreferrer noopener"
-            className="h-auto max-lg:h-10 justify-start px-2.5 text-xs text-muted-foreground"
+            title="Zolai-AI org on GitHub"
+            className={cn(
+              'h-auto max-lg:h-10 justify-start px-2.5 text-xs text-muted-foreground',
+              collapsed && 'justify-center px-0',
+            )}
           >
             <ExternalLink aria-hidden />
-            Zolai-AI org
+            {!collapsed && 'Zolai-AI org'}
           </a>
         </Button>
       </div>

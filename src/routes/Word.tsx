@@ -1,5 +1,7 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
 import {
   BookOpen,
   GitBranch,
@@ -27,29 +29,44 @@ import { Metric } from '../components/StatTile'
 import { RawJson } from '../components/RawJson'
 import { SkeletonCard } from '../components/Skeleton'
 import { DataTable, type Column } from '../components/DataTable'
+import { CollocationChart } from '../components/CollocationChart'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
+import { Field, FieldError, FieldLabel } from '../components/ui/field'
 import { Input } from '../components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
+import { submitWordLookup, wordLookupSchema, type WordLookupInput } from '../lib/forms'
 import type { Collocation, Evidence, Pattern, WordContext, Word } from '../lib/schemas'
 import { formatCount, formatScore, isNonEmptyArray, isNonEmptyRecord, percent } from '../lib/format'
 
 const SUGGESTIONS = ['pasian', 'gam', 'tapa', 'topa', 'thupha', 'kumpipa', 'keituh', 'nung']
 
+/** Word sub-resource tables can exceed a handful of rows, so they paginate. */
+const PAGE_SIZE = 10
+
 export function Word() {
   const params = useParams<{ word?: string }>()
   const navigate = useNavigate()
   const routeWord = params.word ?? ''
-  const [input, setInput] = useState(routeWord)
   const [tab, setTab] = useState<WordSubResource>('contexts')
 
-  useEffect(() => setInput(routeWord), [routeWord])
+  /**
+   * `useForm` + zod: the route is the source of truth, so the input is reset
+   * whenever the URL changes (including when the palette navigates to
+   * `/word/{w}`), and `submitWordLookup` is the pure handler that validates,
+   * trims and lower-cases before building the path.
+   */
+  const form = useForm<WordLookupInput>({
+    resolver: zodResolver(wordLookupSchema),
+    defaultValues: { word: routeWord },
+    mode: 'onSubmit',
+  })
 
-  const submit = (event: FormEvent) => {
-    event.preventDefault()
-    const clean = input.trim().toLowerCase()
-    if (clean) navigate(`/word/${encodeURIComponent(clean)}`)
-  }
+  useEffect(() => {
+    form.reset({ word: routeWord })
+    // `form` is stable across renders; resetting on the route word is the intent.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeWord])
 
   const word = routeWord
   const entry = useWord(word)
@@ -89,23 +106,45 @@ export function Word() {
           )}
         </div>
 
-        <form onSubmit={submit} className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <div className="relative min-w-0 flex-1">
-            <Search
-              className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
-              aria-hidden
-            />
-            <Input
-              value={input}
-              onChange={(event) => setInput(event.target.value)}
-              placeholder="Zolai word, e.g. pasian"
-              aria-label="Word to explore"
-              autoComplete="off"
-              spellCheck={false}
-              className="h-10 pr-3 pl-9 font-mono placeholder:font-sans"
-            />
-          </div>
-          <Button type="submit" disabled={!input.trim()} className="h-10">
+        <form
+          className="flex flex-col gap-2 sm:flex-row sm:items-start"
+          noValidate
+          onSubmit={form.handleSubmit((values) => {
+            const result = submitWordLookup(values)
+            if (!result.ok) {
+              form.setError('word', { message: result.issues[0] ?? 'Invalid word.' })
+              return
+            }
+            form.clearErrors('word')
+            navigate(result.value.path)
+          })}
+        >
+          <Field className="min-w-0 flex-1 gap-1.5" data-invalid={form.formState.errors.word ? 'true' : undefined}>
+            <FieldLabel htmlFor="word-lookup" className="sr-only">
+              Word to explore
+            </FieldLabel>
+            <div className="relative min-w-0">
+              <Search
+                className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+                aria-hidden
+              />
+              <Input
+                id="word-lookup"
+                {...form.register('word')}
+                placeholder="Zolai word, e.g. pasian"
+                aria-invalid={form.formState.errors.word ? 'true' : undefined}
+                autoComplete="off"
+                spellCheck={false}
+                className="h-10 pr-3 pl-9 font-mono placeholder:font-sans"
+              />
+            </div>
+            <FieldError errors={[form.formState.errors.word]} />
+          </Field>
+          <Button
+            type="submit"
+            className="h-10 sm:mt-0"
+            disabled={form.formState.isSubmitting}
+          >
             Explore
           </Button>
         </form>
@@ -500,13 +539,24 @@ function CollocationsPanel({ rows }: { rows: Collocation[] }) {
   ]
 
   return (
-    <DataTable
-      columns={columns}
-      rows={rows}
-      rowKey={(row, index) => `${row.word1}-${row.word2}-${index}`}
-      caption="Collocations with frequency and pointwise mutual information"
-      empty={<Empty title="No collocations" hint="The live endpoint returned an empty list for this word." />}
-    />
+    <div className="flex flex-col gap-4">
+      <CollocationChart
+        rows={rows}
+        isPending={false}
+        isError={false}
+        error={null}
+        onRetry={() => undefined}
+      />
+      <DataTable
+        columns={columns}
+        rows={rows}
+        rowKey={(row, index) => `${row.word1}-${row.word2}-${index}`}
+        caption="Collocations with frequency and pointwise mutual information"
+        empty={<Empty title="No collocations" hint="The live endpoint returned an empty list for this word." />}
+        pageSize={PAGE_SIZE}
+        columnVisibility
+      />
+    </div>
   )
 }
 
@@ -655,6 +705,8 @@ function EvidencePanel({ rows }: { rows: Evidence[] }) {
       rows={rows}
       rowKey={(row, index) => `${row.source_type}-${index}`}
       caption="Tiered provenance records for this word"
+      pageSize={PAGE_SIZE}
+      columnVisibility
       empty={
         <Empty
           title="No evidence records"

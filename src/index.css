@@ -203,16 +203,26 @@
     oklch(0.922 0 0);
   --ring:
     oklch(0.596 0.145 163.225);
+  /*
+   * Chart series palette. shadcn's `chart` primitive reads these through
+   * `var(--color-N)` (see `--color-chart-N` in the `@theme inline` block), so a
+   * series is referenced as `"var(--color-chart-1)"` in a component and NEVER
+   * as a literal colour — that is what makes light/dark repaint on toggle.
+   *
+   * The stock neutral values are all the same hue and therefore
+   * indistinguishable in a multi-series chart, so the five slots are given
+   * distinct hues anchored on the emerald brand accent.
+   */
   --chart-1:
-    oklch(0.87 0 0);
+    oklch(0.55 0.135 163.2);
   --chart-2:
-    oklch(0.556 0 0);
+    oklch(0.58 0.135 243);
   --chart-3:
-    oklch(0.439 0 0);
+    oklch(0.7 0.15 68);
   --chart-4:
-    oklch(0.371 0 0);
+    oklch(0.55 0.185 300);
   --chart-5:
-    oklch(0.269 0 0);
+    oklch(0.6 0.19 12);
   --radius:
     0.625rem;
   --sidebar:
@@ -273,16 +283,17 @@
     oklch(1 0 0 / 15%);
   --ring:
     oklch(0.765 0.177 163.223);
+  /* Chart series — same five hues, lightened for contrast on the dark surface. */
   --chart-1:
-    oklch(0.87 0 0);
+    oklch(0.74 0.15 163.2);
   --chart-2:
-    oklch(0.556 0 0);
+    oklch(0.7 0.13 243);
   --chart-3:
-    oklch(0.439 0 0);
+    oklch(0.8 0.14 78);
   --chart-4:
-    oklch(0.371 0 0);
+    oklch(0.71 0.16 300);
   --chart-5:
-    oklch(0.269 0 0);
+    oklch(0.72 0.17 15);
   --sidebar:
     oklch(0.205 0 0);
   --sidebar-foreground:

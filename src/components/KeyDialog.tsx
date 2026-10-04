@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useSyncExternalStore } from 'react'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
 import { toast } from 'sonner'
 import {
   clearApiKey,
@@ -7,6 +9,7 @@ import {
   setApiKey,
   subscribeApiKey,
 } from '../lib/key'
+import { apiKeySchema, submitApiKey, type ApiKeyInput } from '../lib/forms'
 import { queryClient } from '../lib/queryClient'
 import { Alert, AlertDescription, AlertTitle } from './ui/alert'
 import {
@@ -29,8 +32,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from './ui/dialog'
+import { Field, FieldError, FieldLabel } from './ui/field'
 import { Input } from './ui/input'
-import { Label } from './ui/label'
 
 /** Reactive read of the stored API key. The value itself never leaves the browser. */
 export function useApiKey(): { key: string; hasKey: boolean; masked: string } {
@@ -49,21 +52,41 @@ export function KeyDialog({
   reason?: string
 }) {
   const { masked } = useApiKey()
-  const [value, setValue] = useState('')
+
+  /**
+   * `useForm` + zod: the schema rejects an empty/whitespace paste *before* the
+   * dialog can overwrite a working key, and the field is cleared whenever the
+   * dialog re-opens. The value is only ever handed to `setApiKey`
+   * (`localStorage`) — never rendered as text, logged, or put in an error
+   * message. `submitApiKey` is the pure handler the tests cover.
+   */
+  const form = useForm<ApiKeyInput>({
+    resolver: zodResolver(apiKeySchema),
+    defaultValues: { apiKey: '' },
+  })
 
   useEffect(() => {
-    if (open) setValue('')
+    if (open) form.reset({ apiKey: '' })
+    // Resetting is the whole point of this effect; `form` is stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
-  const save = useCallback(() => {
-    const next = value.trim()
-    if (!next) return
-    setApiKey(next)
-    // Any previously cached response may have been produced without a key.
-    queryClient.clear()
-    toast.success('API key stored in this browser only.')
-    onClose()
-  }, [value, onClose])
+  const save = useCallback(
+    (values: ApiKeyInput) => {
+      const result = submitApiKey(values)
+      if (!result.ok) {
+        form.setError('apiKey', { message: result.issues[0] ?? 'Invalid API key.' })
+        return
+      }
+      setApiKey(result.value)
+      // Any previously cached response may have been produced without a key.
+      queryClient.clear()
+      toast.success('API key stored in this browser only.')
+      form.clearErrors('apiKey')
+      onClose()
+    },
+    [form, onClose],
+  )
 
   const clear = useCallback(() => {
     clearApiKey()
@@ -93,22 +116,23 @@ export function KeyDialog({
 
         <form
           className="space-y-2"
-          onSubmit={(event) => {
-            event.preventDefault()
-            save()
-          }}
+          noValidate
+          onSubmit={form.handleSubmit(save)}
         >
-          <Label htmlFor="api-key-input">Key</Label>
-          <Input
-            id="api-key-input"
-            type="password"
-            autoComplete="off"
-            spellCheck={false}
-            value={value}
-            onChange={(event) => setValue(event.target.value)}
-            placeholder="paste API key"
-            className="h-10 font-mono"
-          />
+          <Field data-invalid={form.formState.errors.apiKey ? 'true' : undefined}>
+            <FieldLabel htmlFor="api-key-input">Key</FieldLabel>
+            <Input
+              id="api-key-input"
+              type="password"
+              autoComplete="off"
+              spellCheck={false}
+              {...form.register('apiKey')}
+              aria-invalid={form.formState.errors.apiKey ? 'true' : undefined}
+              placeholder="paste API key"
+              className="h-10 font-mono"
+            />
+            <FieldError errors={[form.formState.errors.apiKey]} />
+          </Field>
 
           <p className="text-xs text-muted-foreground">
             Stored key: <span className="font-mono">{masked}</span>
@@ -153,7 +177,7 @@ export function KeyDialog({
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={!value.trim()} className="max-lg:h-10">
+              <Button type="submit" disabled={form.formState.isSubmitting} className="max-lg:h-10">
                 Save key
               </Button>
             </div>
