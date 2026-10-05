@@ -3,6 +3,7 @@ import { Outlet, useLocation } from 'react-router-dom'
 import { Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { NAV_ITEMS, Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
+import { AuthBanner } from './AuthBanner'
 import { KeyDialog } from './KeyDialog'
 import { CommandPalette } from './CommandPalette'
 import { Button } from './ui/button'
@@ -119,6 +120,8 @@ export function AppShell() {
 
         <main className="min-w-0 flex-1 px-3 py-4 sm:px-5 sm:py-6">
           <div className="mx-auto w-full max-w-6xl">
+            {/* Auth-mode notice (warn → enforce) sits above every panel. */}
+            <AuthBanner />
             <Outlet />
           </div>
         </main>

@@ -35,10 +35,19 @@ import {
   DropdownMenuTrigger,
 } from './ui/dropdown-menu'
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from './ui/select'
+import {
   alignClass,
   dataTableSortFn,
   hideBelowClass,
   pageRange,
+  resolvePageSize,
+  rowsSummary,
   type HideBelow,
 } from '../lib/datatable'
 import { cn } from '../lib/utils'
@@ -73,6 +82,11 @@ export type Column<T> = {
  * Pagination and column visibility are **opt-in** via `pageSize` /
  * `columnVisibility`: they only earn their space on tables that can hold more
  * than a handful of rows, so the 12-row collections tables stay clean.
+ *
+ * `serverLimit` marks a table whose rows come from a paginated API route. The
+ * footer then reports `showing N rows (limit L)` — never a total the server did
+ * not send — and says so explicitly when `N === L`, because that means the list
+ * may be truncated. `pageSizeOptions` adds a page-size `<Select>`.
  */
 export function DataTable<T extends RowData>({
   columns,
@@ -82,6 +96,8 @@ export function DataTable<T extends RowData>({
   empty = null,
   pageSize,
   columnVisibility = false,
+  pageSizeOptions,
+  serverLimit = null,
 }: {
   columns: Column<T>[]
   rows: T[]
@@ -92,14 +108,26 @@ export function DataTable<T extends RowData>({
   pageSize?: number
   /** Enable the "columns" dropdown that hides/shows each column. */
   columnVisibility?: boolean
+  /**
+   * Server-side `limit` behind these rows. When set, the footer says
+   * `showing N rows (limit L)` and warns when the list may be truncated.
+   */
+  serverLimit?: number | null
+  /** Offer a page-size `<Select>` with these choices (implies `pageSize`). */
+  pageSizeOptions?: readonly number[]
 }) {
   const [sorting, setSorting] = useState<SortingState>([])
   const [columnVisibilityState, setColumnVisibilityState] = useState<ColumnVisibilityState>({})
-  const paginate = typeof pageSize === 'number' && pageSize > 0
+  // A page-size choice list implies pagination: without a `pageSize` prop the
+  // component widens the page to the row count and shows every row.
+  const choices = pageSizeOptions ?? null
+  const paginate = (typeof pageSize === 'number' && pageSize > 0) || choices !== null
+  const initialSize = resolvePageSize(pageSize ?? choices?.[0], choices ?? undefined, 10)
   const [pagination, setPagination] = useState<PaginationState>({
     pageIndex: 0,
-    pageSize: paginate ? pageSize : 10,
+    pageSize: paginate ? initialSize : 10,
   })
+  const summary = rowsSummary(rows.length, serverLimit)
 
   // A non-paginated table must keep showing *every* row, including rows that
   // only arrive after the first render (a refetch can grow the list). Rather
@@ -272,9 +300,46 @@ export function DataTable<T extends RowData>({
               <TableCell colSpan={columns.length} className="text-xs font-normal">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-muted-foreground tabular-nums">
-                    {pageRange(table.getState().pagination.pageIndex, pageSize, rows.length)}
+                    {serverLimit === null
+                      ? pageRange(
+                          table.getState().pagination.pageIndex,
+                          pagination.pageSize,
+                          rows.length,
+                        )
+                      : summary.text}
+                    {summary.truncated && (
+                      <span className="ml-2 text-amber-700 dark:text-amber-300">
+                        {summary.notice}
+                      </span>
+                    )}
                   </span>
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1.5">
+                    {choices && (
+                      <Select
+                        value={String(pagination.pageSize)}
+                        onValueChange={(value) =>
+                          setPagination({
+                            pageIndex: 0,
+                            pageSize: resolvePageSize(value, choices, initialSize),
+                          })
+                        }
+                      >
+                        <SelectTrigger
+                          size="sm"
+                          className="max-lg:h-10"
+                          aria-label="Rows per page"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {choices.map((choice) => (
+                            <SelectItem key={choice} value={String(choice)}>
+                              {choice} rows
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
                     <Button
                       variant="outline"
                       size="xs"

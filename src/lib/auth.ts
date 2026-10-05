@@ -69,6 +69,46 @@ export function roleBadge(role: Role): RoleBadge {
   }
 }
 
+/* ------------------------------------------------------- auth-mode notice */
+
+export type AuthModeNotice = {
+  /** `false` when there is nothing to say (enforce, off, or no answer yet). */
+  show: boolean
+  tone: 'warn' | 'ok'
+  title: string
+  body: string
+  /** Label for the call to action, `null` when there is nothing to do. */
+  cta: string | null
+}
+
+/**
+ * What the shell says about the server's auth mode, from `GET /auth/me`'s `mode`.
+ *
+ * - `warn` — the API still accepts unauthenticated requests and *may* flip to
+ *   `enforce`. That is the one state where the UI should nag, because nothing
+ *   is broken yet and a key takes seconds to add.
+ * - `enforce` — a key is already required; the 401s on gated panels say it.
+ * - `off` — authentication is disabled deployment-wide; nothing to prepare for.
+ * - `''` (unknown, older server, offline) — say nothing rather than guess.
+ *
+ * Pure, so the wording is unit tested and cannot drift from the banner.
+ */
+export function authModeNotice(mode: string, role: Role): AuthModeNotice {
+  if (mode.trim().toLowerCase() !== 'warn') {
+    return { show: false, tone: 'ok', title: '', body: '', cta: null }
+  }
+  const who = role === 'anonymous' ? 'You are anonymous right now.' : `You are signed in as ${role}.`
+  return {
+    show: true,
+    tone: 'warn',
+    title: 'Authentication: warn mode',
+    body:
+      'The API accepts unauthenticated requests today, but it can flip to enforce at any time. ' +
+      `${who} Add a key now so nothing breaks when it does.`,
+    cta: 'Sign in…',
+  }
+}
+
 /* ------------------------------------------------------- reactive identity */
 
 /**

@@ -13,6 +13,7 @@ import { StatTile } from '../components/StatTile'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { HEALTH_URL } from '../lib/api'
+import { maxValue, rowIndexLabel, shareLabel, zeroBasedBarPercent } from '../lib/charts'
 import { formatCount, formatTimestamp, formatUptime } from '../lib/format'
 import { collectionFromSearch } from '../lib/routes'
 
@@ -60,8 +61,27 @@ export function Data() {
   }, [rows])
 
   const grandTotal = useMemo(() => rows.reduce((sum, row) => sum + row.count, 0), [rows])
+  const groupTotal = useMemo(
+    () => grouped.reduce((sum, [, value]) => sum + value, 0),
+    [grouped],
+  )
+  const groupMax = useMemo(() => maxValue(grouped.map(([, value]) => value)), [grouped])
+
+  // The bar axis: the largest collection, so every bar starts at zero.
+  const barMax = useMemo(() => maxValue(rows.map((row) => row.count)), [rows])
 
   const columns: Column<Row>[] = [
+    {
+      key: 'index',
+      header: '#',
+      align: 'right',
+      mono: true,
+      // Zero-based on purpose: row 0 is the first row on screen, and the number
+      // is the position in the table, not a server-side identifier.
+      cell: (_row, index) => (
+        <span className="text-muted-foreground">{rowIndexLabel(index)}</span>
+      ),
+    },
     {
       key: 'label',
       header: 'Collection',
@@ -81,33 +101,28 @@ export function Data() {
       cell: (row) => <Badge variant="secondary">{row.group}</Badge>,
     },
     {
-      key: 'count',
-      header: 'Rows',
+      // One numeric column: the bar is scaled from zero to the largest
+      // collection, and the exact count plus its share of the total rows are
+      // printed beside it — so the bar never has to carry a number alone. It is
+      // visible at every width, because on a phone it is the only numeric.
+      key: 'rows',
+      header: 'Rows (bar from zero)',
       align: 'right',
       mono: true,
       sortValue: (row) => row.count,
-      cell: (row) => formatCount(row.count),
-    },
-    {
-      key: 'share',
-      header: 'Share',
-      align: 'right',
-      hideBelow: 'lg',
-      sortValue: (row) => (grandTotal === 0 ? 0 : row.count / grandTotal),
-      cell: (row) => {
-        const share = grandTotal === 0 ? 0 : row.count / grandTotal
-        return (
-          <span className="inline-flex items-center justify-end gap-2">
-            <span className="hidden h-1.5 w-16 overflow-hidden rounded-full bg-muted sm:inline-block">
-              <span
-                className="block h-full rounded-full bg-primary"
-                style={{ width: `${Math.max(share * 100, 1)}%` }}
-              />
-            </span>
-            <span className="tabular-nums text-muted-foreground">{(share * 100).toFixed(1)}%</span>
+      cell: (row) => (
+        <span className="inline-flex items-center justify-end gap-2">
+          <span className="h-1.5 w-10 overflow-hidden rounded-full bg-muted sm:w-16">
+            <span
+              className="block h-full rounded-full bg-primary"
+              style={{ width: `${zeroBasedBarPercent(row.count, barMax)}%` }}
+            />
           </span>
-        )
-      },
+          <span className="tabular-nums">
+            {formatCount(row.count)} · {shareLabel(row.count, grandTotal)}
+          </span>
+        </span>
+      ),
     },
   ]
 
@@ -207,7 +222,7 @@ export function Data() {
 
       <Card
         title="Collections"
-        subtitle="GET /knowledge/statistics"
+        subtitle="GET /knowledge/statistics · row index starts at 0 · bars scale 0 → largest"
         actions={<span className="font-mono text-[11px] text-muted-foreground">{HEALTH_URL}</span>}
       >
         {stats.isPending ? (
@@ -252,26 +267,28 @@ export function Data() {
       </Card>
 
       {grouped.length > 0 && (
-        <Card title="Group totals" subtitle="Rolled up from the same payload">
+        <Card
+          title="Group totals"
+          subtitle="Rolled up from the same payload · bars start at zero, scaled to the largest group"
+        >
           <ul className="flex flex-col gap-2">
-            {grouped.map(([group, count]) => {
-              const total = grouped.reduce((sum, [, value]) => sum + value, 0)
-              const share = total === 0 ? 0 : count / total
-              return (
-                <li key={group} className="flex items-center gap-3">
-                  <span className="w-28 shrink-0 truncate text-xs sm:w-36">{group}</span>
-                  <span className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
-                    <span
-                      className="block h-full rounded-full bg-primary"
-                      style={{ width: `${Math.max(share * 100, 1.5)}%` }}
-                    />
-                  </span>
-                  <span className="w-20 shrink-0 text-right font-mono text-xs text-muted-foreground tabular-nums sm:w-24">
-                    {formatCount(count)}
-                  </span>
-                </li>
-              )
-            })}
+            {grouped.map(([group, count], index) => (
+              <li key={group} className="flex items-center gap-3">
+                <span className="w-6 shrink-0 text-right font-mono text-[11px] text-muted-foreground tabular-nums">
+                  {rowIndexLabel(index)}
+                </span>
+                <span className="w-28 shrink-0 truncate text-xs sm:w-36">{group}</span>
+                <span className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
+                  <span
+                    className="block h-full rounded-full bg-primary"
+                    style={{ width: `${zeroBasedBarPercent(count, groupMax)}%` }}
+                  />
+                </span>
+                <span className="w-32 shrink-0 text-right font-mono text-xs text-muted-foreground tabular-nums sm:w-40">
+                  {formatCount(count)} · {shareLabel(count, groupTotal)}
+                </span>
+              </li>
+            ))}
           </ul>
         </Card>
       )}

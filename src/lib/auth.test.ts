@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ROLES, can, rankOf, roleBadge } from './auth'
+import { ROLES, authModeNotice, can, rankOf, roleBadge } from './auth'
 import { COMMAND_ACTIONS, ROUTE_COMMANDS, filterCommands } from './commands'
 import { AuthMeSchema, parseOrThrow } from './schemas'
 import type { Role } from './schemas'
@@ -116,5 +116,36 @@ describe('command palette role filter', () => {
       expect(paths).toContain(path)
     }
     expect(paths.length).toBe(new Set(paths).size)
+  })
+})
+
+describe('authModeNotice — the warn-mode banner copy', () => {
+  it('says so, with a Sign in CTA, while the API is in warn mode', () => {
+    const notice = authModeNotice('warn', 'anonymous')
+    expect(notice.show).toBe(true)
+    expect(notice.title).toMatch(/warn mode/)
+    expect(notice.body).toMatch(/flip to enforce/)
+    expect(notice.body).toMatch(/anonymous/)
+    expect(notice.cta).toBeTruthy()
+  })
+
+  it('never claims a key is needed today, only that it may be', () => {
+    const notice = authModeNotice('warn', 'member')
+    expect(notice.body).not.toMatch(/requires a key|key is required/i)
+    expect(notice.body).toMatch(/signed in as member/)
+  })
+
+  it('stays quiet in enforce mode (the 401s say it) and when auth is off', () => {
+    expect(authModeNotice('enforce', 'anonymous').show).toBe(false)
+    expect(authModeNotice('off', 'anonymous').show).toBe(false)
+  })
+
+  it('stays quiet when the mode is unknown instead of guessing', () => {
+    expect(authModeNotice('', 'anonymous').show).toBe(false)
+    expect(authModeNotice('something-new', 'admin').show).toBe(false)
+  })
+
+  it('tolerates casing and padding from the server', () => {
+    expect(authModeNotice(' WARN ', 'anonymous').show).toBe(true)
   })
 })

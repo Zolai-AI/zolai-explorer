@@ -13,13 +13,17 @@ import {
   ShieldCheck,
 } from 'lucide-react'
 import {
+  SUB_RESOURCE_ENDPOINT,
   WORD_SUB_RESOURCES,
+  coerceWordLimit,
+  defaultWordLimit,
   useWord,
   useWordCollocations,
   useWordContexts,
   useWordEvidence,
   useWordForms,
   useWordPatterns,
+  wordLimitChoices,
   type WordSubResource,
 } from '../features/word/api'
 import { Card } from '../components/Card'
@@ -35,6 +39,13 @@ import { Button } from '../components/ui/button'
 import { Field, FieldError, FieldLabel } from '../components/ui/field'
 import { Input } from '../components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select'
 import { submitWordLookup, wordLookupSchema, type WordLookupInput } from '../lib/forms'
 import type { Collocation, Evidence, Pattern, WordContext, Word } from '../lib/schemas'
 import { formatCount, formatScore, isNonEmptyArray, isNonEmptyRecord, percent } from '../lib/format'
@@ -43,12 +54,28 @@ const SUGGESTIONS = ['pasian', 'gam', 'tapa', 'topa', 'thupha', 'kumpipa', 'keit
 
 /** Word sub-resource tables can exceed a handful of rows, so they paginate. */
 const PAGE_SIZE = 10
+/** Client-side page sizes offered per table, on top of the server `limit`. */
+const PAGE_SIZE_OPTIONS = [10, 20, 50] as const
 
 export function Word() {
   const params = useParams<{ word?: string }>()
   const navigate = useNavigate()
   const routeWord = params.word ?? ''
   const [tab, setTab] = useState<WordSubResource>('contexts')
+
+  /**
+   * Server-side `limit` per sub-resource. It is part of each query key, so
+   * changing it refetches from the API instead of paging an array the client
+   * already has — which is the whole point: these endpoints return bare arrays
+   * with no server total, so "showing more" has to mean asking the server.
+   */
+  const [limits, setLimits] = useState<Record<WordSubResource, number>>({
+    contexts: defaultWordLimit('contexts'),
+    collocations: defaultWordLimit('collocations'),
+    patterns: defaultWordLimit('patterns'),
+    evidence: defaultWordLimit('evidence'),
+    forms: defaultWordLimit('forms'),
+  })
 
   /**
    * `useForm` + zod: the route is the source of truth, so the input is reset
@@ -70,11 +97,11 @@ export function Word() {
 
   const word = routeWord
   const entry = useWord(word)
-  const contexts = useWordContexts(word)
-  const collocations = useWordCollocations(word)
-  const patterns = useWordPatterns(word)
-  const evidence = useWordEvidence(word)
-  const forms = useWordForms(word)
+  const contexts = useWordContexts(word, limits.contexts)
+  const collocations = useWordCollocations(word, limits.collocations)
+  const patterns = useWordPatterns(word, limits.patterns)
+  const evidence = useWordEvidence(word, limits.evidence)
+  const forms = useWordForms(word, limits.forms)
 
   const isEmptyEntry =
     entry.isSuccess &&
@@ -210,7 +237,34 @@ export function Word() {
                 const query = { contexts, collocations, patterns, evidence, forms }[resource.key]
                 return (
                   <TabsContent key={resource.key} value={resource.key} className="mt-3">
-                    <p className="font-mono text-[11px] text-muted-foreground">{resource.hint}</p>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="font-mono text-[11px] text-muted-foreground">
+                        {resource.hint} · {SUB_RESOURCE_ENDPOINT[resource.key]}
+                      </p>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[11px] text-muted-foreground">Rows per request</span>
+                        <Select
+                          value={String(limits[resource.key])}
+                          onValueChange={(value) =>
+                            setLimits((current) => ({
+                              ...current,
+                              [resource.key]: coerceWordLimit(value, resource.key),
+                            }))
+                          }
+                        >
+                          <SelectTrigger size="sm" className="max-lg:h-10" aria-label="Rows per request">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {wordLimitChoices(resource.key).map((choice) => (
+                              <SelectItem key={choice} value={String(choice)}>
+                                {choice}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
                     <div className="mt-3">
                       {query.isPending ? (
                         <SkeletonCard lines={6} title={false} />
@@ -220,6 +274,7 @@ export function Word() {
                         <SubResourcePanel
                           tab={resource.key}
                           word={word}
+                          limit={limits[resource.key]}
                           contexts={contexts.data?.contexts ?? []}
                           collocations={collocations.data?.collocations ?? []}
                           patterns={patterns.data?.patterns ?? []}
@@ -406,6 +461,7 @@ function DefinitionList({ rows }: { rows: [string, string][] }) {
 function SubResourcePanel({
   tab,
   word,
+  limit,
   contexts,
   collocations,
   patterns,
@@ -414,6 +470,7 @@ function SubResourcePanel({
 }: {
   tab: WordSubResource
   word: string
+  limit: number
   contexts: WordContext[]
   collocations: Collocation[]
   patterns: Pattern[]
@@ -422,19 +479,27 @@ function SubResourcePanel({
 }) {
   switch (tab) {
     case 'contexts':
-      return <ContextsPanel word={word} rows={contexts} />
+      return <ContextsPanel word={word} rows={contexts} limit={limit} />
     case 'collocations':
-      return <CollocationsPanel rows={collocations} />
+      return <CollocationsPanel rows={collocations} limit={limit} />
     case 'patterns':
-      return <PatternsPanel rows={patterns} />
+      return <PatternsPanel rows={patterns} limit={limit} />
     case 'evidence':
-      return <EvidencePanel rows={evidence} />
+      return <EvidencePanel rows={evidence} limit={limit} />
     case 'forms':
-      return <FormsPanel word={word} forms={forms} />
+      return <FormsPanel word={word} forms={forms} limit={limit} />
   }
 }
 
-function ContextsPanel({ word, rows }: { word: string; rows: WordContext[] }) {
+function ContextsPanel({
+  word,
+  rows,
+  limit,
+}: {
+  word: string
+  rows: WordContext[]
+  limit: number
+}) {
   if (rows.length === 0) {
     return (
       <Empty
@@ -443,10 +508,13 @@ function ContextsPanel({ word, rows }: { word: string; rows: WordContext[] }) {
       />
     )
   }
+  const truncated = rows.length >= limit
   return (
     <div className="flex flex-col gap-3">
       <p className="text-xs text-muted-foreground">
-        {rows.length} parallel EN/ZO verses. Columns come from separate translation variants.
+        {rows.length} parallel EN/ZO verse{rows.length === 1 ? '' : 's'} (limit {limit}) from
+        separate translation variants.
+        {truncated && ' That is exactly the limit — raise it to see more.'}
       </p>
       <div className="flex flex-col gap-2">
         {rows.map((row, index) => (
@@ -500,7 +568,7 @@ function Paragraph({
   )
 }
 
-function CollocationsPanel({ rows }: { rows: Collocation[] }) {
+function CollocationsPanel({ rows, limit }: { rows: Collocation[]; limit: number }) {
   const columns: Column<Collocation>[] = [
     {
       key: 'word1',
@@ -554,13 +622,15 @@ function CollocationsPanel({ rows }: { rows: Collocation[] }) {
         caption="Collocations with frequency and pointwise mutual information"
         empty={<Empty title="No collocations" hint="The live endpoint returned an empty list for this word." />}
         pageSize={PAGE_SIZE}
+        pageSizeOptions={PAGE_SIZE_OPTIONS}
+        serverLimit={limit}
         columnVisibility
       />
     </div>
   )
 }
 
-function PatternsPanel({ rows }: { rows: Pattern[] }) {
+function PatternsPanel({ rows, limit }: { rows: Pattern[]; limit: number }) {
   const columns: Column<Pattern>[] = [
     {
       key: 'pattern',
@@ -626,6 +696,9 @@ function PatternsPanel({ rows }: { rows: Pattern[] }) {
       rows={rows}
       rowKey={(row, index) => row.pattern_id || String(index)}
       caption="Observed grammar patterns for this word"
+      pageSize={PAGE_SIZE}
+      pageSizeOptions={PAGE_SIZE_OPTIONS}
+      serverLimit={limit}
       empty={
         <Empty
           title="No observed patterns"
@@ -636,7 +709,7 @@ function PatternsPanel({ rows }: { rows: Pattern[] }) {
   )
 }
 
-function EvidencePanel({ rows }: { rows: Evidence[] }) {
+function EvidencePanel({ rows, limit }: { rows: Evidence[]; limit: number }) {
   const columns: Column<Evidence>[] = [
     {
       key: 'tier',
@@ -706,6 +779,8 @@ function EvidencePanel({ rows }: { rows: Evidence[] }) {
       rowKey={(row, index) => `${row.source_type}-${index}`}
       caption="Tiered provenance records for this word"
       pageSize={PAGE_SIZE}
+      pageSizeOptions={PAGE_SIZE_OPTIONS}
+      serverLimit={limit}
       columnVisibility
       empty={
         <Empty
@@ -717,12 +792,20 @@ function EvidencePanel({ rows }: { rows: Evidence[] }) {
   )
 }
 
-function FormsPanel({ word, forms }: { word: string; forms: string[] }) {
+function FormsPanel({
+  word,
+  forms,
+  limit,
+}: {
+  word: string
+  forms: string[]
+  limit: number
+}) {
   if (forms.length === 0) {
     return (
       <Empty
-        title="No surface forms"
-        hint={`GET /word/${word}/forms returned an empty list — the morphology table has no rows for this entry.`}
+        title="Not populated"
+        hint={`GET /word/${word}/forms returned an empty list — the morphology table has no rows for this entry yet. This is an upstream gap, not a failed request.`}
       />
     )
   }
@@ -730,7 +813,9 @@ function FormsPanel({ word, forms }: { word: string; forms: string[] }) {
     <div className="flex flex-col gap-3">
       <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <Repeat className="size-3.5" aria-hidden />
-        {forms.length} observed forms — select one to explore it directly.
+        {forms.length} observed form{forms.length === 1 ? '' : 's'} (limit {limit}) — select one to
+        explore it directly.
+        {forms.length >= limit && ' That is exactly the limit — raise it to see more.'}
       </p>
       <div className="flex flex-wrap gap-1.5">
         {forms.map((form) => (

@@ -137,3 +137,44 @@ export function assignSeriesKeys<T extends { label: string }>(
     color: `var(--color-${CHART_SERIES[index % CHART_SERIES.length]})`,
   }))
 }
+
+/* ------------------------------------------------- zero-based value bars */
+
+/**
+ * Bar length as a percentage of `max`, **always measured from zero**.
+ *
+ * A bar that starts at the minimum of the data ("min/max scaling") makes a
+ * collection of similar counts look wildly different — a 1%-floor bar is just as
+ * misleading. The caller shows the number next to the bar, so the honest rule is
+ * one: width = value / largest value, and nothing else.
+ */
+export function zeroBasedBarPercent(value: number, max: number, digits = 1): number {
+  if (!Number.isFinite(value) || !Number.isFinite(max) || max <= 0) return 0
+  const ratio = Math.max(0, value) / max
+  return Math.min(100, Number((ratio * 100).toFixed(digits)))
+}
+
+/** A value's share of the total, in `0…1`; a zero total yields `0`. */
+export function shareOfTotal(value: number, total: number): number {
+  if (!Number.isFinite(value) || !Number.isFinite(total) || total <= 0) return 0
+  return Math.min(1, Math.max(0, value / total))
+}
+
+/** `34.0%` — the value as a share of the total rows. */
+export function shareLabel(value: number, total: number, digits = 1): string {
+  return `${(shareOfTotal(value, total) * 100).toFixed(digits)}%`
+}
+
+/** The largest value in a set, used as the bar axis maximum. */
+export function maxValue(values: readonly number[]): number {
+  return values.reduce<number>((max, value) => {
+    if (!Number.isFinite(value) || value < 0) return max
+    return Math.max(max, value)
+  }, 0)
+}
+
+/** Zero-based row index label: the first row of a list is `0`, never `1`. */
+export function rowIndexLabel(index: number): string {
+  if (!Number.isFinite(index)) return '0'
+  return String(Math.max(0, Math.trunc(index)))
+}

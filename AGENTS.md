@@ -52,10 +52,15 @@ verbatim captures from the live API).
   the amber notice in `src/routes/Rag.tsx` permanent — not dismissible.
 - `/analyze/sentence` returns empty `pos`, `grammar`, `entities`. Render tokens; label the rest.
 - `sentence_frequency` is always `0` → render `—`.
-- Empty `forms` / `morphology` / `grammar_usage` → collapse with an explanatory `Empty`, never a
-  blank or half-rendered panel.
-- `/api/v1/review/stats` is not registered (`200 {"error":"Not found"}`); the unversioned
-  `/review/stats` 422s because `/review/{item_id}` matches `stats`. Link to `/review/` instead.
+- Empty `forms` / `morphology` / `grammar_usage` → collapse to a *Not populated* `Empty` that names
+  the endpoint it came from, never a blank or half-rendered panel.
+- **Bars start at zero.** Width = `value / largest` (`zeroBasedBarPercent`), with the number and its
+  share of the total printed beside it. No 1% floor, no min/max scaling, and row indexes start at
+  `0` (`rowIndexLabel`) — a value that reads as "0" because of a scale choice is a lie.
+- `/review/stats` is **not available** on the versioned API (`/api/v1/review/stats` answers
+  `200 {"error":"Not found"}`; the unversioned path 422s because `/review/{item_id}` matches
+  `stats`). Never render a review count as if it were real; link the server-rendered `/review/` queue
+  and say that its stats sub-path does not work.
 - **`retrieval_only: true` on `/assistant/chat` means no model ran.** Title it
   "Retrieval (no model)" and badge it `retrieval_only` — never "generated" or "AI answer". The
   provider/model line only renders when a model actually answered.

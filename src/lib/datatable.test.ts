@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import {
+  DEFAULT_PAGE_SIZE_CHOICES,
   HIDE_BELOW_CLASS,
   alignClass,
   compareSortValues,
   dataTableSortFn,
   hideBelowClass,
+  pageRange,
+  resolvePageSize,
+  rowsSummary,
 } from './datatable'
 
 describe('compareSortValues', () => {
@@ -84,5 +88,62 @@ describe('alignClass', () => {
     expect(alignClass('left')).toBe('text-left')
     expect(alignClass('right')).toBe('text-right')
     expect(alignClass('center')).toBe('text-center')
+  })
+})
+
+describe('pageRange', () => {
+  it('counts over the rows fetched, never a server total it was not given', () => {
+    expect(pageRange(0, 10, 24)).toBe('1\u201310 of 24 rows fetched')
+    expect(pageRange(2, 10, 24)).toBe('21\u201324 of 24 rows fetched')
+  })
+
+  it('handles an empty or degenerate page without throwing', () => {
+    expect(pageRange(0, 10, 0)).toBe('0 of 0 rows fetched')
+    expect(pageRange(0, 0, 12)).toBe('0 of 0 rows fetched')
+    expect(pageRange(9, 10, 24)).toBe('0 of 24 rows fetched')
+  })
+})
+
+describe('resolvePageSize', () => {
+  it('accepts a listed choice, as a number or a string', () => {
+    expect(resolvePageSize(50)).toBe(50)
+    expect(resolvePageSize('20')).toBe(20)
+  })
+
+  it('falls back for an unlisted, empty or hostile value', () => {
+    expect(resolvePageSize(37)).toBe(DEFAULT_PAGE_SIZE_CHOICES[0])
+    expect(resolvePageSize('abc')).toBe(DEFAULT_PAGE_SIZE_CHOICES[0])
+    expect(resolvePageSize(null)).toBe(DEFAULT_PAGE_SIZE_CHOICES[0])
+    expect(resolvePageSize(Number.NaN)).toBe(DEFAULT_PAGE_SIZE_CHOICES[0])
+  })
+
+  it('honours a caller-supplied choice list and fallback', () => {
+    expect(resolvePageSize('200', [10, 20, 200], 50)).toBe(200)
+    expect(resolvePageSize('7', [10, 20, 200], 50)).toBe(50)
+  })
+})
+
+describe('rowsSummary', () => {
+  it('states the limit instead of inventing a total', () => {
+    expect(rowsSummary(12, 20).text).toBe('showing 12 rows (limit 20)')
+    expect(rowsSummary(1, 20).text).toBe('showing 1 row (limit 20)')
+  })
+
+  it('warns exactly when the fetched count equals the limit', () => {
+    const hit = rowsSummary(20, 20)
+    expect(hit.truncated).toBe(true)
+    expect(hit.notice).toMatch(/exactly the limit/)
+    expect(rowsSummary(19, 20).truncated).toBe(false)
+    expect(rowsSummary(19, 20).notice).toBe('')
+  })
+
+  it('drops the limit wording when the route returns everything', () => {
+    expect(rowsSummary(12, null)).toEqual({ text: '12 rows', truncated: false, notice: '' })
+    expect(rowsSummary(1, null).text).toBe('1 row')
+  })
+
+  it('is defensive about a bad count', () => {
+    expect(rowsSummary(Number.NaN, 20).text).toBe('showing 0 rows (limit 20)')
+    expect(rowsSummary(-5, 20).text).toBe('showing 0 rows (limit 20)')
   })
 })

@@ -77,7 +77,7 @@ storage backend so the round-trip is unit tested without jsdom.
 | `/rag` | Retrieval with honest placeholder labelling | `/api/v1/rag` |
 | `/assistant` | Assistant chat — public route is honest `retrieval_only` when no provider is active; admin mode adds provider/model and the tool trace | `POST /api/v1/assistant/chat`, `POST /api/v1/admin/assistant/chat` |
 | `/agent` | Goal-driven research runs with phase trace and feedback (member+) | `POST /api/v1/agent/runs`, `GET /api/v1/agent/runs/{run_id}`, `POST /api/v1/agent/runs/{run_id}/feedback` |
-| `/data` | Full collection table, knowledge version, health | `/api/v1/knowledge/statistics`, `/api/v1/knowledge/version`, `/health` |
+| `/data` | Collection table (zero-based `#`, bars from zero, `?collection=` filter), knowledge version, health | `/api/v1/knowledge/statistics`, `/api/v1/knowledge/version`, `/health` |
 | `/links` | Endpoint reference, server-rendered links, known gaps | — (renders `src/lib/endpoints.ts`) |
 | `/settings` | AI provider catalog (admin): rename, model, enable, paste key, activate, test | `GET/PUT /api/v1/admin/ai-providers`, `POST /api/v1/admin/ai-providers/{catalog_id}/activate`, `POST /api/v1/admin/ai-providers/{catalog_id}/test` |
 
@@ -137,6 +137,32 @@ query string on GET routes and in the JSON body on the POST search/RAG routes. `
 `/metrics` and the server-rendered `/review/` live outside `/api/v1`. The review count is not
 available on the versioned API — see the honesty contract below — so no review number is rendered
 anywhere in this app.
+
+## Limits (server-side, not client-side)
+
+Each word sub-resource tab carries a **Rows per request** control. The value is sent as `limit`,
+clamped to the route's documented bounds (`1–100` for forms/contexts/collocations/patterns,
+`1–200` for evidence) and it is part of the query key, so changing it refetches from the API
+instead of paging a list the client already holds.
+
+These endpoints return **bare arrays with no server total**, so the footers are deliberately honest:
+
+| What the user sees | Why |
+|--------------------|-----|
+| `showing 12 rows (limit 20)` | the limit that was requested, and how many rows came back |
+| `That is exactly the limit — more rows may exist.` | shown whenever `N === L`, because the list may be truncated |
+| `1–10 of 24 rows fetched` | the *client-side* page range, worded "fetched" so it cannot be read as a corpus total |
+
+There is no page-size floor on a bar, no min/max bar scaling and no invented total: see the honesty
+contract below.
+
+## Data page: zero-based, bars from zero
+
+`/data` (and the dashboard's collections table) show a `#` column that starts at **0** for the first
+row on screen, and each bar is drawn from a **zero baseline**, scaled to the largest collection in the
+table. The count and its share of the total rows (`84,490 · 8.5%`) are printed next to every bar, so
+the bar never has to carry the number alone. A previous 1% floor is gone: a 0-row collection renders
+an empty bar, not a sliver.
 
 ## Architecture
 
@@ -251,8 +277,12 @@ The app is explicit about the deployment's real capabilities, so a panel is neve
   `200 {"error":"Not found"}`, and the unversioned `/review/stats` 422s because `/review/{item_id}`
   swallows `stats`. No review count is rendered anywhere as if it were real; `/links` links to the
   server-rendered `/review/` queue instead and labels it.
+- **`/word/{w}/forms` and `morphology` are usually empty** → the panels collapse to a *Not
+  populated* note that names the endpoint, so an empty list is never read as a failed request.
 - **Auth is in `warn` mode** → unauthenticated requests are accepted today; the API may flip to
-  `enforce`. Add a key to be ready.
+  `enforce`. The shell therefore renders a persistent banner (sourced from `GET /auth/me`'s `mode`)
+  reading *"Authentication: warn mode"* with a **Sign in…** CTA. It never claims a key is required
+  today — that would be a false warning — and it disappears once the mode changes.
 
 The same list is rendered as cards on `/links` under "Known API gaps".
 
@@ -282,7 +312,9 @@ bun run test
   `<meta>` application, and the **no-flash guard on `index.html`**.
 - `src/lib/datatable.test.ts` — the table sort comparator (numeric, locale-aware, natural ordering,
   nullish/NaN last), the TanStack `sortFn` built from it, the `hideBelow` → `hidden md:table-cell`
-  map and the alignment map.
+  map, the alignment map, and the honest footers: `pageRange` counts *fetched* rows,
+  `resolvePageSize` refuses an unlisted choice, and `rowsSummary` warns exactly when the fetched count
+  equals the server limit.
 - `src/lib/auth.test.ts` — `rankOf` / `can` / `roleBadge`, the tolerant `AuthMeSchema`, and the
   command palette's role filter.
 - `src/features/agent/api.test.ts` — run timeout budget and the `POST /agent/runs`,
@@ -301,6 +333,13 @@ bun run test
   stores nothing and leaves an existing key intact, and sign-out clears key + cache.
 - `src/features/apikeys/api.test.ts` — the `/admin/api-keys` transports (list, create, rotate,
   revoke) with method/path/body, tolerant parsing, honest 404/422 messages, and `isActiveKey`.
+- `src/lib/charts.test.ts` — the zero-based bar maths: width is `value / largest` (a 1-row and a
+  99-row collection stay 1% and 99%, never min/max scaled), a zero value is an empty bar rather than
+  a floor, never above 100% or below zero, share-of-total guarded against a zero total, and the
+  zero-based row index label.
+- `src/features/word/api.test.ts` — the sub-resource `limit` contract: choices per tab (100 vs the
+  evidence cap of 200), each route's documented default, the registry endpoint behind every tab, and
+  `coerceWordLimit` clamping an over-large or hostile value instead of letting the API 422.
 - `src/lib/routes.test.ts` — the route registry: unique ids/paths, every record labelled with a
   known icon + role, exactly one non-nav destination (sign-in, and it must be anonymous), the
   palette exposing one command per navigable route with the same path/role, deep-link resolution

@@ -9,12 +9,7 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { apiGet } from '../../lib/api'
-import {
-  clampLimit,
-  endpointPath,
-  queryLimitPath,
-  type EndpointId,
-} from '../../lib/endpoints'
+import { clampLimit, endpointPath, queryLimitPath, type EndpointId } from '../../lib/endpoints'
 import {
   WordCollocationsSchema,
   WordContextsSchema,
@@ -41,15 +36,25 @@ export const EVIDENCE_LIMIT_CHOICES = [10, 20, 50, 100, 200] as const
 export const DEFAULT_WORD_LIMIT = 20
 export const DEFAULT_EVIDENCE_LIMIT = 50
 
+/** Limit choices for one sub-resource tab (evidence has the 200 ceiling). */
+export function wordLimitChoices(sub: WordSubResource): readonly number[] {
+  return sub === 'evidence' ? EVIDENCE_LIMIT_CHOICES : WORD_LIMIT_CHOICES
+}
+
+/** Server default `limit` for one sub-resource tab. */
+export function defaultWordLimit(sub: WordSubResource): number {
+  return sub === 'evidence' ? DEFAULT_EVIDENCE_LIMIT : DEFAULT_WORD_LIMIT
+}
+
 /** Clamp to one of the offered choices, falling back to that route's default. */
 export function coerceWordLimit(raw: unknown, sub: WordSubResource = 'contexts'): number {
-  const id: EndpointId = sub === 'evidence' ? 'word.evidence' : `word.${sub}`
-  const choices: readonly number[] =
-    sub === 'evidence' ? EVIDENCE_LIMIT_CHOICES : WORD_LIMIT_CHOICES
+  const id = SUB_RESOURCE_ENDPOINT[sub]
+  const choices = wordLimitChoices(sub)
+  const fallback = defaultWordLimit(sub)
   const parsed = typeof raw === 'number' ? raw : Number.parseInt(String(raw ?? ''), 10)
-  if (!Number.isFinite(parsed)) return clampLimit(id, DEFAULT_WORD_LIMIT)
+  if (!Number.isFinite(parsed)) return fallback
   const clamped = clampLimit(id, parsed)
-  return choices.includes(clamped) ? clamped : clampLimit(id, DEFAULT_WORD_LIMIT)
+  return choices.includes(clamped) ? clamped : fallback
 }
 
 /** Lower-cased word used for cache keys and the request path. */

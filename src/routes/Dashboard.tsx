@@ -28,6 +28,7 @@ import { DataTable, type Column } from '../components/DataTable'
 import { CorpusChart, CurationChart, PipelineChart } from '../components/Charts'
 import { Button } from '../components/ui/button'
 import { DOCS_URL, METRICS_URL, REVIEW_URL } from '../lib/api'
+import { maxValue, rowIndexLabel, shareLabel, zeroBasedBarPercent } from '../lib/charts'
 import { formatCount, formatTimestamp, formatUptime } from '../lib/format'
 import { collectionPath } from '../lib/routes'
 
@@ -89,7 +90,11 @@ const QUICK_JUMPS = [
 ]
 
 const EXTERNAL_LINKS = [
-  { href: REVIEW_URL, label: 'Review workbench', note: '/review/ — server-rendered HTML' },
+  {
+    href: REVIEW_URL,
+    label: 'Review queue',
+    note: '/review/ — server-rendered HTML; /review/stats is not available',
+  },
   { href: DOCS_URL, label: 'OpenAPI docs', note: '/docs — Swagger UI' },
   { href: METRICS_URL, label: 'Prometheus metrics', note: '/metrics — plain text' },
 ]
@@ -127,7 +132,18 @@ export function Dashboard() {
     [stats.data],
   )
 
+  const barMax = useMemo(() => maxValue(allRows.map((row) => row.count)), [allRows])
+
   const allColumns: Column<(typeof allRows)[number]>[] = [
+    {
+      key: 'index',
+      header: '#',
+      align: 'right',
+      mono: true,
+      cell: (_row, index) => (
+        <span className="text-muted-foreground">{rowIndexLabel(index)}</span>
+      ),
+    },
     {
       key: 'label',
       header: 'Collection',
@@ -135,33 +151,26 @@ export function Dashboard() {
       cell: (row) => <span className="text-foreground">{row.label}</span>,
     },
     {
-      key: 'count',
-      header: 'Rows',
+      // Zero-baseline bar with the count and the share of the total on screen;
+      // visible at every width because it is the only numeric column here.
+      key: 'rows',
+      header: 'Rows (bar from zero)',
       align: 'right',
       mono: true,
       sortValue: (row) => row.count,
-      cell: (row) => formatCount(row.count),
-    },
-    {
-      key: 'share',
-      header: 'Share',
-      align: 'right',
-      hideBelow: 'lg',
-      sortValue: (row) => (totalRows === 0 ? 0 : row.count / totalRows),
-      cell: (row) => {
-        const share = totalRows === 0 ? 0 : row.count / totalRows
-        return (
-          <span className="inline-flex items-center justify-end gap-2">
-            <span className="hidden h-1.5 w-16 overflow-hidden rounded-full bg-muted sm:inline-block">
-              <span
-                className="block h-full rounded-full bg-primary"
-                style={{ width: `${Math.max(share * 100, 1)}%` }}
-              />
-            </span>
-            <span className="tabular-nums text-muted-foreground">{(share * 100).toFixed(1)}%</span>
+      cell: (row) => (
+        <span className="inline-flex items-center justify-end gap-2">
+          <span className="h-1.5 w-10 overflow-hidden rounded-full bg-muted sm:w-16">
+            <span
+              className="block h-full rounded-full bg-primary"
+              style={{ width: `${zeroBasedBarPercent(row.count, barMax)}%` }}
+            />
           </span>
-        )
-      },
+          <span className="tabular-nums">
+            {formatCount(row.count)} · {shareLabel(row.count, totalRows)}
+          </span>
+        </span>
+      ),
     },
   ]
 

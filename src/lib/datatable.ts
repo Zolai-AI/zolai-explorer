@@ -63,13 +63,70 @@ export function alignClass(align: 'left' | 'right' | 'center' | undefined): stri
 }
 
 /**
- * Human range for the pagination footer, e.g. `1–10 of 24 rows`. Pure so the
- * arithmetic is unit tested and cannot drift from the markup.
+ * Human range for the **client-side** page footer, e.g.
+ * `1–10 of 24 rows fetched`. Pure so the arithmetic is unit tested and cannot
+ * drift from the markup.
+ *
+ * The wording says "fetched" on purpose: these endpoints return bare arrays with
+ * no server total, so a plain "of 24 rows" would read as a corpus count.
  */
 export function pageRange(pageIndex: number, pageSize: number, totalRows: number): string {
-  if (totalRows <= 0 || pageSize <= 0) return `0 of 0 rows`
+  if (totalRows <= 0 || pageSize <= 0) return `0 of 0 rows fetched`
   const first = pageIndex * pageSize + 1
   const last = Math.min((pageIndex + 1) * pageSize, totalRows)
-  if (first > totalRows) return `0 of ${totalRows} rows`
-  return `${first}\u2013${last} of ${totalRows} rows`
+  if (first > totalRows) return `0 of ${totalRows} rows fetched`
+  return `${first}\u2013${last} of ${totalRows} rows fetched`
+}
+
+/** Page sizes offered when a table opts into a page-size control. */
+export const DEFAULT_PAGE_SIZE_CHOICES = [10, 20, 50, 100] as const
+
+/**
+ * Coerce a page-size choice (from a `<Select>`) into a permitted value.
+ *
+ * A hand-edited or unknown value falls back to `fallback` instead of reaching
+ * the pagination row model.
+ */
+export function resolvePageSize(
+  raw: unknown,
+  choices: readonly number[] = DEFAULT_PAGE_SIZE_CHOICES,
+  fallback = choices[0] ?? 10,
+): number {
+  const parsed = typeof raw === 'number' ? raw : Number.parseInt(String(raw ?? ''), 10)
+  if (!Number.isFinite(parsed)) return fallback
+  const truncated = Math.trunc(parsed)
+  return choices.includes(truncated) ? truncated : fallback
+}
+
+export type RowsSummary = {
+  /** `showing 20 rows (limit 20)` — never invents a server total. */
+  text: string
+  /**
+   * `true` when the number of rows fetched equals the requested limit, i.e. the
+   * server may have more. Shown as an explicit notice, never as a silent cap.
+   */
+  truncated: boolean
+  /** Copy for the truncation notice, empty when nothing is truncated. */
+  notice: string
+}
+
+/**
+ * The honest footer for a table backed by a **server-side limit**.
+ *
+ * `limit === null` means the route returns everything it has, so the count is
+ * simply the number of rows on screen.
+ */
+export function rowsSummary(shown: number, limit: number | null): RowsSummary {
+  const count = Math.max(0, Math.trunc(Number.isFinite(shown) ? shown : 0))
+  if (limit === null || limit <= 0) {
+    return { text: `${count} row${count === 1 ? '' : 's'}`, truncated: false, notice: '' }
+  }
+  const truncated = count >= limit
+  return {
+    text: `showing ${count} row${count === 1 ? '' : 's'} (limit ${limit})`,
+    truncated,
+    notice: truncated
+      ? `That is exactly the limit — more rows may exist. Raise the limit to see them.`
+      : '',
+  }
 }
