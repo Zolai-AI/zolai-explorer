@@ -1,16 +1,19 @@
 /**
  * Command-palette (⌘K) action model.
  *
- * The *data* lives here, free of React and the DOM, so `commands.test.ts` can
- * assert that every route in the app is reachable from the palette and that the
- * headword action builds a valid `/word/{word}` path. `CommandPalette.tsx`
- * attaches the icons and the handlers.
+ * The *data* lives here, free of the DOM, so `src/lib/auth.test.ts` can assert
+ * that every route in the app is reachable from the palette, that the role
+ * filter hides gated destinations, and that the headword action builds a valid
+ * `/word/{word}` path. `CommandPalette.tsx` attaches the icons and handlers.
  *
- * Icons are deliberately not part of the spec: this module must stay importable
- * in the plain-Node vitest environment.
+ * Icons are deliberately not part of the spec. The one React-adjacent import is
+ * `can` from `./auth` — a pure function that happens to live next to the
+ * `useRole()` hook — so this module still imports and runs in the plain-Node
+ * vitest environment.
  */
 
 import { wordFieldSchema, wordPath } from './forms'
+import { can, type Role } from './auth'
 import type { Theme } from './theme'
 
 export type CommandKind = 'navigate' | 'theme' | 'api-key' | 'word'
@@ -31,6 +34,8 @@ export type CommandActionSpec = {
   to?: string
   /** `theme` only — the preference to apply. */
   theme?: Theme
+  /** `navigate` only — minimum role for the destination (default: anonymous). */
+  minRole?: Role
 }
 
 export const COMMAND_GROUP_NAV = 'Navigate'
@@ -85,6 +90,25 @@ export const ROUTE_COMMANDS: readonly CommandActionSpec[] = [
     to: '/rag',
   },
   {
+    id: 'nav-assistant',
+    kind: 'navigate',
+    label: 'Assistant chat',
+    group: COMMAND_GROUP_NAV,
+    keywords: 'assistant chat conversation retrieval citations',
+    hint: '/assistant',
+    to: '/assistant',
+  },
+  {
+    id: 'nav-agent',
+    kind: 'navigate',
+    label: 'Agent runs',
+    group: COMMAND_GROUP_NAV,
+    keywords: 'agent run goal research build review shipped',
+    hint: '/agent',
+    to: '/agent',
+    minRole: 'member',
+  },
+  {
     id: 'nav-data',
     kind: 'navigate',
     label: 'Data and service',
@@ -101,6 +125,16 @@ export const ROUTE_COMMANDS: readonly CommandActionSpec[] = [
     keywords: 'links docs metrics review api surface',
     hint: '/links',
     to: '/links',
+  },
+  {
+    id: 'nav-settings',
+    kind: 'navigate',
+    label: 'Provider settings',
+    group: COMMAND_GROUP_NAV,
+    keywords: 'settings providers admin ai model key activate',
+    hint: '/settings',
+    to: '/settings',
+    minRole: 'admin',
   },
 ]
 
@@ -157,6 +191,18 @@ export const COMMAND_ACTIONS: readonly CommandActionSpec[] = [
 
 /** Action ids in render order — used as the `cmdk` `value`s. */
 export const COMMAND_ACTION_IDS: readonly string[] = COMMAND_ACTIONS.map((action) => action.id)
+
+/**
+ * Role filter for the palette. Mirrors the Sidebar rule: a command with a
+ * `minRole` only renders when the reported role meets it, so the palette can
+ * never jump to a route the shell would prompt on.
+ */
+export function filterCommands(
+  actions: readonly CommandActionSpec[],
+  role: Role,
+): CommandActionSpec[] {
+  return actions.filter((action) => can(role, action.minRole ?? 'anonymous'))
+}
 
 /**
  * Validate the headword typed into the palette's lookup step.

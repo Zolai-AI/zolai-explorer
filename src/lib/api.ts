@@ -68,8 +68,10 @@ export function isApiError(value: unknown): value is ApiError {
   return value instanceof ApiError
 }
 
+export type ApiMethod = 'GET' | 'POST' | 'PUT' | 'DELETE'
+
 export type ApiRequestOptions = {
-  method?: 'GET' | 'POST'
+  method?: ApiMethod
   body?: unknown
   signal?: AbortSignal
   timeoutMs?: number
@@ -223,3 +225,9 @@ export const apiPost = <T>(
   body: unknown,
   options: Omit<ApiRequestOptions, 'method'> = {},
 ) => apiFetch<T>(path, { ...options, method: 'POST', body })
+
+export const apiPut = <T>(
+  path: string,
+  body: unknown,
+  options: Omit<ApiRequestOptions, 'method'> = {},
+) => apiFetch<T>(path, { ...options, method: 'PUT', body })

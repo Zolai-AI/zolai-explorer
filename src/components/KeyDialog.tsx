@@ -10,6 +10,7 @@ import {
   subscribeApiKey,
 } from '../lib/key'
 import { apiKeySchema, submitApiKey, type ApiKeyInput } from '../lib/forms'
+import { roleBadge, useAuthMe } from '../lib/auth'
 import { queryClient } from '../lib/queryClient'
 import { Alert, AlertDescription, AlertTitle } from './ui/alert'
 import {
@@ -34,6 +35,7 @@ import {
 } from './ui/dialog'
 import { Field, FieldError, FieldLabel } from './ui/field'
 import { Input } from './ui/input'
+import { Badge } from './ui/badge'
 
 /** Reactive read of the stored API key. The value itself never leaves the browser. */
 export function useApiKey(): { key: string; hasKey: boolean; masked: string } {
@@ -52,6 +54,10 @@ export function KeyDialog({
   reason?: string
 }) {
   const { masked } = useApiKey()
+  // Identity as the server sees it *now*; saving a key bumps the query
+  // generation so this badge re-probes `/auth/me` on its own.
+  const me = useAuthMe()
+  const badge = roleBadge(me.role)
 
   /**
    * `useForm` + zod: the schema rejects an empty/whitespace paste *before* the
@@ -99,11 +105,21 @@ export function KeyDialog({
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>API key</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            API key
+            <Badge variant={badge.variant}>{badge.label}</Badge>
+            {me.key_prefix && <Badge variant="outline">{me.key_prefix}</Badge>}
+          </DialogTitle>
           <DialogDescription>
             Stored in this browser only (<code className="font-mono">localStorage</code>). It is sent
             as the <code className="font-mono">X-API-Key</code> header to the Zolai Core API and is
-            never logged or committed.
+            never logged or committed. Current role: {badge.hint}
+            {me.scopes.length > 0 && (
+              <>
+                {' '}
+                Scopes: <code className="font-mono">{me.scopes.join(' ')}</code>.
+              </>
+            )}
           </DialogDescription>
         </DialogHeader>
 

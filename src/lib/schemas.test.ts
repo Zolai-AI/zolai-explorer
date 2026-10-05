@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import {
+  AgentRunSchema,
+  ChatResponseSchema,
+  FeedbackSchema,
   HealthSchema,
   KnowledgeVersionSchema,
   ParagraphAnalysisSchema,
+  ProviderListSchema,
+  ProviderSchema,
+  ProviderTestSchema,
   RagSchema,
   SearchSchema,
   SentenceAnalysisSchema,
@@ -334,5 +340,164 @@ describe('parseOrThrow', () => {
     // `stats` is deliberately tolerant: a bad value degrades to {} so the
     // dashboard renders an empty state rather than an error wall.
     expect(parseOrThrow(StatisticsSchema, { stats: 'not-an-object' }, 'statistics').stats).toEqual({})
+  })
+})
+
+/** Trimmed from the deployed `/admin/ai-providers` contract (ADR-014). */
+const PROVIDER_ROW = {
+  catalog_id: 'pcore-brain',
+  name: 'P-Core Brain',
+  adapter: 'brain',
+  base_url: 'https://pcore-brain.peterlianpi.site/v1',
+  models: ['free-1', 'free-2'],
+  selected_model: 'free-1',
+  docs: '',
+  requires_key: true,
+  enabled: true,
+  is_active: true,
+  tier: 'free',
+  timeout_s: 45,
+  secret: { mode: 'env', ref_masked: '***BRIDGE_KEY', configured: true },
+}
+
+describe('ai provider catalog', () => {
+  it('parses a catalog row, including the masked secret view', () => {
+    const parsed = ProviderSchema.parse(PROVIDER_ROW)
+    expect(parsed.catalog_id).toBe('pcore-brain')
+    expect(parsed.adapter).toBe('brain')
+    expect(parsed.secret.configured).toBe(true)
+    // The mask is the only secret material a row may carry.
+    expect(parsed.secret.ref_masked).not.toContain('key_')
+  })
+
+  it('never yields a plaintext secret — a bad mode degrades to none', () => {
+    const parsed = ProviderSchema.parse({
+      ...PROVIDER_ROW,
+      secret: { mode: 'plaintext-oops', ref_masked: '', configured: false },
+    })
+    expect(parsed.secret.mode).toBe('none')
+    expect(parsed.secret.configured).toBe(false)
+  })
+
+  it('degrades a partial row instead of rejecting the whole catalog', () => {
+    const parsed = ProviderListSchema.parse({ items: [PROVIDER_ROW, { name: 'half' }], count: 2 })
+    expect(parsed.count).toBe(2)
+    expect(parsed.items[0].catalog_id).toBe('pcore-brain')
+    expect(parsed.items[1].catalog_id).toBe('')
+    expect(parsed.items[1].models).toEqual([])
+  })
+
+  it('reads a test probe result with a null status on failure', () => {
+    const parsed = ProviderTestSchema.parse({
+      catalog_id: 'pcore-brain',
+      ok: false,
+      status: null,
+      latency_ms: 12,
+      error: 'no credential',
+      model: null,
+    })
+    expect(parsed.ok).toBe(false)
+    expect(parsed.status).toBeNull()
+    expect(parsed.error).toBe('no credential')
+  })
+})
+
+describe('assistant chat response', () => {
+  it('parses a retrieval-only answer and labels it as such', () => {
+    const parsed = ChatResponseSchema.parse({
+      answer: 'pasian = God',
+      citations: [{ source: 'dictionary', ref: 'pasian', text: 'God', score: 0.91 }],
+      tool_calls: [],
+      turns: 1,
+      provider: '',
+      model: '',
+      mode: 'retrieval_only',
+      retrieval_only: true,
+      latency_ms: 8,
+      zvs: {},
+      provider_error: 'no credential',
+      loop_error: '',
+      persisted_run_id: null,
+    })
+    // The honesty contract: retrieval_only is preserved so the UI can refuse
+    // to call the answer "generated".
+    expect(parsed.retrieval_only).toBe(true)
+    expect(parsed.citations[0].score).toBeCloseTo(0.91)
+    expect(parsed.persisted_run_id).toBeNull()
+  })
+
+  it('collapses missing citations/tools to empty arrays, not errors', () => {
+    const parsed = ChatResponseSchema.parse({ answer: 'hi', retrieval_only: false })
+    expect(parsed.citations).toEqual([])
+    expect(parsed.tool_calls).toEqual([])
+    expect(parsed.retrieval_only).toBe(false)
+  })
+
+  it('keeps an absent persisted_run_id null-ish rather than a bogus id', () => {
+    // `nullableNum`: absent → undefined, explicit null → null. Both are
+    // falsy, which is all the UI needs to hide the "persisted" hint.
+    const absent = ChatResponseSchema.parse({ answer: 'hi', persisted_run_id: undefined })
+    const nullish = ChatResponseSchema.parse({ answer: 'hi', persisted_run_id: null })
+    expect(absent.persisted_run_id ?? null).toBeNull()
+    expect(nullish.persisted_run_id).toBeNull()
+    expect(ChatResponseSchema.parse({ answer: 'hi', persisted_run_id: 3 }).persisted_run_id).toBe(3)
+  })
+})
+
+describe('agent run', () => {
+  const RUN_ROW = {
+    id: 7,
+    goal: 'audit ZVS forms in proverbs',
+    status: 'succeeded',
+    phases: {
+      research: { status: 'ok', tools: ['kb_search'], evidence_count: 3, outcome: '', latency_ms: 40, error: '' },
+    },
+    tool_calls: [],
+    evidence: [{ source: 'proverbs', ref: 'x' }],
+    answer: 'done',
+    provider: 'pcore-brain',
+    model: 'free-1',
+    turns: 3,
+    latency_ms: 900,
+    outcome: 'generated',
+    feedback_score: null,
+    error: '',
+    mode: 'rule',
+    created_by: 'key:zl_ab12',
+    created_at: '2026-10-04T10:00:00Z',
+    finished_at: null,
+  }
+
+  it('parses a finished run with its phase table', () => {
+    const parsed = AgentRunSchema.parse(RUN_ROW)
+    expect(parsed.id).toBe(7)
+    expect(parsed.status).toBe('succeeded')
+    expect(parsed.phases.research.status).toBe('ok')
+    expect(parsed.phases.research.evidence_count).toBe(3)
+    expect(parsed.feedback_score).toBeNull()
+    expect(parsed.finished_at).toBeNull()
+  })
+
+  it('survives a run whose phases have not been written yet', () => {
+    const parsed = AgentRunSchema.parse({ id: 8, goal: 'g', status: 'running' })
+    expect(parsed.phases).toEqual({})
+    expect(parsed.tool_calls).toEqual([])
+    expect(parsed.evidence).toEqual([])
+    // Not yet voted / not yet finished — both render as "no value".
+    expect(parsed.feedback_score ?? null).toBeNull()
+    expect(parsed.finished_at ?? null).toBeNull()
+  })
+
+  it('parses a feedback payload that carries the updated run', () => {
+    const parsed = FeedbackSchema.parse({
+      run_id: 7,
+      feedback_score: 1,
+      run: RUN_ROW,
+      learn: { created_hypothesis_id: 12 },
+    })
+    expect(parsed.run_id).toBe(7)
+    expect(parsed.feedback_score).toBe(1)
+    expect(parsed.run.status).toBe('succeeded')
+    expect(parsed.learn.created_hypothesis_id).toBe(12)
   })
 })

@@ -1,6 +1,7 @@
 import { NavLink } from 'react-router-dom'
 import {
   BookOpen,
+  Bot,
   Database,
   ExternalLink,
   Gauge,
@@ -8,10 +9,12 @@ import {
   MessageSquareQuote,
   ScanText,
   Search,
+  Settings2,
   type LucideIcon,
 } from 'lucide-react'
 import { Button } from './ui/button'
 import { Separator } from './ui/separator'
+import { can, useRole, type Role } from '../lib/auth'
 import { cn } from '../lib/utils'
 
 export type NavItem = {
@@ -19,6 +22,8 @@ export type NavItem = {
   label: string
   icon: LucideIcon
   description: string
+  /** Minimum server-side role; items below it are filtered out entirely. */
+  minRole?: Role
 }
 
 export const NAV_ITEMS: NavItem[] = [
@@ -27,14 +32,25 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/analyze', label: 'Analyze', icon: ScanText, description: 'Sentence and paragraph analysis' },
   { to: '/search', label: 'Search', icon: Search, description: 'Cross-corpus retrieval' },
   { to: '/rag', label: 'RAG', icon: MessageSquareQuote, description: 'Retrieval-augmented snippets' },
+  { to: '/assistant', label: 'Assistant', icon: MessageSquareQuote, description: 'Retrieval-grounded chat' },
+  { to: '/agent', label: 'Agent', icon: Bot, description: 'Goal-driven research runs', minRole: 'member' },
   { to: '/data', label: 'Data', icon: Database, description: 'Statistics and knowledge version' },
   { to: '/links', label: 'Links', icon: Link2, description: 'External API surface' },
+  {
+    to: '/settings',
+    label: 'Settings',
+    icon: Settings2,
+    description: 'AI provider catalog (admin)',
+    minRole: 'admin',
+  },
 ]
 
 /**
- * Primary navigation. Each item is a shadcn `<Button variant="ghost">` rendered
- * `asChild` into a router `<NavLink>`, so the active state comes from
- * `aria-current` styling rather than a parallel mechanism.
+ * Primary navigation, filtered by the role the server reports.
+ *
+ * Each item is a shadcn `<Button variant="ghost">` rendered `asChild` into a
+ * router `<NavLink>`, so the active state comes from `aria-current` styling
+ * rather than a parallel mechanism.
  *
  * `onNavigate` lets the mobile `<Sheet>` close itself after a tap.
  *
@@ -49,6 +65,9 @@ export function Sidebar({
   onNavigate?: () => void
   collapsed?: boolean
 }) {
+  const role = useRole()
+  const items = NAV_ITEMS.filter((item) => can(role, item.minRole ?? 'anonymous'))
+
   return (
     <nav
       aria-label="Primary"
@@ -58,7 +77,7 @@ export function Sidebar({
       )}
     >
       <ul className={cn('flex flex-col gap-1', collapsed && 'w-full')}>
-        {NAV_ITEMS.map(({ to, label, icon: Icon, description }) => (
+        {items.map(({ to, label, icon: Icon, description }) => (
           <li key={to}>
             <NavLink
               to={to}
@@ -96,8 +115,9 @@ export function Sidebar({
         <Separator />
         {!collapsed && (
           <p className="px-2.5 text-[10px] leading-relaxed text-muted-foreground">
-            Read-only studio for the Zolai Core API. Ground truth: ZVS 2018 orthography, SOV order,
-            ergative <span className="font-mono">in</span>.
+            Read-mostly studio for the Zolai Core API; role-gated writes go through your key.
+            Ground truth: ZVS 2018 orthography, SOV order, ergative{' '}
+            <span className="font-mono">in</span>.
           </p>
         )}
         <Button

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   BookOpen,
+  Bot,
   Database,
   Gauge,
   KeyRound,
@@ -13,6 +14,7 @@ import {
   ScanText,
   Search,
   SearchIcon,
+  Settings2,
   Sun,
   type LucideIcon,
 } from 'lucide-react'
@@ -21,9 +23,11 @@ import {
   COMMAND_GROUP_ACTIONS,
   COMMAND_GROUP_APPEARANCE,
   COMMAND_GROUP_NAV,
+  filterCommands,
   resolveCommandLookup,
   type CommandActionSpec,
 } from '../lib/commands'
+import { useRole } from '../lib/auth'
 import { useThemePreference } from '../lib/useTheme'
 import type { Theme } from '../lib/theme'
 import { Button } from './ui/button'
@@ -54,8 +58,11 @@ const ROUTE_ICONS: Record<string, LucideIcon> = {
   'nav-analyze': ScanText,
   'nav-search': SearchIcon,
   'nav-rag': MessageSquareQuote,
+  'nav-assistant': MessageSquareQuote,
+  'nav-agent': Bot,
   'nav-data': Database,
   'nav-links': Link2,
+  'nav-settings': Settings2,
 }
 
 const THEME_ICONS: Record<Theme, LucideIcon> = {
@@ -92,6 +99,8 @@ export function CommandPalette({
 }) {
   const navigate = useNavigate()
   const { theme, setTheme } = useThemePreference()
+  // Same gate as the Sidebar: a route the shell would prompt on is not offered.
+  const role = useRole()
   const [lookupOpen, setLookupOpen] = useState(false)
   const [lookupValue, setLookupValue] = useState('')
   const [lookupError, setLookupError] = useState<string | undefined>(undefined)
@@ -150,20 +159,20 @@ export function CommandPalette({
     navigate(result.value.path)
   }, [lookupValue, navigate])
 
-  const groups = useMemo(
-    () => [
-      { heading: COMMAND_GROUP_NAV, actions: COMMAND_ACTIONS.filter((a) => a.group === COMMAND_GROUP_NAV) },
+  const groups = useMemo(() => {
+    const visible = filterCommands(COMMAND_ACTIONS, role)
+    return [
+      { heading: COMMAND_GROUP_NAV, actions: visible.filter((a) => a.group === COMMAND_GROUP_NAV) },
       {
         heading: COMMAND_GROUP_ACTIONS,
-        actions: COMMAND_ACTIONS.filter((a) => a.group === COMMAND_GROUP_ACTIONS),
+        actions: visible.filter((a) => a.group === COMMAND_GROUP_ACTIONS),
       },
       {
         heading: COMMAND_GROUP_APPEARANCE,
-        actions: COMMAND_ACTIONS.filter((a) => a.group === COMMAND_GROUP_APPEARANCE),
+        actions: visible.filter((a) => a.group === COMMAND_GROUP_APPEARANCE),
       },
-    ],
-    [],
-  )
+    ]
+  }, [role])
 
   return (
     <>

@@ -12,6 +12,7 @@ import { z } from 'zod'
 
 const str = z.string().catch('')
 const num = z.number().catch(0)
+const bool = z.boolean().catch(false)
 const strArray = z.array(z.string()).catch([])
 const record = z.record(z.string(), z.unknown()).catch({})
 const nullableNum = z.number().nullish().catch(null)
@@ -208,6 +209,170 @@ export const RagSchema = z.object({
   retrieved_count: num,
 })
 export type RagResult = z.infer<typeof RagSchema>
+
+/* ------------------------------------------------------------------ auth */
+
+/**
+ * `GET /auth/me` — public identity probe. `role` is
+ * `anonymous | member | admin`; anything unrecognised collapses to
+ * `anonymous` (the least-privileged reading) instead of failing the gate.
+ */
+export const AuthMeSchema = z.object({
+  role: z.enum(['anonymous', 'member', 'admin']).catch('anonymous'),
+  key_prefix: z.string().nullish().catch(null),
+  scopes: strArray,
+  mode: str,
+})
+export type AuthMe = z.infer<typeof AuthMeSchema>
+
+export type Role = AuthMe['role']
+
+/* -------------------------------------------------------------- providers */
+
+/** Masked secret view — the API never returns a plaintext key. */
+export const ProviderSecretSchema = z
+  .object({
+    mode: z.enum(['env', 'encrypted', 'none']).catch('none'),
+    ref_masked: str,
+    configured: bool,
+  })
+  .catch({ mode: 'none', ref_masked: '', configured: false })
+export type ProviderSecret = z.infer<typeof ProviderSecretSchema>
+
+/** One `ai_providers` catalog row as served by `/admin/ai-providers`. */
+export const ProviderSchema = z.object({
+  catalog_id: str,
+  name: str,
+  adapter: z.enum(['brain', 'openai', 'openrouter', 'custom']).catch('custom'),
+  base_url: str,
+  models: strArray,
+  selected_model: str,
+  docs: str,
+  requires_key: bool,
+  enabled: bool,
+  is_active: bool,
+  tier: str,
+  timeout_s: num,
+  secret: ProviderSecretSchema,
+})
+export type Provider = z.infer<typeof ProviderSchema>
+
+export const ProviderListSchema = z.object({
+  items: z.array(ProviderSchema).catch([]),
+  count: num,
+})
+export type ProviderList = z.infer<typeof ProviderListSchema>
+
+/** `POST /admin/ai-providers/{id}/test` — 1-token probe result. */
+export const ProviderTestSchema = z.object({
+  catalog_id: str,
+  ok: bool,
+  status: z.number().nullish().catch(null),
+  latency_ms: num,
+  error: z.string().nullish().catch(null),
+  model: z.string().nullish().catch(null),
+})
+export type ProviderTest = z.infer<typeof ProviderTestSchema>
+
+/** `POST /admin/ai-providers/{id}/activate` — single active row. */
+export const ActivateSchema = z.object({
+  catalog_id: str,
+  is_active: bool,
+  active_count: num,
+})
+export type ActivateResult = z.infer<typeof ActivateSchema>
+
+/* ------------------------------------------------------------- assistant */
+
+/** Citation shape returned by the assistant routes (`{source, ref, text, score}`). */
+export const AssistantCitationSchema = z.object({
+  source: str,
+  ref: str,
+  text: str,
+  score: num,
+})
+export type AssistantCitation = z.infer<typeof AssistantCitationSchema>
+
+/** One tool call in the assistant/agent trace. */
+export const ToolCallSchema = z.object({
+  name: str,
+  ok: bool,
+  status: str,
+  latency_ms: num,
+  turn: num,
+  input: record,
+  data: record,
+  error: str,
+})
+export type ToolCall = z.infer<typeof ToolCallSchema>
+
+/**
+ * Chat payload shared by `POST /assistant/chat` and
+ * `POST /admin/assistant/chat`. `retrieval_only: true` means the server
+ * answered from retrieval with **no model** — the UI must label it as such
+ * and never as "generated".
+ */
+export const ChatResponseSchema = z.object({
+  answer: str,
+  citations: z.array(AssistantCitationSchema).catch([]),
+  tool_calls: z.array(ToolCallSchema).catch([]),
+  turns: num,
+  provider: str,
+  model: str,
+  mode: str,
+  retrieval_only: bool,
+  latency_ms: num,
+  zvs: record,
+  provider_error: str,
+  loop_error: str,
+  persisted_run_id: nullableNum,
+})
+export type ChatResponse = z.infer<typeof ChatResponseSchema>
+
+/* ------------------------------------------------------------------ agent */
+
+/** One run phase (`research` / `build` / `review` / `shipped`). */
+export const AgentPhaseSchema = z.object({
+  status: str,
+  tools: strArray,
+  evidence_count: num,
+  outcome: str,
+  latency_ms: num,
+  error: str,
+})
+export type AgentPhase = z.infer<typeof AgentPhaseSchema>
+
+/** `POST|GET /agent/runs[/{id}]` — the full persisted run row. */
+export const AgentRunSchema = z.object({
+  id: num,
+  goal: str,
+  status: str,
+  phases: z.record(z.string(), AgentPhaseSchema).catch({}),
+  tool_calls: z.array(ToolCallSchema).catch([]),
+  evidence: z.array(record).catch([]),
+  answer: str,
+  provider: str,
+  model: str,
+  turns: num,
+  latency_ms: num,
+  outcome: str,
+  feedback_score: nullableNum,
+  error: str,
+  mode: str,
+  created_by: str,
+  created_at: str,
+  finished_at: z.string().nullish().catch(null),
+})
+export type AgentRun = z.infer<typeof AgentRunSchema>
+
+/** `POST /agent/runs/{id}/feedback` — thumbs score + learn outcome. */
+export const FeedbackSchema = z.object({
+  run_id: num,
+  feedback_score: num,
+  run: AgentRunSchema,
+  learn: record,
+})
+export type FeedbackResult = z.infer<typeof FeedbackSchema>
 
 /* ------------------------------------------------------------------ helpers */
 

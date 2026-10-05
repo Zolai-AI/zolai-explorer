@@ -1,5 +1,7 @@
+import { useState, type ReactNode } from 'react'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
+import { KeyRound } from 'lucide-react'
 import { AppShell } from './components/AppShell'
 import { Dashboard } from './routes/Dashboard'
 import { Word } from './routes/Word'
@@ -8,10 +10,54 @@ import { Search } from './routes/Search'
 import { Rag } from './routes/Rag'
 import { Data } from './routes/Data'
 import { Links } from './routes/Links'
+import { Settings } from './routes/Settings'
+import { Assistant } from './routes/Assistant'
+import { Agent } from './routes/Agent'
 import { NotFound } from './routes/NotFound'
+import { KeyDialog } from './components/KeyDialog'
+import { Empty } from './components/Empty'
+import { Button } from './components/ui/button'
 import { Toaster } from './components/ui/sonner'
 import { TooltipProvider } from './components/ui/tooltip'
 import { queryClient } from './lib/queryClient'
+import { can, roleBadge, useRole, type Role } from './lib/auth'
+
+/**
+ * Role gate for a route.
+ *
+ * A missing privilege renders a **prompt** (what is wrong, how to fix it, and
+ * the key dialog one click away) — never a 404. The route component itself
+ * never runs without its role, so an admin-only panel cannot fire an admin
+ * API call on a member key.
+ */
+export function RequireRole({ minimum, children }: { minimum: Role; children: ReactNode }) {
+  const role = useRole()
+  const [keyDialogOpen, setKeyDialogOpen] = useState(false)
+
+  if (can(role, minimum)) return <>{children}</>
+
+  const needed = roleBadge(minimum)
+  const have = roleBadge(role)
+
+  return (
+    <div className="flex flex-col gap-4">
+      <Empty
+        title={`${needed.label} access required`}
+        hint={`This area needs the ${needed.label.toLowerCase()} role on the server. You are currently ${have.label.toLowerCase()} — add a key that carries it.`}
+        icon={<KeyRound className="size-5" aria-hidden />}
+      >
+        <Button className="mt-2 h-10" onClick={() => setKeyDialogOpen(true)}>
+          <KeyRound aria-hidden />
+          Set API key…
+        </Button>
+        <p className="mt-2 max-w-prose text-[11px] leading-relaxed text-muted-foreground">
+          {needed.hint}
+        </p>
+      </Empty>
+      <KeyDialog open={keyDialogOpen} onClose={() => setKeyDialogOpen(false)} />
+    </div>
+  )
+}
 
 export function App() {
   return (
@@ -26,6 +72,23 @@ export function App() {
               <Route path="analyze" element={<Analyze />} />
               <Route path="search" element={<Search />} />
               <Route path="rag" element={<Rag />} />
+              <Route path="assistant" element={<Assistant />} />
+              <Route
+                path="agent"
+                element={
+                  <RequireRole minimum="member">
+                    <Agent />
+                  </RequireRole>
+                }
+              />
+              <Route
+                path="settings"
+                element={
+                  <RequireRole minimum="admin">
+                    <Settings />
+                  </RequireRole>
+                }
+              />
               <Route path="data" element={<Data />} />
               <Route path="links" element={<Links />} />
               <Route path="*" element={<NotFound />} />

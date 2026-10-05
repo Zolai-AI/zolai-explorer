@@ -4,9 +4,15 @@ Working rules for this repo. Read this before changing code.
 
 ## What this is
 
-A **read-only studio** over the deployed Zolai Core API. It ships a static Vite bundle that nginx
+A **read-mostly studio** over the deployed Zolai Core API. It ships a static Vite bundle that nginx
 serves from disk on its own host at `https://studio.zolai.space/`. There is no backend of our own —
 every piece of data comes from `https://api.zolai.space` at runtime, cross-origin.
+
+Almost everything is read-only. The **exceptions are role-gated writes** that proxy a server-side
+permission, never a UI-invented one: provider settings (`/admin/ai-providers`, admin +
+`settings:write`), agent runs and feedback (`/agent/runs`, member+ + `agent:run`), and assistant
+chat. The role always comes from the server's `GET /auth/me` — see `src/lib/auth.ts` — and a route
+below its minimum renders a **prompt** via `RequireRole`, never a 404 and never a guess.
 
 **Never invent data.** If the API does not return a field, the UI says so. There is no mock layer
 and no fixture fallback in the app code (test payloads live only in `*.test.ts`, and they are
@@ -42,6 +48,14 @@ verbatim captures from the live API).
   blank or half-rendered panel.
 - `/api/v1/review/stats` is not registered (`200 {"error":"Not found"}`); the unversioned
   `/review/stats` 422s because `/review/{item_id}` matches `stats`. Link to `/review/` instead.
+- **`retrieval_only: true` on `/assistant/chat` means no model ran.** Title it
+  "Retrieval (no model)" and badge it `retrieval_only` — never "generated" or "AI answer". The
+  provider/model line only renders when a model actually answered.
+- **Provider secrets are write-only.** The catalog row carries a mask (`ref_masked`); render the
+  mask and `configured`, never echo a pasted value back into state, the URL, or a toast.
+- **Agent phases render exactly what the server recorded.** `ok` / `failed` / `skipped` / absent —
+  an unreached phase is "pending", not "failed". Learn (`score >= 1`) queues hypothesis
+  candidates only; never claim it wrote a canonical table.
 
 If any of these change upstream, update the gap list in `src/routes/Links.tsx` **and** the matching
 panel in the same commit.
@@ -68,7 +82,13 @@ panel in the same commit.
   375px: use `hideBelow` column priority plus the scrolling container, never a fixed layout.
 - **One TanStack Query hook per endpoint** in `src/features/<area>/api.ts`. `GET`s are queries;
   the `POST` endpoints (`/analyze/*`, `/search`, `/rag`) are mutations — they run on demand, not on
-  mount.
+  mount. Each hook is a thin wrapper over an **exported plain async transport** (`fetchAiProviders`,
+  `postAssistantChat`, …) so node-env tests can assert method/path/body with a stubbed `fetch`.
+- **Role gating has exactly one source of truth: the server.** `src/lib/auth.ts` reads `GET
+  /auth/me` and exports `useRole()` (reactive) plus pure `rankOf`/`can`/`roleBadge`. Route access
+  goes through `<RequireRole minimum>`; the sidebar (`NAV_ITEMS.minRole`) and command palette
+  (`filterCommands`) filter with the same `can()`. Never derive a role from the stored key, and
+  never gate only in the UI — the server still enforces it and an honest 401/403 must surface.
 - **Zod schemas are tolerant by design** (`.catch([])` / `.catch({})`). Do not "tighten" them: the
   live API returns empty arrays for fields that are simply not populated yet, and a strict schema
   would turn that into a user-facing error.
@@ -84,7 +104,7 @@ panel in the same commit.
 
 ```bash
 bun run typecheck    # tsc -b --force
-bun run test         # 90 vitest specs
+bun run test         # 142 vitest specs
 bun run build        # must be warning-free
 ```
 

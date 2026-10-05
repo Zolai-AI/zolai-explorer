@@ -6,6 +6,8 @@ import {
   apiFetch,
   apiGet,
   apiGetAbsolute,
+  apiPost,
+  apiPut,
   isApiError,
   resolveUrl,
 } from './api'
@@ -227,6 +229,33 @@ describe('apiFetch — key header', () => {
     expect(init.method).toBe('POST')
     expect(init.body).toBe('{"text":"a"}')
     expect((init.headers as Record<string, string>)['Content-Type']).toBe('application/json')
+  })
+
+  it('serialises a PUT body with the PUT method (provider settings)', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ catalog_id: 'pcore-brain' }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await apiPut('/admin/ai-providers/pcore-brain', { selected_model: 'm1' })
+
+    const [url, init] = lastCall(fetchMock)
+    expect(url).toBe('/api/v1/admin/ai-providers/pcore-brain')
+    expect(init.method).toBe('PUT')
+    expect(init.body).toBe('{"selected_model":"m1"}')
+    expect((init.headers as Record<string, string>)['Content-Type']).toBe('application/json')
+  })
+
+  it('omits body and content-type when a POST has nothing to send', async () => {
+    // activate/test are POSTs with no payload — a Content-Type with no body
+    // makes some proxies reject the request.
+    const fetchMock = vi.fn(async () => jsonResponse({ ok: true }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await apiPost('/admin/ai-providers/pcore-brain/test', undefined)
+
+    const init = lastCall(fetchMock)[1]
+    expect(init.method).toBe('POST')
+    expect(init.body).toBeUndefined()
+    expect((init.headers as Record<string, string>)['Content-Type']).toBeUndefined()
   })
 })
 
