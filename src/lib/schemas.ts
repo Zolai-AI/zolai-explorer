@@ -282,6 +282,58 @@ export const ActivateSchema = z.object({
 })
 export type ActivateResult = z.infer<typeof ActivateSchema>
 
+/* -------------------------------------------------------------- api keys */
+
+/**
+ * One row of the `api_keys` table as served by `GET /admin/api-keys`.
+ *
+ * The server stores a SHA-256 hash and a display prefix — there is no plaintext
+ * to return. `revoked_at` non-null means the key is rejected from the next
+ * request on.
+ */
+export const ApiKeyRecordSchema = z.object({
+  id: num,
+  name: str,
+  key_prefix: str,
+  key_hash: str,
+  scopes: strArray,
+  created_by: str,
+  created_at: str,
+  expires_at: z.string().nullish().catch(null),
+  last_used_at: z.string().nullish().catch(null),
+  revoked_at: z.string().nullish().catch(null),
+})
+export type ApiKeyRecord = z.infer<typeof ApiKeyRecordSchema>
+
+export const ApiKeyListSchema = z.object({
+  items: z.array(ApiKeyRecordSchema).catch([]),
+  count: num,
+})
+export type ApiKeyList = z.infer<typeof ApiKeyListSchema>
+
+/**
+ * `POST /admin/api-keys` and `POST /admin/api-keys/{id}/rotate` — the only
+ * responses that ever carry a plaintext secret, and only once. The caller must
+ * show it and drop it: never cache it, never toast it, never echo it.
+ */
+export const ApiKeyIssuedSchema = z.object({
+  key: ApiKeyRecordSchema,
+  plaintext: str,
+})
+export type ApiKeyIssued = z.infer<typeof ApiKeyIssuedSchema>
+
+export const ApiKeyRotateSchema = ApiKeyIssuedSchema.extend({
+  old_id: num,
+})
+export type ApiKeyRotated = z.infer<typeof ApiKeyRotateSchema>
+
+/** `POST /admin/api-keys/{id}/revoke`. */
+export const ApiKeyRevokedSchema = z.object({
+  id: num,
+  revoked_at: str,
+})
+export type ApiKeyRevoked = z.infer<typeof ApiKeyRevokedSchema>
+
 /* ------------------------------------------------------------- assistant */
 
 /** Citation shape returned by the assistant routes (`{source, ref, text, score}`). */

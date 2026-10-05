@@ -24,6 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../components/ui/select'
+import { ApiKeysPanel } from '../features/apikeys/ApiKeysPanel'
 import { isApiError } from '../lib/api'
 import { formatCount } from '../lib/format'
 import type { Provider } from '../lib/schemas'
@@ -50,8 +51,10 @@ export function Settings() {
           Provider settings
         </h1>
         <p className="mt-1 max-w-prose text-sm text-muted-foreground">
-          Admin-only catalog of AI providers behind the assistant and agent. Stored keys are
-          masked by the server — this screen never sees a plaintext value.
+          Admin-only surface: the AI-provider catalog behind the assistant and agent, plus issue /
+          rotate / revoke for the API keys those panels authenticate with. Stored secrets are masked
+          by the server — this screen only ever sees a plaintext value once, in the dialog that
+          minted it.
         </p>
       </header>
 
@@ -81,6 +84,8 @@ export function Settings() {
           ))}
         </Card>
       )}
+
+      <ApiKeysPanel />
     </div>
   )
 }

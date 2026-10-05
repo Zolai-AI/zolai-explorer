@@ -23,17 +23,25 @@ verbatim captures from the live API).
 1. **Never commit an API key.** The key lives in `localStorage` (`zolai.apiKey`) and is sent only as
    the `X-API-Key` header. No key in any tracked file, no key in a URL or query string, no `console`
    output of the key, no key in `.env.example`. If you add a credential-shaped string, it must be a
-   placeholder.
-2. **Do not modify `zolai-core`, `zolai-web` or `zolai-landing`.** This repo is a separate git repo
+   placeholder. **Sign-in is verify-then-store** (`src/lib/session.ts`): probe `/auth/me` with
+   `apiFetch(..., { apiKey })` and persist only when the server recognises the key. `/auth/me` is
+   public and never 401s, so "200 with no `key_prefix`" means *rejected* — never store that. There
+   are no accounts and no login endpoint in `zolai-core`: do not invent a username/password flow or
+   a session the server cannot back.
+2. **A minted plaintext key is shown once and dropped.** `POST /admin/api-keys` (and `rotate`) are
+   the only responses that carry a secret. They are therefore plain transports, **not** React Query
+   mutations, so nothing parks a secret in the mutation cache: keep it in the dialog's local state,
+   show it, and clear it on close. The stored key is only ever displayed masked.
+3. **Do not modify `zolai-core`, `zolai-web` or `zolai-landing`.** This repo is a separate git repo
    inside the workspace; the root `AGENTS.md` forbids cross-repo drift.
-3. **Do not change the API surface to suit the UI.** Endpoint shapes are fixed by the deployed
+4. **Do not change the API surface to suit the UI.** Endpoint shapes are fixed by the deployed
    server. If a field is missing or empty, render an honest empty state.
-4. **The studio lives on its own host.** `vite.config.ts` has `base: '/'`, nginx serves
+5. **The studio lives on its own host.** `vite.config.ts` has `base: '/'`, nginx serves
    `/var/www/zolai-studio` under `server_name studio.zolai.space`, and `api.zolai.space` only
    301-redirects `/explorer*` here. Never re-embed the SPA in the API vhost, never change
    `location /` there (it proxies to `127.0.0.1:8001`), and never put a key in `.env.production` —
    it is committed and inlined into the public bundle.
-5. **Keep `/health` outside `/api/v1`.** It is public and key-free; the shell and dashboard must
+6. **Keep `/health` outside `/api/v1`.** It is public and key-free; the shell and dashboard must
    render with no key at all. `API_ORIGIN` + `/health` is what makes that work cross-origin — never
    build it as `API_BASE + '/health'`.
 

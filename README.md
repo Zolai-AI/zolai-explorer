@@ -118,6 +118,10 @@ used, or if this table drifts.
 | PUT | `/api/v1/admin/ai-providers/{catalog_id}` | `settings:write` | — |
 | POST | `/api/v1/admin/ai-providers/{catalog_id}/activate` | `settings:write` | — |
 | POST | `/api/v1/admin/ai-providers/{catalog_id}/test` | `settings:write` | — |
+| GET | `/api/v1/admin/api-keys` | `apikey:manage` | — |
+| POST | `/api/v1/admin/api-keys` | `apikey:manage` | — |
+| POST | `/api/v1/admin/api-keys/{key_id}/rotate` | `apikey:manage` | — |
+| POST | `/api/v1/admin/api-keys/{key_id}/revoke` | `apikey:manage` | — |
 
 There is **no** `page_size` anywhere in the API — `limit` is the only name, and it travels in the
 query string on GET routes and in the JSON body on the POST search/RAG routes. `/health`, `/docs`,
@@ -152,9 +156,10 @@ src/
                            ThemeToggle, ChartPanel, Charts, CollocationChart
   components/ui/           shadcn/ui (vendored — see below)
   features/<area>/api.ts   one TanStack Query hook per endpoint
-                           (agent, analyze, assistant, data, rag, settings, word)
+                           (agent, analyze, apikeys, assistant, data, rag, settings, word)
+    session.ts              verify-then-store key sign-in (probe /auth/me, never invent a session)
   routes/                  Dashboard, Word, Analyze, Search, Rag, Assistant, Agent, Data,
-                           Links, Settings, NotFound
+                           Links, Login, Settings, NotFound
   lib/*.test.ts            vitest suites
 ```
 
@@ -277,6 +282,16 @@ bun run test
   `postAssistantChat` transport.
 - `src/features/settings/api.test.ts` — the `/admin/ai-providers` catalog transports (list, PUT,
   activate, test).
+- `src/lib/endpoints.test.ts` — **single source of truth guards**: unique records, templates with
+  balanced `{param}` placeholders, `endpointPath` encoding + throwing on a missing parameter, limit
+  clamping per route (100 vs the evidence cap of 200), *no path literal outside the registry*,
+  *every record used*, and README/API-surface sync.
+- `src/lib/session.test.ts` — sign-in is verify-then-store: the candidate key goes out in the
+  header only and never the URL, a 200 + no `key_prefix` is a **rejected** key, a 401 is rejected
+  while a transport failure is *unreachable*, a blank paste never reaches the network, a rejected key
+  stores nothing and leaves an existing key intact, and sign-out clears key + cache.
+- `src/features/apikeys/api.test.ts` — the `/admin/api-keys` transports (list, create, rotate,
+  revoke) with method/path/body, tolerant parsing, honest 404/422 messages, and `isActiveKey`.
 
 ## Deploy
 

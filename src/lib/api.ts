@@ -81,6 +81,15 @@ export type ApiRequestOptions = {
    * and is served at the origin root, not at `/api/v1/health`.
    */
   absolute?: boolean
+  /**
+   * Send *this* key instead of the stored one, for exactly one request.
+   *
+   * This exists so sign-in can probe `/auth/me` with a candidate key **before**
+   * anything is persisted — a wrong key must never overwrite a working one, and
+   * a half-typed paste must never reach `localStorage`. The value lives in the
+   * header and nowhere else: never logged, never in a URL, never cached.
+   */
+  apiKey?: string
 }
 
 /** Absolute URL for an API path — relative paths are joined onto `API_BASE`. */
@@ -101,6 +110,13 @@ function detailFromPayload(payload: unknown): string {
     const rec = payload as Record<string, unknown>
     const detail = rec.detail
     if (typeof detail === 'string') return detail.slice(0, 300)
+    // zolai-core raises `HTTPException(detail={"error": …})` on several admin
+    // routes, so unwrap that envelope rather than dropping the message.
+    if (detail && typeof detail === 'object' && !Array.isArray(detail)) {
+      const inner = detail as Record<string, unknown>
+      if (typeof inner.error === 'string') return inner.error.slice(0, 300)
+      if (typeof inner.message === 'string') return inner.message.slice(0, 300)
+    }
     if (Array.isArray(detail) && detail.length > 0) {
       return detail
         .map((item) => {
@@ -123,7 +139,8 @@ export async function apiFetch<T>(path: string, options: ApiRequestOptions = {})
   const url = options.absolute ? path : resolveUrl(path)
 
   const headers: Record<string, string> = { Accept: 'application/json' }
-  const key = getApiKey()
+  // An explicit `apiKey` wins (sign-in verification); otherwise the stored key.
+  const key = options.apiKey?.trim() || getApiKey()
   if (key) headers['X-API-Key'] = key
   if (body !== undefined) headers['Content-Type'] = 'application/json'
 
