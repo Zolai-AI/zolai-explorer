@@ -23,6 +23,14 @@ import { Toaster } from './components/ui/sonner'
 import { TooltipProvider } from './components/ui/tooltip'
 import { queryClient } from './lib/queryClient'
 import { can, roleBadge, useRole, type Role } from './lib/auth'
+import {
+  PARAM_VARIANTS,
+  ROUTES,
+  routeByPath,
+  routePathForVariant,
+  signInPath,
+  type RoutePath,
+} from './lib/routes'
 
 /**
  * Role gate for a route.
@@ -53,7 +61,7 @@ export function RequireRole({ minimum, children }: { minimum: Role; children: Re
           {/* Sign in first: it verifies the key before storing it, so a rejected
               paste cannot leave the browser in a half-authenticated state. */}
           <Button className="h-10" asChild>
-            <Link to={`/login?from=${encodeURIComponent(location.pathname)}`}>
+            <Link to={signInPath(location.pathname)}>
               <KeyRound aria-hidden />
               Sign in…
             </Link>
@@ -72,6 +80,47 @@ export function RequireRole({ minimum, children }: { minimum: Role; children: Re
   )
 }
 
+/**
+ * Panel per registry path.
+ *
+ * Keyed by `RoutePath`, so a registry entry without a component — or a component
+ * for a path that no longer exists — fails `tsc` instead of producing a dead
+ * nav card. The `/word/:word` deep link is a `PARAM_VARIANTS` entry and reuses
+ * the `/word` panel.
+ */
+const PAGES: Record<RoutePath, ReactNode> = {
+  '/': <Dashboard />,
+  '/login': <Login />,
+  '/word': <Word />,
+  '/analyze': <Analyze />,
+  '/search': <Search />,
+  '/rag': <Rag />,
+  '/assistant': <Assistant />,
+  '/agent': (
+    <RequireRole minimum="member">
+      <Agent />
+    </RequireRole>
+  ),
+  '/data': <Data />,
+  '/links': <Links />,
+  '/settings': (
+    <RequireRole minimum="admin">
+      <Settings />
+    </RequireRole>
+  ),
+}
+
+/** `/word` → `word` (React Router paths are relative, and `/` is the index). */
+function relativePath(path: RoutePath): string {
+  return path === '/' ? '' : path.replace(/^\//, '')
+}
+
+/** Render the panel for a registry path, gating on the registry's own minRole. */
+function pageFor(path: RoutePath | undefined): ReactNode {
+  if (!path) return <NotFound />
+  return PAGES[path]
+}
+
 export function App() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -79,34 +128,31 @@ export function App() {
         <BrowserRouter basename={import.meta.env.BASE_URL}>
           <Routes>
             <Route element={<AppShell />}>
-              <Route index element={<Dashboard />} />
-              <Route path="word" element={<Word />} />
-              <Route path="word/:word" element={<Word />} />
-              <Route path="analyze" element={<Analyze />} />
-              <Route path="search" element={<Search />} />
-              <Route path="rag" element={<Rag />} />
-              <Route path="assistant" element={<Assistant />} />
-              <Route
-                path="agent"
-                element={
-                  <RequireRole minimum="member">
-                    <Agent />
-                  </RequireRole>
-                }
-              />
-              <Route
-                path="settings"
-                element={
-                  <RequireRole minimum="admin">
-                    <Settings />
-                  </RequireRole>
-                }
-              />
-              <Route path="data" element={<Data />} />
-              <Route path="links" element={<Links />} />
-              {/* Public sign-in: it verifies a key with GET /auth/me, so it must
-                  be reachable *before* any privilege is held. */}
-              <Route path="login" element={<Login />} />
+              {/* Generated from the route registry — see src/lib/routes.ts. */}
+              {ROUTES.map((spec) =>
+                spec.path === '/' ? (
+                  <Route key={spec.id} index element={pageFor(spec.path)} />
+                ) : (
+                  <Route key={spec.id} path={relativePath(spec.path)} element={pageFor(spec.path)} />
+                ),
+              )}
+              {PARAM_VARIANTS.map((variant) => {
+                const base = routePathForVariant(variant.pattern)
+                const spec = base ? routeByPath(base) : undefined
+                return (
+                  <Route
+                    key={variant.pattern}
+                    path={relativePath(variant.pattern as RoutePath)}
+                    element={
+                      spec && spec.minRole !== 'anonymous' ? (
+                        <RequireRole minimum={spec.minRole}>{pageFor(base)}</RequireRole>
+                      ) : (
+                        pageFor(base)
+                      )
+                    }
+                  />
+                )
+              })}
               <Route path="*" element={<NotFound />} />
             </Route>
           </Routes>

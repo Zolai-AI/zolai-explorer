@@ -84,6 +84,15 @@ storage backend so the round-trip is unit tested without jsdom.
 `/word/pasian` and every other route deep-link and survive a browser refresh (SPA fallback:
 `try_files $uri $uri/ /index.html`).
 
+**One registry, four consumers.** `src/lib/routes.ts` holds every destination (path, label,
+description, `minRole`, icon key, palette keywords). `App.tsx` renders its `<Route>`s from the
+registry — `PAGES` is keyed by the derived `RoutePath`, so a route with no component is a *compile*
+error — while `Sidebar.tsx`, `commands.ts` (⌘K) and `<RequireRole>` read the same records.
+`PARAM_VARIANTS` covers deep links with a path parameter (`/word/:word` → the `/word` panel), and
+`src/lib/routes.test.ts` fails if the palette, the nav list and the registry disagree. Dashboard
+collection tiles link to `/data?collection={label}`, so a card that looks tappable actually opens
+the page that owns the number.
+
 ## API surface (one registry, one table)
 
 `src/lib/endpoints.ts` is the single source of truth for every endpoint this app calls: it holds the
@@ -292,6 +301,10 @@ bun run test
   stores nothing and leaves an existing key intact, and sign-out clears key + cache.
 - `src/features/apikeys/api.test.ts` — the `/admin/api-keys` transports (list, create, rotate,
   revoke) with method/path/body, tolerant parsing, honest 404/422 messages, and `isActiveKey`.
+- `src/lib/routes.test.ts` — the route registry: unique ids/paths, every record labelled with a
+  known icon + role, exactly one non-nav destination (sign-in, and it must be anonymous), the
+  palette exposing one command per navigable route with the same path/role, deep-link resolution
+  (`/word/:word` → `/word`), and the `?from=` / `?collection=` query builders.
 
 ## Deploy
 

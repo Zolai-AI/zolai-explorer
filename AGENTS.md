@@ -99,6 +99,12 @@ panel in the same commit.
   the `POST` endpoints (`/analyze/*`, `/search`, `/rag`) are mutations — they run on demand, not on
   mount. Each hook is a thin wrapper over an **exported plain async transport** (`fetchAiProviders`,
   `postAssistantChat`, …) so node-env tests can assert method/path/body with a stubbed `fetch`.
+- **The route list has exactly one source of truth: `src/lib/routes.ts`.** The router
+  (`App.tsx`, `PAGES` keyed by `RoutePath`), the sidebar (`NAV_ROUTES` + the `NAV_ICONS` map),
+  the command palette (`ROUTE_COMMANDS`, ids `nav-{id}`) and every role gate read it. Add a route by
+  adding a registry record — never by hand-editing a nav list, and never by adding a `<Route>` that
+  no nav entry points at. Deep links with a path parameter go in `PARAM_VARIANTS` with the registry
+  path they belong to.
 - **Role gating has exactly one source of truth: the server.** `src/lib/auth.ts` reads `GET
   /auth/me` and exports `useRole()` (reactive) plus pure `rankOf`/`can`/`roleBadge`. Route access
   goes through `<RequireRole minimum>`; the sidebar (`NAV_ITEMS.minRole`) and command palette

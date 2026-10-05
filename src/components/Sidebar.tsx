@@ -5,6 +5,7 @@ import {
   Database,
   ExternalLink,
   Gauge,
+  KeyRound,
   Link2,
   MessageSquareQuote,
   ScanText,
@@ -15,6 +16,7 @@ import {
 import { Button } from './ui/button'
 import { Separator } from './ui/separator'
 import { can, useRole, type Role } from '../lib/auth'
+import { NAV_ROUTES, type RouteIconName } from '../lib/routes'
 import { cn } from '../lib/utils'
 
 export type NavItem = {
@@ -26,24 +28,36 @@ export type NavItem = {
   minRole?: Role
 }
 
-export const NAV_ITEMS: NavItem[] = [
-  { to: '/', label: 'Dashboard', icon: Gauge, description: 'Knowledge totals and service health' },
-  { to: '/word', label: 'Word', icon: BookOpen, description: 'Word entry with sub-resources' },
-  { to: '/analyze', label: 'Analyze', icon: ScanText, description: 'Sentence and paragraph analysis' },
-  { to: '/search', label: 'Search', icon: Search, description: 'Cross-corpus retrieval' },
-  { to: '/rag', label: 'RAG', icon: MessageSquareQuote, description: 'Retrieval-augmented snippets' },
-  { to: '/assistant', label: 'Assistant', icon: MessageSquareQuote, description: 'Retrieval-grounded chat' },
-  { to: '/agent', label: 'Agent', icon: Bot, description: 'Goal-driven research runs', minRole: 'member' },
-  { to: '/data', label: 'Data', icon: Database, description: 'Statistics and knowledge version' },
-  { to: '/links', label: 'Links', icon: Link2, description: 'External API surface' },
-  {
-    to: '/settings',
-    label: 'Settings',
-    icon: Settings2,
-    description: 'AI provider catalog (admin)',
-    minRole: 'admin',
-  },
-]
+/**
+ * Icon map for the registry. `Record<RouteIconName, LucideIcon>` means adding a
+ * route with a new icon is a compile error until the icon exists here — the
+ * registry can never point at a missing glyph.
+ */
+const NAV_ICONS: Record<RouteIconName, LucideIcon> = {
+  gauge: Gauge,
+  book: BookOpen,
+  scan: ScanText,
+  search: Search,
+  message: MessageSquareQuote,
+  bot: Bot,
+  database: Database,
+  link: Link2,
+  settings: Settings2,
+  key: KeyRound,
+}
+
+/**
+ * Primary navigation, derived from the route registry in `src/lib/routes.ts` —
+ * the same records the router, the palette and the role gate read. It used to be
+ * a hand-typed list here, which is how the sidebar and the router drifted apart.
+ */
+export const NAV_ITEMS: NavItem[] = NAV_ROUTES.map((route) => ({
+  to: route.path,
+  label: route.label,
+  icon: NAV_ICONS[route.icon],
+  description: route.description,
+  minRole: route.minRole,
+}))
 
 /**
  * Primary navigation, filtered by the role the server reports.

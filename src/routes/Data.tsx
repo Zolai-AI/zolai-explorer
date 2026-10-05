@@ -1,4 +1,5 @@
 import { useMemo, type ReactNode } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { BarChart3, Boxes, Database, FileCode2, GitCommit, HeartPulse, RefreshCw, ScrollText } from 'lucide-react'
 import { useKnowledgeVersion, useStatistics } from '../features/data/api'
 import { healthLevel, useHealth } from '../components/HealthPill'
@@ -13,6 +14,7 @@ import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { HEALTH_URL } from '../lib/api'
 import { formatCount, formatTimestamp, formatUptime } from '../lib/format'
+import { collectionFromSearch } from '../lib/routes'
 
 /** Human labels the API returns, mapped to an icon + group for the Data panel. */
 const GROUPS: { test: RegExp; label: string; icon: typeof Boxes }[] = [
@@ -35,6 +37,11 @@ export function Data() {
   const stats = useStatistics()
   const version = useKnowledgeVersion()
   const health = useHealth()
+
+  // Dashboard collection tiles link here as `/data?collection={label}`. The
+  // filter is the label the API reported, so a tile can never point at nothing.
+  const [searchParams] = useSearchParams()
+  const collection = collectionFromSearch(searchParams)
 
   const rows: Row[] = useMemo(() => {
     const entries = stats.data?.stats ?? {}
@@ -216,11 +223,28 @@ export function Data() {
           <Empty title="No collections reported" hint="The endpoint returned an empty stats object." />
         ) : (
           <div className="flex flex-col gap-4">
+            {collection !== '' && (
+              <p className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <span>
+                  Showing one collection from the dashboard link:
+                  <span className="font-medium text-foreground"> {collection}</span>
+                </span>
+                <Button asChild variant="link" size="xs" className="h-auto max-lg:h-10 px-0">
+                  <Link to="/data">Show all collections</Link>
+                </Button>
+              </p>
+            )}
             <DataTable
               columns={columns}
-              rows={rows}
+              rows={collection === '' ? rows : rows.filter((row) => row.label === collection)}
               rowKey={(row) => row.label}
               caption="Collections reported by the Zolai Core API with row counts"
+              empty={
+                <Empty
+                  title={`No collection named "${collection}"`}
+                  hint="The dashboard linked a label this payload no longer reports. Show all collections to see what is live."
+                />
+              }
             />
             <RawJson data={stats.data} label="raw /knowledge/statistics" />
           </div>

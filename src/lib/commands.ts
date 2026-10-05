@@ -14,6 +14,7 @@
 
 import { wordFieldSchema, wordPath } from './forms'
 import { can, type Role } from './auth'
+import { NAV_ROUTES } from './routes'
 import type { Theme } from './theme'
 
 export type CommandKind = 'navigate' | 'theme' | 'api-key' | 'word'
@@ -42,101 +43,21 @@ export const COMMAND_GROUP_NAV = 'Navigate'
 export const COMMAND_GROUP_ACTIONS = 'Actions'
 export const COMMAND_GROUP_APPEARANCE = 'Appearance'
 
-/** One entry per routed page — kept in sync with `NAV_ITEMS` in Sidebar.tsx. */
-export const ROUTE_COMMANDS: readonly CommandActionSpec[] = [
-  {
-    id: 'nav-dashboard',
-    kind: 'navigate',
-    label: 'Dashboard',
-    group: COMMAND_GROUP_NAV,
-    keywords: 'dashboard home totals health statistics',
-    hint: '/',
-    to: '/',
-  },
-  {
-    id: 'nav-word',
-    kind: 'navigate',
-    label: 'Word explorer',
-    group: COMMAND_GROUP_NAV,
-    keywords: 'word headword entry lexicon',
-    hint: '/word',
-    to: '/word',
-  },
-  {
-    id: 'nav-analyze',
-    kind: 'navigate',
-    label: 'Analyze text',
-    group: COMMAND_GROUP_NAV,
-    keywords: 'analyze sentence paragraph tokenise segment',
-    hint: '/analyze',
-    to: '/analyze',
-  },
-  {
-    id: 'nav-search',
-    kind: 'navigate',
-    label: 'Corpus search',
-    group: COMMAND_GROUP_NAV,
-    keywords: 'search retrieval query',
-    hint: '/search',
-    to: '/search',
-  },
-  {
-    id: 'nav-rag',
-    kind: 'navigate',
-    label: 'RAG retrieval',
-    group: COMMAND_GROUP_NAV,
-    keywords: 'rag retrieval augmented snippets',
-    hint: '/rag',
-    to: '/rag',
-  },
-  {
-    id: 'nav-assistant',
-    kind: 'navigate',
-    label: 'Assistant chat',
-    group: COMMAND_GROUP_NAV,
-    keywords: 'assistant chat conversation retrieval citations',
-    hint: '/assistant',
-    to: '/assistant',
-  },
-  {
-    id: 'nav-agent',
-    kind: 'navigate',
-    label: 'Agent runs',
-    group: COMMAND_GROUP_NAV,
-    keywords: 'agent run goal research build review shipped',
-    hint: '/agent',
-    to: '/agent',
-    minRole: 'member',
-  },
-  {
-    id: 'nav-data',
-    kind: 'navigate',
-    label: 'Data and service',
-    group: COMMAND_GROUP_NAV,
-    keywords: 'data statistics collections version',
-    hint: '/data',
-    to: '/data',
-  },
-  {
-    id: 'nav-links',
-    kind: 'navigate',
-    label: 'Links',
-    group: COMMAND_GROUP_NAV,
-    keywords: 'links docs metrics review api surface',
-    hint: '/links',
-    to: '/links',
-  },
-  {
-    id: 'nav-settings',
-    kind: 'navigate',
-    label: 'Provider settings',
-    group: COMMAND_GROUP_NAV,
-    keywords: 'settings providers admin ai model key activate',
-    hint: '/settings',
-    to: '/settings',
-    minRole: 'admin',
-  },
-]
+/**
+ * One entry per navigable route, generated from the registry in
+ * `src/lib/routes.ts` — the same records the router and the sidebar read. The
+ * `nav-{id}` ids are stable because the registry ids are.
+ */
+export const ROUTE_COMMANDS: readonly CommandActionSpec[] = NAV_ROUTES.map((route) => ({
+  id: `nav-${route.id}`,
+  kind: 'navigate',
+  label: route.label,
+  group: COMMAND_GROUP_NAV,
+  keywords: route.keywords,
+  hint: route.path,
+  to: route.path,
+  minRole: route.minRole,
+}))
 
 export const THEME_COMMANDS: readonly CommandActionSpec[] = [
   {

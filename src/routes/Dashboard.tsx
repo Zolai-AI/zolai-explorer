@@ -29,24 +29,36 @@ import { CorpusChart, CurationChart, PipelineChart } from '../components/Charts'
 import { Button } from '../components/ui/button'
 import { DOCS_URL, METRICS_URL, REVIEW_URL } from '../lib/api'
 import { formatCount, formatTimestamp, formatUptime } from '../lib/format'
+import { collectionPath } from '../lib/routes'
 
 /**
  * Maps the live `/knowledge/statistics` labels (which are human sentences, not
  * keys) onto tiles. Order here is the dashboard order.
  */
-const TILE_MAP: { match: RegExp; label: string; icon: typeof Boxes; accent?: boolean }[] = [
-  { match: /^dictionary entries$/i, label: 'Dictionary (ZO→EN)', icon: BookOpen },
-  { match: /^EN→ZO entries$/i, label: 'Dictionary (EN→ZO)', icon: ScrollText },
-  { match: /^Bible verses$/i, label: 'Bible verses', icon: BookOpen },
-  { match: /^vocabulary items$/i, label: 'Vocabulary', icon: Boxes },
-  { match: /^phrases$/i, label: 'Phrases', icon: Scale },
-  { match: /^grammar patterns$/i, label: 'Grammar patterns', icon: Scale },
-  { match: /^collocations$/i, label: 'Collocations', icon: Scale },
-  { match: /^knowledge claims$/i, label: 'Knowledge claims', icon: Database, accent: true },
-  { match: /^hypotheses$/i, label: 'Hypotheses', icon: Sparkles, accent: true },
-  { match: /^evidence$/i, label: 'Evidence records', icon: FileCode2, accent: true },
-  { match: /^KG nodes$/i, label: 'KG nodes', icon: Database },
-  { match: /^KG edges$/i, label: 'KG edges', icon: Database },
+/**
+ * `source` is the label `/knowledge/statistics` actually reports — the tile links
+ * to `/data?collection={source}`, so a tap opens the Data page filtered to that
+ * exact collection instead of a card that looks tappable and does nothing.
+ */
+const TILE_MAP: {
+  match: RegExp
+  label: string
+  source: string
+  icon: typeof Boxes
+  accent?: boolean
+}[] = [
+  { match: /^dictionary entries$/i, label: 'Dictionary (ZO→EN)', source: 'dictionary entries', icon: BookOpen },
+  { match: /^EN→ZO entries$/i, label: 'Dictionary (EN→ZO)', source: 'EN→ZO entries', icon: ScrollText },
+  { match: /^Bible verses$/i, label: 'Bible verses', source: 'Bible verses', icon: BookOpen },
+  { match: /^vocabulary items$/i, label: 'Vocabulary', source: 'vocabulary items', icon: Boxes },
+  { match: /^phrases$/i, label: 'Phrases', source: 'phrases', icon: Scale },
+  { match: /^grammar patterns$/i, label: 'Grammar patterns', source: 'grammar patterns', icon: Scale },
+  { match: /^collocations$/i, label: 'Collocations', source: 'collocations', icon: Scale },
+  { match: /^knowledge claims$/i, label: 'Knowledge claims', source: 'knowledge claims', icon: Database, accent: true },
+  { match: /^hypotheses$/i, label: 'Hypotheses', source: 'hypotheses', icon: Sparkles, accent: true },
+  { match: /^evidence$/i, label: 'Evidence records', source: 'evidence', icon: FileCode2, accent: true },
+  { match: /^KG nodes$/i, label: 'KG nodes', source: 'KG nodes', icon: Database },
+  { match: /^KG edges$/i, label: 'KG edges', source: 'KG edges', icon: Database },
 ]
 
 const QUICK_JUMPS = [
@@ -90,10 +102,15 @@ export function Dashboard() {
 
   const tiles = useMemo(() => {
     const entries = stats.data?.stats ?? {}
-    return TILE_MAP.map((spec) => ({
-      ...spec,
-      value: Object.entries(entries).find(([key]) => spec.match.test(key))?.[1] ?? null,
-    }))
+    return TILE_MAP.map((spec) => {
+      const match = Object.entries(entries).find(([key]) => spec.match.test(key))
+      return {
+        ...spec,
+        // Link to the label the API reported, not to our display label.
+        to: match ? collectionPath(match[0]) : undefined,
+        value: match?.[1] ?? null,
+      }
+    })
   }, [stats.data])
 
   /** Every reported collection, sorted — the flat table under the tiles. */
@@ -189,6 +206,8 @@ export function Dashboard() {
                   value={tile.value as number}
                   icon={<tile.icon className="size-4" />}
                   accent={tile.accent}
+                  to={tile.to}
+                  hint="Open in Data"
                 />
               ))}
           </div>
