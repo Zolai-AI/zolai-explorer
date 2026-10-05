@@ -23,7 +23,7 @@ bun run dev        # http://localhost:5173/  (proxies /api + /health upstream)
 | `bun run dev` | Vite dev server with `/api` + `/health` proxied to `https://api.zolai.space` |
 | `bun run build` | `tsc -b` then `vite build` → `dist/` |
 | `bun run typecheck` | Type check only (`tsc -b --force`) |
-| `bun run test` | Vitest suite (142 tests) |
+| `bun run test` | Vitest suite (269 tests) |
 | `bun run deploy` | `vite build` + rsync to `pcore-server:/var/www/zolai-studio` + `nginx -t` + reload |
 
 Requires **bun** (1.4.1+). Never npm/yarn — this is a workspace-wide convention.
@@ -71,6 +71,7 @@ storage backend so the round-trip is unit tested without jsdom.
 | Route | Panel | Endpoints |
 |-------|-------|-----------|
 | `/` | Dashboard — collection tiles, health, knowledge version, quick jumps, external links | `/api/v1/knowledge/statistics`, `/api/v1/knowledge/version`, `/api/v1/auth/me`, `/health` |
+| `/login` | Sign in — **not a nav item**: verify-then-store against the public `GET /api/v1/auth/me`, persist only when the server recognises the key (a 200 with no `key_prefix` is *rejected*), and sign out to clear the key plus every cached response. Returns you to `?from=`, validated so it can only be a same-origin path | `GET /api/v1/auth/me` |
 | `/word`, `/word/:word` | Word entry + 5 sub-resource tabs, each with a server-side `limit` | `/api/v1/word/{word}` and `/api/v1/word/{word}/{forms,contexts,collocations,patterns,evidence}` |
 | `/analyze` | Sentence tokenisation + paragraph segmentation | `/api/v1/analyze/sentence`, `/api/v1/analyze/paragraph` |
 | `/search` | Lexical corpus search with per-source grouping | `/api/v1/search` |
@@ -79,7 +80,13 @@ storage backend so the round-trip is unit tested without jsdom.
 | `/agent` | Goal-driven research runs with phase trace and feedback (member+) | `POST /api/v1/agent/runs`, `GET /api/v1/agent/runs/{run_id}`, `POST /api/v1/agent/runs/{run_id}/feedback` |
 | `/data` | Collection table (zero-based `#`, bars from zero, `?collection=` filter), knowledge version, health | `/api/v1/knowledge/statistics`, `/api/v1/knowledge/version`, `/health` |
 | `/links` | Endpoint reference, server-rendered links, known gaps | — (renders `src/lib/endpoints.ts`) |
-| `/settings` | AI provider catalog (admin): rename, model, enable, paste key, activate, test | `GET/PUT /api/v1/admin/ai-providers`, `POST /api/v1/admin/ai-providers/{catalog_id}/activate`, `POST /api/v1/admin/ai-providers/{catalog_id}/test` |
+| `/settings` | AI provider catalog **and** the admin API-keys panel (both admin): providers — rename, model, enable, paste key, activate, test; keys — list, issue, rotate, revoke. A minted secret is shown **once** (issue dialog: cleared on close; rotate banner: explicit *Dismiss*) and is never cached | `GET/PUT /api/v1/admin/ai-providers`, `POST /api/v1/admin/ai-providers/{catalog_id}/activate`, `POST /api/v1/admin/ai-providers/{catalog_id}/test`, `GET /api/v1/admin/api-keys`, `POST /api/v1/admin/api-keys`, `POST /api/v1/admin/api-keys/{key_id}/rotate`, `POST /api/v1/admin/api-keys/{key_id}/revoke` |
+
+`/login` is the only destination with `nav: false`: it must stay reachable **before** any privilege is
+held, because the role prompt on `/agent` and `/settings` and the warn-mode banner all link to it as
+the way out. Gate it and a user who cannot pass the gate can no longer acquire the key that opens it —
+a chicken-and-egg trap. `routes.test.ts` asserts both halves of that: exactly one non-nav record, and
+its `minRole` is `anonymous`.
 
 `/word/pasian` and every other route deep-link and survive a browser refresh (SPA fallback:
 `try_files $uri $uri/ /index.html`).
@@ -88,10 +95,15 @@ storage backend so the round-trip is unit tested without jsdom.
 description, `minRole`, icon key, palette keywords). `App.tsx` renders its `<Route>`s from the
 registry — `PAGES` is keyed by the derived `RoutePath`, so a route with no component is a *compile*
 error — while `Sidebar.tsx`, `commands.ts` (⌘K) and `<RequireRole>` read the same records.
-`PARAM_VARIANTS` covers deep links with a path parameter (`/word/:word` → the `/word` panel), and
-`src/lib/routes.test.ts` fails if the palette, the nav list and the registry disagree. Dashboard
-collection tiles link to `/data?collection={label}`, so a card that looks tappable actually opens
-the page that owns the number.
+`PARAM_VARIANTS` covers deep links with a path parameter (`/word/:word` → the `/word` panel).
+
+In-app destinations are read from that registry too: `pathOf('settings')`, `collectionPath(label)`,
+`signInPath(from)`, `wordPath(headword)` and the `DASHBOARD_PATH` / `LOGIN_PATH` constants. **No
+component types a path literal** — `src/lib/routes.test.ts` scans `src/routes`, `src/components` and
+`src/features` and fails on any `to=` / `to:` / `href=` / `navigate(` bound to a hand-written
+`'/settings'`, so a renamed registry record cannot leave a link that renders and then 404s. The
+router is covered too (its `PAGES` keys are checked against the registry, and the rest of the file
+is scanned with that map set aside).
 
 ## API surface (one registry, one table)
 
@@ -155,6 +167,42 @@ These endpoints return **bare arrays with no server total**, so the footers are 
 
 There is no page-size floor on a bar, no min/max bar scaling and no invented total: see the honesty
 contract below.
+
+**Two kinds of cap, one field.** `limitMax` in `src/lib/endpoints.ts` is the largest `limit` the
+client will send, and it means two different things:
+
+| Routes | `limitMax` is… | Why |
+|--------|----------------|-----|
+| `GET /word/*` sub-resources | the **server** cap (`Query(le=…)`) | A larger value 422s, so the client clamps to it. |
+| `POST /search`, `POST /rag` | a deliberate **client** clamp | `SearchRequest.limit` and `RAGRequest.limit` are plain pydantic fields with **no** server bound (`zolai-core/zolai/api/rag_router.py`), so nothing rejects a huge page — the clamp stops the UI asking for one it cannot render. |
+
+Do not describe the `/search` and `/rag` values as server-enforced limits; they are not.
+
+## API keys (admin, on `/settings`)
+
+`/settings` carries two admin panels, and both are role-gated writes that proxy a server permission.
+
+**Providers** — `GET/PUT /api/v1/admin/ai-providers`, `POST …/{catalog_id}/activate`,
+`POST …/{catalog_id}/test`. Secrets are write-only: the catalog row carries `ref_masked` +
+`configured`, and a pasted value is never echoed back into state, a URL or a toast.
+
+**Keys** — the API-key panel. `GET /api/v1/admin/api-keys` lists them (`apikey:manage`, strict),
+`POST /api/v1/admin/api-keys` issues one, and `POST /api/v1/admin/api-keys/{key_id}/rotate` /
+`…/revoke` act on one. Note what the server does on **rotate**: the old key is revoked in the same
+request and a replacement is minted, so the row flips to `revoked` and the new secret is the only
+copy that exists.
+
+A minted plaintext secret comes back from exactly one response and is shown **once**:
+
+| Minting path | Where it is shown | How it is dropped |
+|--------------|-------------------|-------------------|
+| `POST /admin/api-keys` (issue) | the issue dialog | the dialog clears it on close |
+| `POST /admin/api-keys/{id}/rotate` | the row's inline banner | an explicit **Dismiss** button |
+
+Neither path is a React Query mutation — they are plain async calls with local pending state — so a
+secret cannot land in the mutation cache. The *stored* key is only ever rendered masked
+(`zolai_sk_ab••••••`), and the first key is bootstrapped with the `zolai apikey` CLI, because
+minting one needs an existing `apikey:manage` key.
 
 ## Data page: zero-based, bars from zero
 
@@ -292,7 +340,7 @@ The same list is rendered as cards on `/links` under "Known API gaps".
 bun run test
 ```
 
-142 Vitest specs across nine files:
+269 Vitest specs across fifteen files:
 
 - `src/lib/api.test.ts` — 401 → `ApiError` with `needsKey`; 15s timeout budget and abort →
   `timeout` / `aborted` distinction; transport failure → `network`; **empty body tolerated** instead
@@ -341,9 +389,15 @@ bun run test
   evidence cap of 200), each route's documented default, the registry endpoint behind every tab, and
   `coerceWordLimit` clamping an over-large or hostile value instead of letting the API 422.
 - `src/lib/routes.test.ts` — the route registry: unique ids/paths, every record labelled with a
-  known icon + role, exactly one non-nav destination (sign-in, and it must be anonymous), the
-  palette exposing one command per navigable route with the same path/role, deep-link resolution
-  (`/word/:word` → `/word`), and the `?from=` / `?collection=` query builders.
+  known icon + role, exactly one non-nav destination (sign-in, and it must be anonymous — the
+  chicken-and-egg guard), the palette exposing one command per navigable route with the same
+  path/role, deep-link resolution (`/word/:word` → `/word`), and the `?from=` / `?collection=` query
+  builders. Plus the **path drift guard**: `pathOf` resolves every id to its own recorded path,
+  `wordPath` encodes a hostile headword so it cannot escape its segment, `safeReturnPath` refuses an
+  absolute, protocol-relative or control-character `?from=` (no open redirect, no `pushState` throw),
+  and a scan of `src/routes` + `src/components` + `src/features` (plus `App.tsx`, with its
+  registry-keyed `PAGES` map set aside and checked against the registry) fails on any `to=` /
+  `to:` / `href=` / `navigate(` bound to a hand-typed internal path.
 
 ## Deploy
 

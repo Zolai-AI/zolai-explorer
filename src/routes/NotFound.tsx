@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { Compass } from 'lucide-react'
 import { Button } from '../components/ui/button'
+import { DASHBOARD_PATH } from '../lib/routes'
 
 export function NotFound() {
   return (
@@ -11,7 +12,7 @@ export function NotFound() {
         That path is not part of Zolai Explorer. Use the sidebar, or go back to the dashboard.
       </p>
       <Button asChild className="mt-1 h-10">
-        <Link to="/">Dashboard</Link>
+        <Link to={DASHBOARD_PATH}>Dashboard</Link>
       </Button>
     </div>
   )

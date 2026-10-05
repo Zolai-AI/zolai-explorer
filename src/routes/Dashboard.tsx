@@ -30,7 +30,7 @@ import { Button } from '../components/ui/button'
 import { DOCS_URL, METRICS_URL, REVIEW_URL } from '../lib/api'
 import { maxValue, rowIndexLabel, shareLabel, zeroBasedBarPercent } from '../lib/charts'
 import { formatCount, formatTimestamp, formatUptime } from '../lib/format'
-import { collectionPath } from '../lib/routes'
+import { collectionPath, pathOf, wordPath } from '../lib/routes'
 
 /**
  * Maps the live `/knowledge/statistics` labels (which are human sentences, not
@@ -64,25 +64,25 @@ const TILE_MAP: {
 
 const QUICK_JUMPS = [
   {
-    to: '/word/pasian',
+    to: wordPath('pasian'),
     title: 'Word explorer',
     body: 'Frequency, POS, collocations, Bible contexts, patterns and evidence for one entry.',
     icon: BookOpen,
   },
   {
-    to: '/analyze',
+    to: pathOf('analyze'),
     title: 'Analyze text',
     body: 'Sentence tokenisation and paragraph segmentation against the live tokenizer.',
     icon: ScanText,
   },
   {
-    to: '/rag',
+    to: pathOf('rag'),
     title: 'RAG retrieval',
     body: 'Lexical retrieval with citations — placeholder answers, clearly labelled.',
     icon: MessageSquareQuote,
   },
   {
-    to: '/search',
+    to: pathOf('search'),
     title: 'Corpus search',
     body: 'Cross-corpus lexical search over the dictionary and Bible collections.',
     icon: Search,
@@ -257,7 +257,7 @@ export function Dashboard() {
         subtitle="every row the endpoint reports — including collections without a dashboard tile"
         actions={
           <Button asChild variant="outline" size="sm" className="max-lg:h-10">
-            <Link to="/data">Grouped view</Link>
+            <Link to={pathOf('data')}>Grouped view</Link>
           </Button>
         }
       >

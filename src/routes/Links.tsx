@@ -19,6 +19,7 @@ import {
   API_GAPS,
   AREA_LABELS,
   ENDPOINTS,
+  isWriteMethod,
   publicPath,
   type EndpointSpec,
 } from '../lib/endpoints'
@@ -192,10 +193,10 @@ function EndpointRow({ spec }: { spec: EndpointSpec }) {
         <Badge
           variant="outline"
           className={
-            spec.method === 'GET'
-              ? 'border-emerald-500/30 bg-emerald-500/10 font-mono text-emerald-700 dark:text-emerald-300'
-              : 'border-amber-500/30 bg-amber-500/10 font-mono text-amber-700 dark:text-amber-300'
-          }
+            isWriteMethod(spec)
+              ? 'border-amber-500/30 bg-amber-500/10 font-mono text-amber-700 dark:text-amber-300'
+              : 'border-emerald-500/30 bg-emerald-500/10 font-mono text-emerald-700 dark:text-emerald-300'
+            }
         >
           {spec.method}
         </Badge>

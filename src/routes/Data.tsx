@@ -10,6 +10,7 @@ import { RawJson } from '../components/RawJson'
 import { Skeleton } from '../components/Skeleton'
 import { DataTable, type Column } from '../components/DataTable'
 import { StatTile } from '../components/StatTile'
+import { pathOf } from '../lib/routes'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { HEALTH_URL } from '../lib/api'
@@ -245,7 +246,7 @@ export function Data() {
                   <span className="font-medium text-foreground"> {collection}</span>
                 </span>
                 <Button asChild variant="link" size="xs" className="h-auto max-lg:h-10 px-0">
-                  <Link to="/data">Show all collections</Link>
+                  <Link to={pathOf('data')}>Show all collections</Link>
                 </Button>
               </p>
             )}

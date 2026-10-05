@@ -24,6 +24,7 @@ import { TooltipProvider } from './components/ui/tooltip'
 import { queryClient } from './lib/queryClient'
 import { can, roleBadge, useRole, type Role } from './lib/auth'
 import {
+  DASHBOARD_PATH,
   PARAM_VARIANTS,
   ROUTES,
   gateMinimum,
@@ -110,7 +111,7 @@ const PAGES: Record<RoutePath, ReactNode> = {
 
 /** `/word` → `word` (React Router paths are relative, and `/` is the index). */
 function relativePath(path: RoutePath): string {
-  return path === '/' ? '' : path.replace(/^\//, '')
+  return path === DASHBOARD_PATH ? '' : path.replace(/^\//, '')
 }
 
 /** Render the panel for a registry path, gating on the registry's own minRole. */
@@ -130,7 +131,7 @@ export function App() {
             <Route element={<AppShell />}>
               {/* Generated from the route registry — see src/lib/routes.ts. */}
               {ROUTES.map((spec) =>
-                spec.path === '/' ? (
+                spec.path === DASHBOARD_PATH ? (
                   <Route key={spec.id} index element={pageFor(spec.path)} />
                 ) : (
                   <Route key={spec.id} path={relativePath(spec.path)} element={pageFor(spec.path)} />

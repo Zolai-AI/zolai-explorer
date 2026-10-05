@@ -190,6 +190,32 @@ export const NAV_ROUTES = ROUTES.filter((route) => route.nav)
 /** The sign-in path, referenced by the gate prompt and the warn-mode banner. */
 export const LOGIN_PATH: RoutePath = '/login'
 
+/** The index path — `/` is unique to the dashboard, so it is safe to name. */
+export const DASHBOARD_PATH: RoutePath = '/'
+
+/** Registry path by id — the source every in-app destination is read from. */
+const ROUTE_PATHS = Object.fromEntries(ROUTES.map((route) => [route.id, route.path])) as Record<
+  RouteId,
+  RoutePath
+>
+
+/**
+ * Registry path by id.
+ *
+ * Every in-app link, redirect and `===` comparison reads a destination through
+ * this (or through `collectionPath` / `signInPath` / `wordPath`) instead of
+ * typing a path literal. A renamed registry record therefore cannot leave a
+ * hand-typed `'/settings'` behind to 404 in silence —
+ * `routes.test.ts` fails the build on any such literal.
+ *
+ * The map is typed over `RouteId`, which `as const` above derives from the
+ * records themselves: an unknown id is a *compile* error, not an `undefined`
+ * rendered as a broken `to`.
+ */
+export function pathOf(id: RouteId): RoutePath {
+  return ROUTE_PATHS[id]
+}
+
 export function routeById(id: string): RouteSpec | undefined {
   return ROUTES.find((route) => route.id === id)
 }
@@ -237,13 +263,43 @@ export function signInPath(from?: string): string {
  * Where a dashboard collection tile links: the Data page, pre-filtered to that
  * collection. Keeps the tile honest — it opens the page that actually owns the
  * number instead of looking tappable and doing nothing.
+ *
+ * The `/data` prefix comes from the registry, so renaming the Data route moves
+ * the tile with it.
  */
 export function collectionPath(label: string): string {
-  return `/data?collection=${encodeURIComponent(label)}`
+  return `${pathOf('data')}?collection=${encodeURIComponent(label)}`
 }
 
 /** The `?collection=` value carried by `collectionPath`, or `''` when absent. */
 export function collectionFromSearch(search: string | URLSearchParams): string {
   const params = typeof search === 'string' ? new URLSearchParams(search) : search
   return (params.get('collection') ?? '').trim()
+}
+
+/**
+ * A word deep link (`/word/pasian`) — the `/word/:word` variant with the
+ * headword URL-encoded, so a headword holding `/` or `?` cannot escape its
+ * segment or inject a query string.
+ */
+export function wordPath(word: string): string {
+  return `${pathOf('word')}/${encodeURIComponent(word)}`
+}
+
+/**
+ * Where a redirect may land: a same-origin absolute path or nothing.
+ *
+ * `?from=` is attacker-controllable, so a hostile value (`https://evil.example`,
+ * `//evil.example`, a path with a newline) must never reach `navigate()` or
+ * `pushState` — it would throw, and an external URL would be an open redirect.
+ * Anything that is not a single-slash-prefixed, newline-free path falls back to
+ * the dashboard.
+ */
+export function safeReturnPath(candidate: string | null | undefined): string {
+  if (!candidate) return DASHBOARD_PATH
+  const trimmed = candidate.trim()
+  if (!trimmed.startsWith('/')) return DASHBOARD_PATH
+  if (trimmed.startsWith('//')) return DASHBOARD_PATH
+  if (/[\r\n\t]/.test(trimmed)) return DASHBOARD_PATH
+  return trimmed
 }

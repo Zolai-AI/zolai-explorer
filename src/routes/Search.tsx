@@ -28,6 +28,7 @@ import {
   SEARCH_LIMIT_CHOICES,
   searchQuerySchema,
   submitSearch,
+  wordPath,
   type SearchQueryInput,
 } from '../lib/forms'
 import type { SearchHit } from '../lib/schemas'
@@ -215,7 +216,7 @@ function HitRow({ hit, rank }: { hit: SearchHit; rank: number }) {
       <p className="text-xs leading-relaxed break-words">{hit.text || <span className="text-muted-foreground italic">empty text</span>}</p>
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <Button variant="link" size="xs" className="h-auto max-lg:h-10 px-0 text-xs" asChild>
-          <Link to={`/word/${encodeURIComponent(ref || hit.id)}`}>Open in word explorer →</Link>
+          <Link to={wordPath(ref || hit.id)}>Open in word explorer →</Link>
         </Button>
         <span className="font-mono text-[10px] text-muted-foreground">id={hit.id}</span>
       </div>

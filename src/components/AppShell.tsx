@@ -16,6 +16,7 @@ import {
   SheetTrigger,
 } from './ui/sheet'
 import { readSidebarCollapsed, writeSidebarCollapsed } from '../lib/sidebar'
+import { DASHBOARD_PATH } from '../lib/routes'
 
 /**
  * App shell.
@@ -53,7 +54,9 @@ export function AppShell() {
   }, [])
 
   const active = NAV_ITEMS.find((item) =>
-    item.to === '/' ? location.pathname === '/' : location.pathname.startsWith(item.to),
+    item.to === DASHBOARD_PATH
+      ? location.pathname === DASHBOARD_PATH
+      : location.pathname.startsWith(item.to),
   )
 
   return (

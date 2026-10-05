@@ -1,9 +1,11 @@
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { ROLES } from './auth'
 import { ROUTE_COMMANDS } from './commands'
 import {
+  DASHBOARD_PATH,
   LOGIN_PATH,
   NAV_ROUTES,
   PARAM_VARIANTS,
@@ -11,10 +13,13 @@ import {
   collectionFromSearch,
   collectionPath,
   gateMinimum,
+  pathOf,
   routeById,
   routeByPath,
   routePathForVariant,
+  safeReturnPath,
   signInPath,
+  wordPath,
   type RouteIconName,
 } from './routes'
 
@@ -47,6 +52,60 @@ const ICONS: RouteIconName[] = [
   'settings',
   'key',
 ]
+
+/** `<name> />` — a panel rendered by the router's `PAGES` map. */
+const PAGE_ENTRY = /^ {2}'[^']*': <[A-Za-z]+ \/>,\n?/gm
+
+/** `'/word': <Word />,` — one key of the router's panel map. */
+const PAGE_KEY = /^ {2}'([^']*)': <[A-Za-z]+ \/>,/gm
+
+/** `src/`, so the guard below can walk the files that render a destination. */
+const SRC_ROOT = fileURLToPath(new URL('..', import.meta.url))
+
+/** Every `.ts`/`.tsx` source under `dir`, excluding the test files. */
+function sourcesUnder(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const full = join(dir, entry.name)
+    if (entry.isDirectory()) return sourcesUnder(full)
+    if (!/\.tsx?$/.test(entry.name) || entry.name.includes('.test.')) return []
+    return [full.slice(SRC_ROOT.length)]
+  })
+}
+
+/**
+ * Files allowed to name a destination by hand.
+ *
+ * `lib/routes.ts` is the registry itself; `lib/endpoints.ts` holds **API** paths
+ * (`/search`, `/rag` there mean `/api/v1/search`), which are a different
+ * namespace and have their own literal guard in `endpoints.test.ts`.
+ */
+const ROUTE_LITERAL_EXEMPT = new Set(['lib/routes.ts', 'lib/endpoints.ts'])
+
+const LINK_SOURCES = ['routes', 'components', 'features']
+  .flatMap((dir) => sourcesUnder(join(SRC_ROOT, dir)))
+  .filter((file) => !ROUTE_LITERAL_EXEMPT.has(file))
+
+/**
+ * A destination **bound** to a link or a redirect: `to={…}`, `to: …`,
+ * `href=…`, `navigate(…)`, `redirect(…)`.
+ *
+ * This is the defect MINOR-6 closed — a `Link to="/settings"` beside a registry
+ * that renamed the route, which renders fine and 404s on click. Matching the
+ * binding (not the bare string) keeps prose like `` `/health` `` in a sentence
+ * from tripping the guard, and `api/` stays out because `/api/v1` paths belong
+ * to the endpoint registry and are guarded in `endpoints.test.ts`.
+ */
+const PATH_BINDING = /\b(?:to|href|navigate|redirect)\s*[:=(]\s*\{?\s*(['"`])\/(?!api\/)[A-Za-z][^'"`\n]*\1/g
+
+/** Every hand-typed destination found in a source, as the matched text. */
+function pathLiterals(source: string): string[] {
+  return [...codeOf(source).matchAll(PATH_BINDING)].map((match) => match[0])
+}
+
+/** Comment-stripped source — prose must neither fail nor satisfy a guard. */
+function codeOf(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+}
 
 describe('route registry integrity', () => {
   it('has a unique id and a unique path per record', () => {
@@ -209,5 +268,111 @@ describe('collection deep links', () => {
     expect(collectionFromSearch('?collection=Bible%20verses')).toBe('Bible verses')
     expect(collectionFromSearch('')).toBe('')
     expect(collectionFromSearch(new URLSearchParams())).toBe('')
+  })
+})
+
+describe('pathOf', () => {
+  it('resolves every registry id to its own recorded path', () => {
+    for (const route of ROUTES) expect(pathOf(route.id), route.id).toBe(route.path)
+  })
+
+  it('agrees with the by-id and by-path lookups', () => {
+    for (const route of ROUTES) {
+      expect(routeById(route.id)?.path).toBe(pathOf(route.id))
+      expect(routeByPath(pathOf(route.id))?.id).toBe(route.id)
+    }
+  })
+
+  it('builds the dashboard deep link from the registry', () => {
+    expect(pathOf('dashboard')).toBe(DASHBOARD_PATH)
+  })
+})
+
+describe('wordPath', () => {
+  it('produces a URL the `/word/:word` deep link actually routes', () => {
+    expect(wordPath('pasian')).toBe('/word/pasian')
+    expect(wordPath('pasian')).toMatch(/^\/word\/.+/u)
+    expect(routePathForVariant('/word/:word')).toBe(pathOf('word'))
+  })
+
+  it('encodes a hostile headword so it cannot escape its segment', () => {
+    expect(wordPath('a/b')).toBe('/word/a%2Fb')
+    expect(wordPath('a?b')).toBe('/word/a%3Fb')
+  })
+})
+
+describe('safeReturnPath — the `?from=` value is attacker-controllable', () => {
+  it('keeps a same-origin path, query string included', () => {
+    expect(safeReturnPath('/settings')).toBe('/settings')
+    expect(safeReturnPath('/word/pasian?tab=forms')).toBe('/word/pasian?tab=forms')
+  })
+
+  it('falls back to the dashboard for an absent or blank value', () => {
+    expect(safeReturnPath(null)).toBe(DASHBOARD_PATH)
+    expect(safeReturnPath(undefined)).toBe(DASHBOARD_PATH)
+    expect(safeReturnPath('')).toBe(DASHBOARD_PATH)
+    expect(safeReturnPath('   ')).toBe(DASHBOARD_PATH)
+  })
+
+  it('refuses an absolute or protocol-relative URL — no open redirect', () => {
+    expect(safeReturnPath('https://evil.example/steal')).toBe(DASHBOARD_PATH)
+    expect(safeReturnPath('http://evil.example')).toBe(DASHBOARD_PATH)
+    expect(safeReturnPath('//evil.example')).toBe(DASHBOARD_PATH)
+    expect(safeReturnPath('javascript:alert(1)')).toBe(DASHBOARD_PATH)
+  })
+
+  it('refuses a value carrying an interior control character, which would throw in pushState', () => {
+    expect(safeReturnPath('/settings\n/x')).toBe(DASHBOARD_PATH)
+    expect(safeReturnPath('/settings\r\nSet-Cookie: a=b')).toBe(DASHBOARD_PATH)
+    expect(safeReturnPath('/settings\tx')).toBe(DASHBOARD_PATH)
+  })
+
+  it('trims surrounding whitespace rather than rejecting it', () => {
+    // A tab or newline *outside* the path is not an injection vector, so it is
+    // trimmed; only an interior one is refused.
+    expect(safeReturnPath('  /settings  ')).toBe('/settings')
+    expect(safeReturnPath('\t/settings')).toBe('/settings')
+  })
+})
+
+describe('path drift guard — destinations come from the registry, not from literals', () => {
+  it('finds no hand-typed internal path outside the registry', () => {
+    const offenders = LINK_SOURCES.flatMap((file) => {
+      const source = readFileSync(join(SRC_ROOT, file), 'utf8')
+      return pathLiterals(source).map((literal) => `${file}: ${literal.trim()}`)
+    })
+    expect(offenders).toEqual([])
+  })
+
+  it('holds for the router too, once its typed PAGES map is set aside', () => {
+    // `PAGES` is keyed by the *derived* `RoutePath`, so its literals are checked
+    // by the next test — a rename there is a compile error, which is stronger.
+    expect(pathLiterals(APP_SOURCE.replace(PAGE_ENTRY, ''))).toEqual([])
+  })
+
+  it('keys the router PAGES map by exactly the registry paths', () => {
+    const keys = [...APP_SOURCE.matchAll(PAGE_KEY)].map((match) => match[1])
+    expect(keys).toEqual(ROUTES.map((route) => route.path))
+  })
+
+  it('actually scans the link sites, so an emptied scan cannot pass', () => {
+    expect(LINK_SOURCES).toContain('routes/Login.tsx')
+    expect(LINK_SOURCES).toContain('routes/Dashboard.tsx')
+    expect(LINK_SOURCES).toContain('routes/Word.tsx')
+    expect(LINK_SOURCES).toContain('routes/Data.tsx')
+    expect(LINK_SOURCES).toContain('routes/NotFound.tsx')
+    expect(LINK_SOURCES).toContain('routes/Search.tsx')
+    expect(LINK_SOURCES.some((file) => file.startsWith('features/'))).toBe(true)
+    expect(LINK_SOURCES.every((file) => !file.includes('.test.'))).toBe(true)
+  })
+
+  it('would still catch a reintroduced literal', () => {
+    // A guard that cannot fail is not a guard: plant the defect in a snippet.
+    expect(pathLiterals('<Link to="/settings">x</Link>')).toHaveLength(1)
+    expect(pathLiterals('{ to: `/word/${w}` }')).toHaveLength(1)
+    expect(pathLiterals("navigate('/agent')")).toHaveLength(1)
+    expect(pathLiterals('<a href="/data">x</a>')).toHaveLength(1)
+    expect(pathLiterals('<Link to={pathOf("settings")}>x</Link>')).toHaveLength(0)
+    expect(pathLiterals("apiPost('/api/v1/word/x')")).toHaveLength(0)
   })
 })

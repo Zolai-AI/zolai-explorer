@@ -14,6 +14,7 @@
  */
 
 import { z } from 'zod'
+import { wordPath as routeWordPath } from './routes'
 
 /* ----------------------------------------------------------------- schemas */
 
@@ -122,9 +123,14 @@ export function submitWordLookup(values: unknown): SubmitResult<{ word: string; 
   return { ok: true, value: { word, path: wordPath(word) } }
 }
 
-/** `/word/{word}` route for a headword, URL-encoded. */
+/**
+ * `/word/{word}` route for a headword, URL-encoded.
+ *
+ * Normalisation (trim + lower-case) is the form's job; the path itself comes from
+ * the route registry, so there is exactly one word-path builder in the app.
+ */
 export function wordPath(word: string): string {
-  return `/word/${encodeURIComponent(word.trim().toLowerCase())}`
+  return routeWordPath(word.trim().toLowerCase())
 }
 
 /** Search submit: validated query + clamped limit, ready for the mutation. */

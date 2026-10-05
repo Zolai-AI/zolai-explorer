@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Ban, KeyRound, Plus, RefreshCw, ShieldAlert } from 'lucide-react'
+import { Ban, KeyRound, Plus, RefreshCw, ShieldAlert, X } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   createApiKey,
@@ -33,10 +33,13 @@ import type { ApiKeyRecord } from '../../lib/schemas'
  * Admin API-key panel — list, issue, rotate, revoke.
  *
  * Credential rules this component keeps:
- *   - a **minted plaintext secret is shown once** in the dialog it was created
- *     in, and lives only in that dialog's local state. It is never written to
+ *   - a **minted plaintext secret is shown once** in the surface that produced
+ *     it, and lives only in that component's local state. It is never written to
  *     the query cache, never toasted, never put in a URL, and the input is
  *     cleared on close;
+ *   - **every** minting path needs both an end *and* a dismiss: the issue dialog
+ *     clears on close, and the rotate banner has an explicit "Dismiss" so the
+ *     secret cannot sit on screen with no way to drop it;
  *   - the *stored* key is only ever shown masked (`zolai_sk_ab••••••`), matching
  *     what the top-bar dialog shows;
  *   - create/rotate/revoke are plain async calls with local pending state, not
@@ -163,6 +166,18 @@ function ApiKeyRow({ row, onChanged }: { row: ApiKeyRecord; onChanged: () => voi
             Copy this secret now — the server will never show it again.
           </p>
           <code className="mt-1.5 block break-all font-mono text-xs">{issued}</code>
+          {/* A minting path parks a secret in component state, so it must also
+              offer a way to drop it — the rotate banner used to linger until
+              the row unmounted or the next action. */}
+          <Button
+            variant="outline"
+            size="xs"
+            className="mt-2 h-auto max-lg:h-9 px-2 text-[11px]"
+            onClick={() => setIssued(null)}
+          >
+            <X aria-hidden />
+            Dismiss
+          </Button>
         </div>
       )}
 

@@ -46,9 +46,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../components/ui/select'
-import { submitWordLookup, wordLookupSchema, type WordLookupInput } from '../lib/forms'
+import { submitWordLookup, wordLookupSchema, wordPath, type WordLookupInput } from '../lib/forms'
 import type { Collocation, Evidence, Pattern, WordContext, Word } from '../lib/schemas'
 import { formatCount, formatScore, isNonEmptyArray, isNonEmptyRecord, percent } from '../lib/format'
+import { pathOf } from '../lib/routes'
 
 const SUGGESTIONS = ['pasian', 'gam', 'tapa', 'topa', 'thupha', 'kumpipa', 'keituh', 'nung']
 
@@ -189,7 +190,7 @@ export function Word() {
                   : 'text-muted-foreground'
               }`}
             >
-              <Link to={`/word/${suggestion}`}>{suggestion}</Link>
+              <Link to={wordPath(suggestion)}>{suggestion}</Link>
             </Button>
           ))}
         </div>
@@ -210,7 +211,7 @@ export function Word() {
           hint="The live API answered 200 with all-zero counts, meaning the word is not in the lexicon yet."
         >
           <Button asChild variant="link" size="xs" className="mt-1 h-auto max-lg:h-10 px-0">
-            <Link to="/search">Try corpus search instead</Link>
+            <Link to={pathOf('search')}>Try corpus search instead</Link>
           </Button>
         </Empty>
       ) : (
@@ -826,7 +827,7 @@ function FormsPanel({
             size="xs"
             className="group max-lg:h-10 gap-1 font-mono"
           >
-            <Link to={`/word/${encodeURIComponent(form)}`}>
+            <Link to={wordPath(form)}>
               {form}
               <Link2 className="size-3 text-muted-foreground group-hover:text-primary" aria-hidden />
             </Link>

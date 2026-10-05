@@ -61,7 +61,17 @@ export type EndpointSpec = {
   scope: string
   /** Server default for `limit`, or `null` when the route has no such parameter. */
   limitDefault: number | null
-  /** Server cap for `limit` (`Query(le=…)`), or `null` when unbounded. */
+  /**
+   * The largest `limit` the client will send, or `null` when the route takes no
+   * `limit`.
+   *
+   * On the GET routes this **is** the server cap (`Query(le=…)`) — a larger value
+   * would 422, so the client clamps to it. On the body-limit routes (`/search`
+   * and `/rag`) there is **no server bound**: `SearchRequest.limit` and
+   * `RAGRequest.limit` are plain pydantic fields
+   * (`zolai-core/zolai/api/rag_router.py`), so this number is a deliberate
+   * *client* clamp that stops the UI asking for a page it cannot render.
+   */
   limitMax: number | null
   limit: LimitPlacement
   /** Short, honest note rendered on the Links page. */

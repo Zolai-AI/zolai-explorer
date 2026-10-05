@@ -28,10 +28,13 @@ verbatim captures from the live API).
    public and never 401s, so "200 with no `key_prefix`" means *rejected* — never store that. There
    are no accounts and no login endpoint in `zolai-core`: do not invent a username/password flow or
    a session the server cannot back.
-2. **A minted plaintext key is shown once and dropped.** `POST /admin/api-keys` (and `rotate`) are
-   the only responses that carry a secret. They are therefore plain transports, **not** React Query
-   mutations, so nothing parks a secret in the mutation cache: keep it in the dialog's local state,
-   show it, and clear it on close. The stored key is only ever displayed masked.
+2. **A minted plaintext key is shown once and dropped — every minting path, both an end and a
+   dismiss.** `POST /admin/api-keys` (and `rotate`) are the only responses that carry a secret. They
+   are therefore plain transports, **not** React Query mutations, so nothing parks a secret in the
+   mutation cache: keep it in the dialog's local state, show it, and clear it on close. Rotate has no
+   dialog to close, so its inline banner carries an explicit **Dismiss** that drops the value —
+   a secret left on screen with no way to remove it is a finding, not a style question. Applies to
+   any new minting path you add. The stored key is only ever displayed masked.
 3. **Do not modify `zolai-core`, `zolai-web` or `zolai-landing`.** This repo is a separate git repo
    inside the workspace; the root `AGENTS.md` forbids cross-repo drift.
 4. **Do not change the API surface to suit the UI.** Endpoint shapes are fixed by the deployed
@@ -110,6 +113,18 @@ panel in the same commit.
   adding a registry record — never by hand-editing a nav list, and never by adding a `<Route>` that
   no nav entry points at. Deep links with a path parameter go in `PARAM_VARIANTS` with the registry
   path they belong to.
+- **In-app destinations are read from that registry too.** `pathOf('settings')`,
+  `collectionPath(label)`, `signInPath(from)`, `wordPath(headword)`, `DASHBOARD_PATH` and
+  `LOGIN_PATH` — **never a path literal**. `routes.test.ts` scans `src/routes`, `src/components` and
+  `src/features` and fails on any `to=` / `to:` / `href=` / `navigate(` bound to a hand-written
+  `'/settings'` (the router is covered as well: `PAGES` keys are asserted equal to the registry paths,
+  and the rest of the file is scanned with that map removed). `/api/v1` literals belong to
+  `endpoints.ts` instead and are guarded by `endpoints.test.ts`.
+- **Keep `limitMax` honest about which cap it is.** On the `GET /word/*` routes it is the server cap
+  (`Query(le=…)`) — a bigger value 422s. On the body-limit routes (`POST /search`, `POST /rag`) the
+  server has **no** bound (`SearchRequest.limit` / `RAGRequest.limit` are plain pydantic fields in
+  `zolai-core/zolai/api/rag_router.py`), so the value there is a deliberate **client** clamp. Never
+  describe those two as server-enforced.
 - **Role gating has exactly one source of truth: the server.** `src/lib/auth.ts` reads `GET
   /auth/me` and exports `useRole()` (reactive) plus pure `rankOf`/`can`/`roleBadge`. Route access
   goes through `<RequireRole minimum={gateMinimum(spec)}>` — the minimum comes from the route
@@ -136,7 +151,7 @@ panel in the same commit.
 
 ```bash
 bun run typecheck    # tsc -b --force
-bun run test         # 142 vitest specs
+bun run test         # 269 vitest specs
 bun run build        # must be warning-free
 ```
 

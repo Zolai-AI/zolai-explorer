@@ -16,7 +16,7 @@ import {
 import { Button } from './ui/button'
 import { Separator } from './ui/separator'
 import { can, useRole, type Role } from '../lib/auth'
-import { NAV_ROUTES, type RouteIconName } from '../lib/routes'
+import { NAV_ROUTES, DASHBOARD_PATH, type RouteIconName } from '../lib/routes'
 import { cn } from '../lib/utils'
 
 export type NavItem = {
@@ -95,7 +95,7 @@ export function Sidebar({
           <li key={to}>
             <NavLink
               to={to}
-              end={to === '/'}
+              end={to === DASHBOARD_PATH}
               title={description}
               onClick={onNavigate}
               className="block"

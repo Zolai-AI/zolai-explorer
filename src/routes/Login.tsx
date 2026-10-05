@@ -9,6 +9,7 @@ import { Button } from '../components/ui/button'
 import { Field, FieldError, FieldLabel } from '../components/ui/field'
 import { Input } from '../components/ui/input'
 import { submitApiKey } from '../lib/forms'
+import { DASHBOARD_PATH, pathOf, safeReturnPath } from '../lib/routes'
 import { signIn, signInTitle, signOut, type VerifyFailure } from '../lib/session'
 
 /**
@@ -33,7 +34,10 @@ export function Login() {
   const [reason, setReason] = useState<VerifyFailure | undefined>(undefined)
   const [busy, setBusy] = useState(false)
 
-  const from = params.get('from') ?? '/'
+  // `?from=` is attacker-controllable, so it is validated before it can reach
+  // `navigate()`: an absolute or protocol-relative URL would be an open redirect,
+  // and a value carrying a newline would throw inside `pushState`.
+  const from = safeReturnPath(params.get('from'))
 
   const submit = async () => {
     // Same schema the paste-key dialog uses: a blank submit never reaches the network.
@@ -132,7 +136,7 @@ export function Login() {
               </Button>
             )}
             <Button asChild variant="link" size="sm" className="h-auto max-lg:h-10 px-0">
-              <Link to="/">Back to dashboard</Link>
+              <Link to={DASHBOARD_PATH}>Back to dashboard</Link>
             </Button>
           </div>
         </form>
@@ -166,7 +170,10 @@ export function Login() {
           </li>
           <li className="flex items-start gap-1.5 pt-1">
             <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-            Keys are issued by an admin on <Link to="/settings" className="underline">/settings</Link>{' '}
+            Keys are issued by an admin on{' '}
+            <Link to={pathOf('settings')} className="underline">
+              /settings
+            </Link>{' '}
             (or the <code className="font-mono">zolai apikey</code> CLI for the first one). This app
             never mints one without an explicit action.
           </li>
