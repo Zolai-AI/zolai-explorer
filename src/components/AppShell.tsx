@@ -104,7 +104,7 @@ export function AppShell() {
                 <SheetHeader className="border-b px-4 py-3 text-left">
                   <SheetTitle className="text-sm">Zolai Explorer</SheetTitle>
                   <SheetDescription className="text-xs">
-                    {active?.description ?? 'Read-only studio over the Zolai Core API'}
+                    {active?.description ?? 'Read-mostly studio for the Zolai Core API'}
                   </SheetDescription>
                 </SheetHeader>
                 {/* The drawer below `lg` is always the full labelled list — the
@@ -124,8 +124,9 @@ export function AppShell() {
         </main>
 
         <footer className="border-t px-4 py-4 text-[11px] leading-relaxed text-muted-foreground sm:px-6">
-          Zolai Explorer — read-only studio over the Zolai Core API. Language ground truth is ZVS
-          2018: SOV word order, ergative <span className="font-mono">in</span>,{' '}
+          Zolai Explorer — read-mostly studio for the Zolai Core API; role-gated writes go through
+          your key. Language ground truth is ZVS 2018: SOV word order, ergative{' '}
+          <span className="font-mono">in</span>,{' '}
           <span className="font-mono">kei</span> negation. RAG answers on this deployment are
           placeholder echoes, not model-generated text.
         </footer>

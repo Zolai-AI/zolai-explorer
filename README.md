@@ -75,8 +75,11 @@ storage backend so the round-trip is unit tested without jsdom.
 | `/analyze` | Sentence tokenisation + paragraph segmentation | `/analyze/sentence`, `/analyze/paragraph` |
 | `/search` | Lexical corpus search with per-source grouping | `/search` |
 | `/rag` | Retrieval with honest placeholder labelling | `/rag` |
+| `/assistant` | Assistant chat — public route is honest `retrieval_only` when no provider is active; admin mode adds provider/model and the tool trace | `POST /assistant/chat`, `POST /admin/assistant/chat` |
+| `/agent` | Goal-driven research runs with phase trace and feedback (member+) | `POST /agent/runs`, `GET /agent/runs/{id}`, `POST /agent/runs/{id}/feedback` |
 | `/data` | Full collection table, knowledge version, health | `/knowledge/statistics`, `/knowledge/version`, `/health` |
 | `/links` | Endpoint reference, server-rendered links, known gaps | — |
+| `/settings` | AI provider catalog (admin): rename, model, enable, paste key, activate, test | `GET/PUT /admin/ai-providers`, `POST /admin/ai-providers/{id}/activate`, `POST /admin/ai-providers/{id}/test` |
 
 `/word/pasian` and every other route deep-link and survive a browser refresh (SPA fallback:
 `try_files $uri $uri/ /index.html`).
@@ -96,14 +99,19 @@ src/
     schemas.ts             one tolerant zod schema per endpoint
     queryClient.ts         retry:1 (skipped for 4xx), staleTime 60s, no refetch on focus
     format.ts              number / uptime / timestamp / score formatters
+    auth.ts                GET /auth/me → useRole() + rankOf/can/roleBadge — the one
+                           source of truth for role gating (sidebar, routes, palette)
     theme.ts               pure light/dark resolution + persistence (unit tested)
     useTheme.ts            useThemePreference / useResolvedTheme (React bindings for theme.ts)
     datatable.ts           sort comparator, breakpoint-hiding map, alignment map (unit tested)
-  components/              AppShell, Sidebar, TopBar, KeyDialog, HealthPill, StatTile, Card,
-                           Empty, ErrorState, Skeleton, RawJson, DataTable, ThemeToggle
+  components/              AppShell, Sidebar, TopBar, KeyDialog, CommandPalette, HealthPill,
+                           StatTile, Card, Empty, ErrorState, Skeleton, RawJson, DataTable,
+                           ThemeToggle, ChartPanel, Charts, CollocationChart
   components/ui/           shadcn/ui (vendored — see below)
   features/<area>/api.ts   one TanStack Query hook per endpoint
-  routes/                  Dashboard, Word, Analyze, Search, Rag, Data, Links, NotFound
+                           (agent, analyze, assistant, data, rag, settings, word)
+  routes/                  Dashboard, Word, Analyze, Search, Rag, Assistant, Agent, Data,
+                           Links, Settings, NotFound
   lib/*.test.ts            vitest suites
 ```
 

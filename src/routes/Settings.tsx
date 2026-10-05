@@ -116,6 +116,7 @@ function ProviderRow({ provider }: { provider: Provider }) {
     upsert.mutate(
       { catalogId: provider.catalog_id, update: { selected_model: model } },
       {
+        onSuccess: () => toast.success(`Model set to “${model}”.`),
         onError: (error: unknown) =>
           toast.error('Could not change the model', { description: describe(error) }),
       },

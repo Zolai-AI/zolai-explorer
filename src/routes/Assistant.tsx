@@ -70,7 +70,9 @@ export function Assistant() {
     [activeMode, chat, message],
   )
 
-  const last = [...history].reverse().find((entry) => entry.role === 'assistant')?.response
+  // Label the latest answer with the mode it was actually produced under —
+  // the toggle only describes what the *next* send will use.
+  const last = [...history].reverse().find((entry) => entry.role === 'assistant')
 
   return (
     <div className="flex flex-col gap-5">
@@ -144,13 +146,13 @@ export function Assistant() {
         </Card>
       ) : chat.isError ? (
         <ErrorState error={chat.error} compact />
-      ) : !last ? (
+      ) : !last?.response ? (
         <Empty
           title="No conversation yet"
           hint="Ask a question. Answers carry citations back to the corpus; without an active provider the server says so instead of inventing text."
         />
       ) : (
-        <AnswerPanel response={last} mode={activeMode} />
+        <AnswerPanel response={last.response} mode={last.mode} />
       )}
 
       {history.length > 0 && (
