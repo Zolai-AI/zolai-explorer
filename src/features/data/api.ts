@@ -2,6 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { apiGet } from '../../lib/api'
+import { endpointPath } from '../../lib/endpoints'
 import {
   FoundationStatsSchema,
   KnowledgeVersionSchema,
@@ -16,7 +17,7 @@ export function useStatistics() {
   return useQuery({
     queryKey: ['statistics'],
     queryFn: async ({ signal }): Promise<Statistics> =>
-      parseOrThrow(StatisticsSchema, await apiGet<unknown>('/knowledge/statistics', { signal }), 'statistics'),
+      parseOrThrow(StatisticsSchema, await apiGet<unknown>(endpointPath('knowledge.statistics'), { signal }), 'statistics'),
   })
 }
 
@@ -26,7 +27,7 @@ export function useKnowledgeVersion() {
     queryFn: async ({ signal }): Promise<KnowledgeVersion> =>
       parseOrThrow(
         KnowledgeVersionSchema,
-        await apiGet<unknown>('/knowledge/version', { signal }),
+        await apiGet<unknown>(endpointPath('knowledge.version'), { signal }),
         'knowledge version',
       ),
   })
@@ -45,7 +46,7 @@ export function useFoundationStats() {
     queryFn: async ({ signal }): Promise<FoundationStats> =>
       parseOrThrow(
         FoundationStatsSchema,
-        await apiGet<unknown>('/foundation/stats', { signal }),
+        await apiGet<unknown>(endpointPath('foundation.stats'), { signal }),
         'foundation stats',
       ),
   })

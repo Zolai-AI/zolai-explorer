@@ -9,6 +9,7 @@
 
 import { useMutation } from '@tanstack/react-query'
 import { apiPost } from '../../lib/api'
+import { endpointPath } from '../../lib/endpoints'
 import { ChatResponseSchema, parseOrThrow, type ChatResponse } from '../../lib/schemas'
 
 /** Public mode is anonymous-safe; admin mode needs an admin key. */
@@ -17,7 +18,7 @@ export type AssistantMode = 'public' | 'admin'
 export const ASSISTANT_TIMEOUT_MS = 60_000
 
 export function assistantChatPath(mode: AssistantMode): string {
-  return mode === 'admin' ? '/admin/assistant/chat' : '/assistant/chat'
+  return endpointPath(mode === 'admin' ? 'assistant.chat.admin' : 'assistant.chat.public')
 }
 
 export async function postAssistantChat(

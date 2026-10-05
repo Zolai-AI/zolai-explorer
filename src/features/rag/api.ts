@@ -2,6 +2,7 @@
 
 import { useMutation } from '@tanstack/react-query'
 import { apiPost } from '../../lib/api'
+import { endpointPath } from '../../lib/endpoints'
 import { RagSchema, parseOrThrow, type RagResult } from '../../lib/schemas'
 
 export const RAG_LIMITS = [3, 5, 10] as const
@@ -15,6 +16,6 @@ export function useRag() {
       question: string
       limit: number
     }): Promise<RagResult> =>
-      parseOrThrow(RagSchema, await apiPost<unknown>('/rag', { question, limit }), 'rag'),
+      parseOrThrow(RagSchema, await apiPost<unknown>(endpointPath('rag.ask'), { question, limit }), 'rag'),
   })
 }

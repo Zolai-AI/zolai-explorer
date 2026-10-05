@@ -12,6 +12,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiGet, apiPost, apiPut } from '../../lib/api'
+import { endpointPath } from '../../lib/endpoints'
 import {
   ActivateSchema,
   ProviderListSchema,
@@ -24,7 +25,7 @@ import {
   type ProviderTest,
 } from '../../lib/schemas'
 
-const BASE = '/admin/ai-providers'
+const BASE = endpointPath('admin.providers.list')
 const QKEY = ['admin', 'ai-providers'] as const
 
 /** Fields a PUT may carry — `catalog_id`/`adapter` are immutable server-side. */
@@ -57,7 +58,7 @@ export async function putAiProvider(
 ): Promise<Provider> {
   return parseOrThrow(
     ProviderSchema,
-    await apiPut<unknown>(`${BASE}/${catalogId}`, update),
+    await apiPut<unknown>(endpointPath('admin.providers.update', { catalog_id: catalogId }), update),
     'ai provider',
   )
 }
@@ -65,7 +66,7 @@ export async function putAiProvider(
 export async function postActivateProvider(catalogId: string): Promise<ActivateResult> {
   return parseOrThrow(
     ActivateSchema,
-    await apiPost<unknown>(`${BASE}/${catalogId}/activate`, undefined),
+    await apiPost<unknown>(endpointPath('admin.providers.activate', { catalog_id: catalogId }), undefined),
     'activate provider',
   )
 }
@@ -73,7 +74,7 @@ export async function postActivateProvider(catalogId: string): Promise<ActivateR
 export async function postTestProvider(catalogId: string): Promise<ProviderTest> {
   return parseOrThrow(
     ProviderTestSchema,
-    await apiPost<unknown>(`${BASE}/${catalogId}/test`, undefined),
+    await apiPost<unknown>(endpointPath('admin.providers.test', { catalog_id: catalogId }), undefined),
     'provider test',
   )
 }

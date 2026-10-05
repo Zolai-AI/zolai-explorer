@@ -12,6 +12,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiGet, apiPost } from '../../lib/api'
+import { endpointPath } from '../../lib/endpoints'
 import {
   AgentRunSchema,
   FeedbackSchema,
@@ -20,7 +21,7 @@ import {
   type FeedbackResult,
 } from '../../lib/schemas'
 
-const BASE = '/agent/runs'
+const BASE = endpointPath('agent.run.create')
 
 /** Server runs up to 60s; give the wire a little headroom. */
 export const RUN_TIMEOUT_MS = 65_000
@@ -41,7 +42,7 @@ export async function postAgentRun(goal: string): Promise<AgentRun> {
 export async function fetchAgentRun(runId: number, signal?: AbortSignal): Promise<AgentRun> {
   return parseOrThrow(
     AgentRunSchema,
-    await apiGet<unknown>(`${BASE}/${runId}`, { signal }),
+    await apiGet<unknown>(endpointPath('agent.run.read', { run_id: runId }), { signal }),
     'agent run',
   )
 }
@@ -52,7 +53,7 @@ export async function postRunFeedback(
 ): Promise<FeedbackResult> {
   return parseOrThrow(
     FeedbackSchema,
-    await apiPost<unknown>(`${BASE}/${runId}/feedback`, { score }),
+    await apiPost<unknown>(endpointPath('agent.run.feedback', { run_id: runId }), { score }),
     'run feedback',
   )
 }

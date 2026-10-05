@@ -15,65 +15,29 @@ import {
 } from '../components/ui/table'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip'
 import { DOCS_URL, HEALTH_URL, METRICS_URL, REVIEW_URL } from '../lib/api'
+import {
+  API_GAPS,
+  AREA_LABELS,
+  ENDPOINTS,
+  publicPath,
+  type EndpointSpec,
+} from '../lib/endpoints'
 
-type Endpoint = {
-  method: 'GET' | 'POST'
-  path: string
-  note: string
-}
-
-/** Endpoints this studio consumes, under the versioned `/api/v1` surface. */
-const VERSIONED: Endpoint[] = [
-  { method: 'GET', path: '/api/v1/word/{w}', note: 'Word entry: frequency, POS, collocations' },
-  { method: 'GET', path: '/api/v1/word/{w}/forms', note: 'Observed surface forms' },
-  { method: 'GET', path: '/api/v1/word/{w}/contexts', note: 'Parallel EN/ZO Bible verses' },
-  { method: 'GET', path: '/api/v1/word/{w}/collocations', note: 'PMI collocation pairs' },
-  { method: 'GET', path: '/api/v1/word/{w}/patterns', note: 'Observed grammar patterns' },
-  { method: 'GET', path: '/api/v1/word/{w}/evidence', note: 'Tiered provenance records' },
-  { method: 'POST', path: '/api/v1/analyze/sentence', note: 'Tokenise one sentence' },
-  { method: 'POST', path: '/api/v1/analyze/paragraph', note: 'Segment a paragraph' },
-  { method: 'POST', path: '/api/v1/search', note: 'Lexical corpus search' },
-  { method: 'POST', path: '/api/v1/rag', note: 'Retrieval + placeholder answer' },
-  { method: 'GET', path: '/api/v1/knowledge/version', note: 'Knowledge build version' },
-  { method: 'GET', path: '/api/v1/knowledge/statistics', note: 'Collection row counts' },
-]
-
-/** Endpoints outside `/api/v1`, rendered by the server — link out only. */
+/**
+ * Endpoints outside `/api/v1`, rendered by the server — link out only.
+ *
+ * `note` says plainly when a path on this list is *not* a working stat: the
+ * server-rendered `/review/` queue is real, but there is no review count on the
+ * versioned API, so nothing here renders one.
+ */
 const OUTSIDE: { path: string; note: string; href: string }[] = [
   { path: '/health', note: 'Public health probe (no API key)', href: HEALTH_URL },
   { path: '/docs', note: 'OpenAPI Swagger UI', href: DOCS_URL },
   { path: '/metrics', note: 'Prometheus exposition', href: METRICS_URL },
-  { path: '/review/', note: 'Review workbench (HTML)', href: REVIEW_URL },
-]
-
-/**
- * Known API gaps, stated plainly so an empty panel is never read as a bug in
- * this app. Every item here was verified against the live deployment.
- */
-const GAPS = [
   {
-    title: '/rag answers are placeholder echoes',
-    body: 'Retrieval is real — context and citations come from the corpus — but the answer string is a template, because the server holds a placeholder GEMINI_API_KEY and calls no model.',
-  },
-  {
-    title: '/analyze/sentence returns empty pos, grammar and entities',
-    body: 'Only tokens are populated today. The Analyze panel labels the missing sections instead of showing empty boxes.',
-  },
-  {
-    title: 'sentence_frequency is always 0',
-    body: 'The word explorer shows "—" for sentence counts rather than a misleading zero.',
-  },
-  {
-    title: 'morphology and forms are usually empty',
-    body: 'Most entries have no morphology rows; those sections collapse to a "not populated" note rather than a broken panel.',
-  },
-  {
-    title: '/api/v1/review/stats is not registered',
-    body: 'It answers 200 {"error":"Not found"} — the path does not exist on the versioned surface. The unversioned /review/stats instead 422s, because /review/{item_id} swallows "stats". This page links at the server-rendered /review/ instead.',
-  },
-  {
-    title: 'Authentication is in warn mode',
-    body: 'The API currently accepts unauthenticated requests and may flip to enforce mode. Add a key now so nothing breaks when it does.',
+    path: '/review/',
+    note: 'Review queue (HTML). /review/stats is not available — it 422s behind /review/{item_id}.',
+    href: REVIEW_URL,
   },
 ]
 
@@ -83,6 +47,16 @@ const PROJECT_LINKS = [
   { label: 'Zolai-AI organisation', href: 'https://github.com/Zolai-AI' },
 ]
 
+/**
+ * The API surface page.
+ *
+ * The table below is rendered **once**, straight from `ENDPOINTS` in
+ * `src/lib/endpoints.ts` — the same records the transports build their URLs
+ * from. It used to be rendered twice (a `<Table>` plus a stacked `<ul>`), which
+ * duplicated every row in the DOM and left an empty bordered box on phones.
+ * Responsiveness is CSS-only now: the notes column hides below `lg` and the
+ * shadcn table container scrolls.
+ */
 export function Links() {
   return (
     <div className="flex flex-col gap-5">
@@ -92,42 +66,36 @@ export function Links() {
           API surface
         </h1>
         <p className="mt-1 max-w-prose text-sm text-muted-foreground">
-          The endpoints this studio consumes, the server-rendered pages that are link-out only, and an
-          honest list of what the deployment does not do yet.
+          Every endpoint this app actually calls, generated from one registry
+          (<code className="font-mono">src/lib/endpoints.ts</code>) that also builds the request URLs —
+          plus the server-rendered pages that are link-out only, and an honest list of what the
+          deployment does not do yet.
         </p>
       </header>
 
       <Card
         title="Endpoints consumed by this app"
-        subtitle="base /api/v1 · auth header X-API-Key"
+        subtitle={`base /api/v1 · auth header X-API-Key · ${ENDPOINTS.length} routes`}
         actions={<FileCode2 className="text-muted-foreground/70" aria-hidden />}
       >
-        {/* Table on `sm`+; the stacked list below keeps 375px readable. */}
-        <Table className="hidden sm:table">
+        <Table containerClassName="scrollbar-thin scroll-fade-x">
           <TableHeader>
             <TableRow>
               <TableHead className="w-20">Method</TableHead>
               <TableHead>Path</TableHead>
-              <TableHead className="hidden lg:table-cell">Notes</TableHead>
+              <TableHead className="hidden w-40 lg:table-cell">Scope</TableHead>
+              <TableHead className="hidden xl:table-cell">Notes</TableHead>
               <TableHead className="w-12">
                 <span className="sr-only">Copy</span>
               </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {VERSIONED.map((endpoint) => (
-              <EndpointRow key={`${endpoint.method} ${endpoint.path}`} endpoint={endpoint} />
+            {ENDPOINTS.map((spec) => (
+              <EndpointRow key={spec.id} spec={spec} />
             ))}
           </TableBody>
         </Table>
-
-        <ul className="flex flex-col gap-1.5 sm:hidden">
-          {VERSIONED.map((endpoint) => (
-            <li key={`${endpoint.method} ${endpoint.path}`}>
-              <EndpointRow endpoint={endpoint} stacked />
-            </li>
-          ))}
-        </ul>
       </Card>
 
       <Card
@@ -158,8 +126,8 @@ export function Links() {
 
       <Card title="Known API gaps" subtitle="stated here so empty panels are never read as bugs">
         <ul className="flex flex-col gap-2">
-          {GAPS.map((gap) => (
-            <li key={gap.title}>
+          {API_GAPS.map((gap) => (
+            <li key={gap.id}>
               <Alert className="border-amber-500/30 bg-amber-500/5 text-amber-900 dark:text-amber-200">
                 <AlertTriangle aria-hidden />
                 <AlertTitle>{gap.title}</AlertTitle>
@@ -190,14 +158,15 @@ export function Links() {
   )
 }
 
-function EndpointRow({ endpoint, stacked = false }: { endpoint: Endpoint; stacked?: boolean }) {
+function EndpointRow({ spec }: { spec: EndpointSpec }) {
   const [copied, setCopied] = useState(false)
+  const path = publicPath(spec)
 
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(endpoint.path)
+      await navigator.clipboard.writeText(path)
       setCopied(true)
-      toast.success('Copied', { description: endpoint.path })
+      toast.success('Copied', { description: path })
       setTimeout(() => setCopied(false), 1500)
     } catch {
       // Clipboard access can be blocked; the path stays visible on screen.
@@ -205,49 +174,49 @@ function EndpointRow({ endpoint, stacked = false }: { endpoint: Endpoint; stacke
     }
   }
 
-  const method = (
-    <Badge
-      variant="outline"
-      className={
-        endpoint.method === 'GET'
-          ? 'border-emerald-500/30 bg-emerald-500/10 font-mono text-emerald-700 dark:text-emerald-300'
-          : 'border-amber-500/30 bg-amber-500/10 font-mono text-amber-700 dark:text-amber-300'
-      }
-    >
-      {endpoint.method}
-    </Badge>
-  )
-
-  const path = <code className="min-w-0 truncate font-mono text-xs">{endpoint.path}</code>
-
   const copyButton = (
     <Button
       variant="ghost"
       size="icon-sm"
       onClick={() => void copy()}
-      aria-label={`Copy ${endpoint.path}`}
+      aria-label={`Copy ${path}`}
       className="max-lg:size-10"
     >
       {copied ? <Check className="text-primary" aria-hidden /> : <Copy aria-hidden />}
     </Button>
   )
 
-  if (stacked) {
-    return (
-      <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2">
-        {method}
-        {path}
-        <span className="ml-auto shrink-0">{copyButton}</span>
-      </div>
-    )
-  }
-
   return (
     <TableRow>
-      <TableCell>{method}</TableCell>
-      <TableCell className="max-w-0">{path}</TableCell>
-      <TableCell className="hidden lg:table-cell text-xs text-muted-foreground">
-        {endpoint.note}
+      <TableCell>
+        <Badge
+          variant="outline"
+          className={
+            spec.method === 'GET'
+              ? 'border-emerald-500/30 bg-emerald-500/10 font-mono text-emerald-700 dark:text-emerald-300'
+              : 'border-amber-500/30 bg-amber-500/10 font-mono text-amber-700 dark:text-amber-300'
+          }
+        >
+          {spec.method}
+        </Badge>
+      </TableCell>
+      <TableCell className="max-w-0">
+        <code className="min-w-0 truncate font-mono text-xs">{path}</code>
+      </TableCell>
+      <TableCell className="hidden lg:table-cell">
+        {spec.scope ? (
+          <code className="font-mono text-[11px] text-muted-foreground">{spec.scope}</code>
+        ) : (
+          <span className="text-[11px] text-muted-foreground">public</span>
+        )}
+        {/* The registry's grouping key, so a narrow screen still shows which
+            panel owns the route. */}
+        <span className="block text-[10px] text-muted-foreground/80">
+          {AREA_LABELS[spec.area]}
+        </span>
+      </TableCell>
+      <TableCell className="hidden xl:table-cell text-xs text-muted-foreground">
+        {spec.note}
       </TableCell>
       <TableCell>
         <Tooltip>

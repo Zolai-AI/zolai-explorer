@@ -7,6 +7,7 @@
 
 import { useMutation } from '@tanstack/react-query'
 import { apiPost } from '../../lib/api'
+import { endpointPath } from '../../lib/endpoints'
 import {
   ParagraphAnalysisSchema,
   SearchSchema,
@@ -22,7 +23,7 @@ export function useAnalyzeSentence() {
     mutationFn: async (text: string): Promise<SentenceAnalysis> =>
       parseOrThrow(
         SentenceAnalysisSchema,
-        await apiPost<unknown>('/analyze/sentence', { text }),
+        await apiPost<unknown>(endpointPath('analyze.sentence'), { text }),
         'sentence analysis',
       ),
   })
@@ -33,7 +34,7 @@ export function useAnalyzeParagraph() {
     mutationFn: async (text: string): Promise<ParagraphAnalysis> =>
       parseOrThrow(
         ParagraphAnalysisSchema,
-        await apiPost<unknown>('/analyze/paragraph', { text }),
+        await apiPost<unknown>(endpointPath('analyze.paragraph'), { text }),
         'paragraph analysis',
       ),
   })
@@ -50,7 +51,7 @@ export function useSearch() {
     }): Promise<SearchResults> =>
       parseOrThrow(
         SearchSchema,
-        await apiPost<unknown>('/search', { query, limit }),
+        await apiPost<unknown>(endpointPath('search.query'), { query, limit }),
         'search results',
       ),
   })

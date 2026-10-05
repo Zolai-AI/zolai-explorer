@@ -15,6 +15,7 @@
 import { useSyncExternalStore } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { apiGet } from './api'
+import { endpointPath } from './endpoints'
 import { getApiKey, subscribeApiKey } from './key'
 import { AuthMeSchema, parseOrThrow, type AuthMe, type Role } from './schemas'
 
@@ -104,7 +105,7 @@ export function useAuthMe(): AuthMe {
   const query = useQuery({
     queryKey: ['auth', 'me', keyGen],
     queryFn: async ({ signal }): Promise<AuthMe> =>
-      parseOrThrow(AuthMeSchema, await apiGet<unknown>('/auth/me', { signal }), 'auth/me'),
+      parseOrThrow(AuthMeSchema, await apiGet<unknown>(endpointPath('identity.me'), { signal }), 'auth/me'),
     staleTime: 30_000,
     // Identity is a gate, not a dashboard: one probe, no retry storm.
     retry: false,

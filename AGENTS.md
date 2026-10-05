@@ -80,6 +80,13 @@ panel in the same commit.
   Navigation is a `<Sheet>` drawer below `lg` and a persistent sidebar from `lg`. Interactive
   controls carry `max-lg:h-10`/`max-lg:h-11` for a 40px+ touch target. Tables must stay usable at
   375px: use `hideBelow` column priority plus the scrolling container, never a fixed layout.
+- **The endpoint table has exactly one source of truth: `src/lib/endpoints.ts`.** It holds method,
+  path template, required scope, `limit` placement/cap and the honest note per route. Transports
+  call `endpointPath(id, params)` / `queryLimitPath(id, params, limit)`; **never write a path
+  literal** in a feature file. `/links`, the README API table and the known-gap copy all render from
+  those records, and `src/lib/endpoints.test.ts` fails if a literal reappears, if a record is never
+  used, or if the README drifts. There is no `page_size` in this API — `limit` is the only name, and
+  it travels in the query string on GET routes and in the JSON body on the POST search/RAG routes.
 - **One TanStack Query hook per endpoint** in `src/features/<area>/api.ts`. `GET`s are queries;
   the `POST` endpoints (`/analyze/*`, `/search`, `/rag`) are mutations — they run on demand, not on
   mount. Each hook is a thin wrapper over an **exported plain async transport** (`fetchAiProviders`,
@@ -89,6 +96,10 @@ panel in the same commit.
   goes through `<RequireRole minimum>`; the sidebar (`NAV_ITEMS.minRole`) and command palette
   (`filterCommands`) filter with the same `can()`. Never derive a role from the stored key, and
   never gate only in the UI — the server still enforces it and an honest 401/403 must surface.
+- **Server-side limits, not client-side pagination.** The word sub-resources take `limit` (1–100,
+  evidence 1–200); the footers say `showing N rows (limit L)` and warn when `N === L`, because these
+  endpoints return bare arrays with no server total. A "of N rows" total over fetched rows is a lie —
+  do not reintroduce one.
 - **Zod schemas are tolerant by design** (`.catch([])` / `.catch({})`). Do not "tighten" them: the
   live API returns empty arrays for fields that are simply not populated yet, and a strict schema
   would turn that into a user-facing error.

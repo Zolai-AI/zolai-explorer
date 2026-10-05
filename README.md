@@ -70,19 +70,60 @@ storage backend so the round-trip is unit tested without jsdom.
 
 | Route | Panel | Endpoints |
 |-------|-------|-----------|
-| `/` | Dashboard — collection tiles, health, knowledge version, quick jumps, external links | `/knowledge/statistics`, `/knowledge/version`, `/health` |
-| `/word`, `/word/:word` | Word entry + 5 sub-resource tabs | `/word/{w}` and `/word/{w}/{forms,contexts,collocations,patterns,evidence}` |
-| `/analyze` | Sentence tokenisation + paragraph segmentation | `/analyze/sentence`, `/analyze/paragraph` |
-| `/search` | Lexical corpus search with per-source grouping | `/search` |
-| `/rag` | Retrieval with honest placeholder labelling | `/rag` |
-| `/assistant` | Assistant chat — public route is honest `retrieval_only` when no provider is active; admin mode adds provider/model and the tool trace | `POST /assistant/chat`, `POST /admin/assistant/chat` |
-| `/agent` | Goal-driven research runs with phase trace and feedback (member+) | `POST /agent/runs`, `GET /agent/runs/{id}`, `POST /agent/runs/{id}/feedback` |
-| `/data` | Full collection table, knowledge version, health | `/knowledge/statistics`, `/knowledge/version`, `/health` |
-| `/links` | Endpoint reference, server-rendered links, known gaps | — |
-| `/settings` | AI provider catalog (admin): rename, model, enable, paste key, activate, test | `GET/PUT /admin/ai-providers`, `POST /admin/ai-providers/{id}/activate`, `POST /admin/ai-providers/{id}/test` |
+| `/` | Dashboard — collection tiles, health, knowledge version, quick jumps, external links | `/api/v1/knowledge/statistics`, `/api/v1/knowledge/version`, `/api/v1/auth/me`, `/health` |
+| `/word`, `/word/:word` | Word entry + 5 sub-resource tabs, each with a server-side `limit` | `/api/v1/word/{word}` and `/api/v1/word/{word}/{forms,contexts,collocations,patterns,evidence}` |
+| `/analyze` | Sentence tokenisation + paragraph segmentation | `/api/v1/analyze/sentence`, `/api/v1/analyze/paragraph` |
+| `/search` | Lexical corpus search with per-source grouping | `/api/v1/search` |
+| `/rag` | Retrieval with honest placeholder labelling | `/api/v1/rag` |
+| `/assistant` | Assistant chat — public route is honest `retrieval_only` when no provider is active; admin mode adds provider/model and the tool trace | `POST /api/v1/assistant/chat`, `POST /api/v1/admin/assistant/chat` |
+| `/agent` | Goal-driven research runs with phase trace and feedback (member+) | `POST /api/v1/agent/runs`, `GET /api/v1/agent/runs/{run_id}`, `POST /api/v1/agent/runs/{run_id}/feedback` |
+| `/data` | Full collection table, knowledge version, health | `/api/v1/knowledge/statistics`, `/api/v1/knowledge/version`, `/health` |
+| `/links` | Endpoint reference, server-rendered links, known gaps | — (renders `src/lib/endpoints.ts`) |
+| `/settings` | AI provider catalog (admin): rename, model, enable, paste key, activate, test | `GET/PUT /api/v1/admin/ai-providers`, `POST /api/v1/admin/ai-providers/{catalog_id}/activate`, `POST /api/v1/admin/ai-providers/{catalog_id}/test` |
 
 `/word/pasian` and every other route deep-link and survive a browser refresh (SPA fallback:
 `try_files $uri $uri/ /index.html`).
+
+## API surface (one registry, one table)
+
+`src/lib/endpoints.ts` is the single source of truth for every endpoint this app calls: it holds the
+method, path template, required scope, `limit` placement/cap and an honest note per route. Transports
+build their URLs with `endpointPath(id)` / `queryLimitPath(id, params, limit)` — **no transport
+writes a path literal** — and `/links` plus the table below are rendered from the same records.
+`src/lib/endpoints.test.ts` fails the build if a literal reappears elsewhere, if a record is never
+used, or if this table drifts.
+
+| Method | Path | Scope | `limit` |
+|--------|------|-------|---------|
+| GET | `/api/v1/auth/me` | public | — |
+| GET | `/api/v1/word/{word}` | `dataset:read` | — |
+| GET | `/api/v1/word/{word}/forms` | `dataset:read` | query, 1–100 (default 20) |
+| GET | `/api/v1/word/{word}/contexts` | `dataset:read` | query, 1–100 (default 20) |
+| GET | `/api/v1/word/{word}/collocations` | `dataset:read` | query, 1–100 (default 20) |
+| GET | `/api/v1/word/{word}/patterns` | `dataset:read` | query, 1–100 (default 20) |
+| GET | `/api/v1/word/{word}/evidence` | `dataset:read` | query, 1–200 (default 50) |
+| POST | `/api/v1/analyze/sentence` | `rag:read` | — |
+| POST | `/api/v1/analyze/paragraph` | `rag:read` | — |
+| POST | `/api/v1/search` | `dataset:read` | body |
+| POST | `/api/v1/rag` | `rag:read` | body |
+| POST | `/api/v1/assistant/chat` | public | — |
+| POST | `/api/v1/admin/assistant/chat` | `agent:run` + admin role | — |
+| POST | `/api/v1/agent/runs` | `agent:run` | — |
+| GET | `/api/v1/agent/runs/{run_id}` | `agent:read` | — |
+| POST | `/api/v1/agent/runs/{run_id}/feedback` | `agent:run` | — |
+| GET | `/api/v1/knowledge/statistics` | `dataset:read` | — |
+| GET | `/api/v1/knowledge/version` | `dataset:read` | — |
+| GET | `/api/v1/foundation/stats` | public (optional surface) | — |
+| GET | `/api/v1/admin/ai-providers` | `settings:read` | — |
+| PUT | `/api/v1/admin/ai-providers/{catalog_id}` | `settings:write` | — |
+| POST | `/api/v1/admin/ai-providers/{catalog_id}/activate` | `settings:write` | — |
+| POST | `/api/v1/admin/ai-providers/{catalog_id}/test` | `settings:write` | — |
+
+There is **no** `page_size` anywhere in the API — `limit` is the only name, and it travels in the
+query string on GET routes and in the JSON body on the POST search/RAG routes. `/health`, `/docs`,
+`/metrics` and the server-rendered `/review/` live outside `/api/v1`. The review count is not
+available on the versioned API — see the honesty contract below — so no review number is rendered
+anywhere in this app.
 
 ## Architecture
 
@@ -95,6 +136,8 @@ src/
   lib/
     api.ts                 typed fetch: X-API-Key, 15s AbortController timeout,
                            ApiError{status,message,kind,needsKey}, empty-body tolerance
+    endpoints.ts           THE endpoint registry: method, template, scope, limit, note +
+                           endpointPath/queryLimitPath builders + the API-gap copy
     key.ts                 localStorage store: get/set/clear/subscribe, masking, injectable backend
     schemas.ts             one tolerant zod schema per endpoint
     queryClient.ts         retry:1 (skipped for 4xx), staleTime 60s, no refetch on focus
@@ -190,9 +233,10 @@ The app is explicit about the deployment's real capabilities, so a panel is neve
   the rest is a labelled placeholder with the server's own note.
 - **`sentence_frequency` is always 0** → shown as `—`.
 - **`morphology` and `forms` are usually empty** → collapsed with a pointer to the Forms tab.
-- **`/api/v1/review/stats` is not registered** — it answers `200 {"error":"Not found"}`. The
-  unversioned `/review/stats` 422s instead, because `/review/{item_id}` swallows `stats`. The Links
-  panel links to the server-rendered `/review/` instead.
+- **`/review/stats` is not available on the versioned API.** `/api/v1/review/stats` answers
+  `200 {"error":"Not found"}`, and the unversioned `/review/stats` 422s because `/review/{item_id}`
+  swallows `stats`. No review count is rendered anywhere as if it were real; `/links` links to the
+  server-rendered `/review/` queue instead and labels it.
 - **Auth is in `warn` mode** → unauthenticated requests are accepted today; the API may flip to
   `enforce`. Add a key to be ready.
 
