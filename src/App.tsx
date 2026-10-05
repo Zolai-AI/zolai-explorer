@@ -26,6 +26,7 @@ import { can, roleBadge, useRole, type Role } from './lib/auth'
 import {
   PARAM_VARIANTS,
   ROUTES,
+  gateMinimum,
   routeByPath,
   routePathForVariant,
   signInPath,
@@ -87,6 +88,11 @@ export function RequireRole({ minimum, children }: { minimum: Role; children: Re
  * for a path that no longer exists — fails `tsc` instead of producing a dead
  * nav card. The `/word/:word` deep link is a `PARAM_VARIANTS` entry and reuses
  * the `/word` panel.
+ *
+ * The panels are **ungated** on purpose: `pageFor` wraps them in `RequireRole`
+ * using `gateMinimum(routeByPath(path))`, so a role is written down exactly
+ * once — in `src/lib/routes.ts`. Hand-writing `minimum="admin"` here is what
+ * let the `/settings` gate silently disagree with the registry.
  */
 const PAGES: Record<RoutePath, ReactNode> = {
   '/': <Dashboard />,
@@ -96,18 +102,10 @@ const PAGES: Record<RoutePath, ReactNode> = {
   '/search': <Search />,
   '/rag': <Rag />,
   '/assistant': <Assistant />,
-  '/agent': (
-    <RequireRole minimum="member">
-      <Agent />
-    </RequireRole>
-  ),
+  '/agent': <Agent />,
   '/data': <Data />,
   '/links': <Links />,
-  '/settings': (
-    <RequireRole minimum="admin">
-      <Settings />
-    </RequireRole>
-  ),
+  '/settings': <Settings />,
 }
 
 /** `/word` → `word` (React Router paths are relative, and `/` is the index). */
@@ -118,7 +116,9 @@ function relativePath(path: RoutePath): string {
 /** Render the panel for a registry path, gating on the registry's own minRole. */
 function pageFor(path: RoutePath | undefined): ReactNode {
   if (!path) return <NotFound />
-  return PAGES[path]
+  const page = PAGES[path]
+  const minimum = gateMinimum(routeByPath(path))
+  return minimum ? <RequireRole minimum={minimum}>{page}</RequireRole> : page
 }
 
 export function App() {
@@ -138,18 +138,11 @@ export function App() {
               )}
               {PARAM_VARIANTS.map((variant) => {
                 const base = routePathForVariant(variant.pattern)
-                const spec = base ? routeByPath(base) : undefined
                 return (
                   <Route
                     key={variant.pattern}
                     path={relativePath(variant.pattern as RoutePath)}
-                    element={
-                      spec && spec.minRole !== 'anonymous' ? (
-                        <RequireRole minimum={spec.minRole}>{pageFor(base)}</RequireRole>
-                      ) : (
-                        pageFor(base)
-                      )
-                    }
+                    element={pageFor(base)}
                   />
                 )
               })}

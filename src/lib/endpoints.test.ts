@@ -11,6 +11,7 @@ import {
   endpointPath,
   publicPath,
   queryLimitPath,
+  type EndpointSpec,
 } from './endpoints'
 
 const SRC_DIR = fileURLToPath(new URL('../', import.meta.url))
@@ -179,6 +180,46 @@ describe('single source of truth — drift guards', () => {
 
 describe('README sync', () => {
   const readme = readFileSync(fileURLToPath(new URL('../../README.md', import.meta.url)), 'utf8')
+
+  /** One table row: `| GET | \`/api/v1/auth/me\` | public | — |`. */
+  const README_ROW = /^\|\s*(GET|POST|PUT|DELETE)\s*\|\s*`([^`]+)`\s*\|([^|]*)\|([^|]*)\|/gm
+
+  /** `query, 1–100 (default 20)` / `body` / `—` — the documented `limit` cell. */
+  function limitCell(spec: EndpointSpec): string {
+    if (spec.limit === 'query') {
+      return `query, 1–${spec.limitMax} (default ${spec.limitDefault})`
+    }
+    return spec.limit === 'body' ? 'body' : '—'
+  }
+
+  /**
+   * Rows as `METHOD /api/v1/path` + the `limit` cell.
+   *
+   * Equality in **both** directions is the point: the old assertion only checked
+   * that every registry path appeared somewhere in the README, so a stale row
+   * for an endpoint that no longer exists — or a missing row hidden by a
+   * substring match, since `/api/v1/admin/ai-providers` is a prefix of
+   * `/api/v1/admin/ai-providers/{catalog_id}` — sailed through. Row order is
+   * presentation (the Links page groups by area), so the comparison is on
+   * content, sorted for a readable diff.
+   */
+  function readmeRows(): string[] {
+    return [...readme.matchAll(README_ROW)].map(
+      (match) => `${match[1]} ${match[2]} | ${match[4].trim()}`,
+    )
+  }
+
+  function expectedRows(): string[] {
+    return ENDPOINTS.map((spec) => `${spec.method} ${publicPath(spec)} | ${limitCell(spec)}`)
+  }
+
+  it('documents exactly the registry — no row missing, none extra', () => {
+    expect([...readmeRows()].sort()).toEqual([...expectedRows()].sort())
+  })
+
+  it('has no duplicate row', () => {
+    expect(readmeRows().length).toBe(new Set(readmeRows()).size)
+  })
 
   it('documents every endpoint the app calls', () => {
     const missing = ENDPOINTS.filter((spec) => !readme.includes(publicPath(spec))).map(

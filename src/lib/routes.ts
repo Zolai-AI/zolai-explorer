@@ -18,6 +18,8 @@
  *
  * `minRole` is the same value `<RequireRole minimum>` gates on, and it comes from
  * the **server** — see `src/lib/auth.ts`. Never derive a role from the stored key.
+ * `gateMinimum()` is what `App.tsx` reads, so the router cannot hold a second
+ * copy of a role that disagrees with this file.
  */
 
 import type { Role } from './schemas'
@@ -194,6 +196,19 @@ export function routeById(id: string): RouteSpec | undefined {
 
 export function routeByPath(path: string): RouteSpec | undefined {
   return ROUTES.find((route) => route.path === path)
+}
+
+/**
+ * The minimum role a destination gates on, or `undefined` when it is
+ * anonymous-safe and needs no gate at all.
+ *
+ * `App.tsx` renders `<RequireRole minimum={gateMinimum(spec)}>` from this, so a
+ * registry record is the only place a role is written down: routing, the sidebar,
+ * the palette and the gate cannot drift apart. An unknown path also yields
+ * `undefined`, which keeps `NotFound` from being dressed up as a role prompt.
+ */
+export function gateMinimum(spec: RouteSpec | undefined): Role | undefined {
+  return spec && spec.minRole !== 'anonymous' ? spec.minRole : undefined
 }
 
 /**

@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { ROLES } from './auth'
 import { ROUTE_COMMANDS } from './commands'
@@ -8,12 +10,29 @@ import {
   ROUTES,
   collectionFromSearch,
   collectionPath,
+  gateMinimum,
   routeById,
   routeByPath,
   routePathForVariant,
   signInPath,
   type RouteIconName,
 } from './routes'
+
+/** The router source — read so a second copy of a role cannot hide in it. */
+const APP_SOURCE = readFileSync(fileURLToPath(new URL('../App.tsx', import.meta.url)), 'utf8')
+
+/**
+ * `App.tsx` with its comments stripped: prose must neither fail nor satisfy a
+ * code guard. (`App.tsx` holds no URL literal, so the `//` rule cannot eat a
+ * string value.)
+ */
+const APP_CODE = APP_SOURCE.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+
+/** `<RequireRole minimum="admin">` — a gate written out instead of derived. */
+const LITERAL_GATE = /<RequireRole\b[^>]*minimum\s*=\s*["']/
+
+/** A bare role name in quotes, anywhere in the router. */
+const ROLE_LITERAL = /['"](anonymous|member|admin)['"]/
 
 /** Every icon key must exist in the sidebar's lucide map (a `Record`). */
 const ICONS: RouteIconName[] = [
@@ -104,6 +123,49 @@ describe('router / sidebar / palette read the same records', () => {
   it('gates agent on member and settings on admin', () => {
     expect(routeByPath('/agent')?.minRole).toBe('member')
     expect(routeByPath('/settings')?.minRole).toBe('admin')
+  })
+})
+
+describe('the router gate is the registry minimum', () => {
+  it('gates exactly the destinations the registry marks privileged', () => {
+    for (const route of ROUTES) {
+      const minimum = gateMinimum(route)
+      if (route.minRole === 'anonymous') expect(minimum, route.id).toBeUndefined()
+      else expect(minimum, route.id).toBe(route.minRole)
+    }
+  })
+
+  it('reports the same minimum the sidebar and the palette filter on', () => {
+    for (const route of ROUTES) {
+      const command = ROUTE_COMMANDS.find((c) => c.id === `nav-${route.id}`)
+      expect(gateMinimum(route) ?? 'anonymous', route.id).toBe(command?.minRole ?? 'anonymous')
+    }
+  })
+
+  it('needs no gate for a deep link whose base path is anonymous', () => {
+    const base = routePathForVariant('/word/:word')
+    expect(base).toBe('/word')
+    expect(base && gateMinimum(routeByPath(base))).toBeUndefined()
+  })
+
+  it('has no gate for an unknown path, so NotFound is not dressed as a prompt', () => {
+    expect(gateMinimum(undefined)).toBeUndefined()
+  })
+})
+
+describe('gate drift guard — the router holds no second copy of a role', () => {
+  it('never writes a gate minimum as a literal', () => {
+    // This is the defect: `<RequireRole minimum="admin">` next to a registry
+    // that says something else, with nothing to notice the disagreement.
+    expect(LITERAL_GATE.test(APP_CODE)).toBe(false)
+  })
+
+  it('names no role at all outside the registry', () => {
+    expect(APP_CODE).not.toMatch(ROLE_LITERAL)
+  })
+
+  it('still derives the gate, so deleting the check cannot pass this test', () => {
+    expect(APP_CODE).toContain('gateMinimum(routeByPath(path))')
   })
 })
 

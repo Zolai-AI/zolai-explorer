@@ -94,6 +94,9 @@ export type AuthModeNotice = {
  * Pure, so the wording is unit tested and cannot drift from the banner.
  */
 export function authModeNotice(mode: string, role: Role): AuthModeNotice {
+  // Decision, not an oversight: `off` stays quiet on purpose — authentication is
+  // disabled deployment-wide, so "add a key now" would be advice the server
+  // cannot act on. Only `warn` is a state where a key changes anything.
   if (mode.trim().toLowerCase() !== 'warn') {
     return { show: false, tone: 'ok', title: '', body: '', cta: null }
   }

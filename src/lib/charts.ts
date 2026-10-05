@@ -37,14 +37,28 @@ const PIPELINE_PATTERNS: readonly RegExp[] = [
   /^KG edges$/i,
 ]
 
-/** Keys of `/foundation/stats` describing curation state. */
-const CURATION_PATTERNS: readonly RegExp[] = [
-  /^canonical$/i,
-  /^staging$/i,
-  /^raw$/i,
-  /^review pending$/i,
-  /^review resolved$/i,
-  /^evidence$/i,
+/**
+ * Curation counters of `GET /foundation/stats`, keyed by the field the server
+ * sends and labelled for the reader (the panel itself sorts largest first).
+ *
+ * The endpoint answers **field names** — `canonical_count`, `review_pending_count`,
+ * … (`PipelineStatsResponse` in `zolai/api/foundation_router.py`) — not the human
+ * labels. An earlier version matched the words "canonical" / "review pending"
+ * against the payload keys, which never matched a single key, so
+ * `CurationChart` always found zero items and returned `null`: a chart that can
+ * never render. Match the fields the server actually sends, and print the label
+ * a human reads.
+ *
+ * `batches_count` is deliberately absent: it counts ingest batches, not the
+ * curation state this card is about.
+ */
+const CURATION_FIELDS: readonly { readonly key: string; readonly label: string }[] = [
+  { key: 'canonical_count', label: 'Canonical' },
+  { key: 'staging_count', label: 'Staging' },
+  { key: 'raw_count', label: 'Raw' },
+  { key: 'evidence_count', label: 'Evidence' },
+  { key: 'review_pending_count', label: 'Review pending' },
+  { key: 'review_resolved_count', label: 'Review resolved' },
 ]
 
 function matchKeys(stats: Record<string, number>, patterns: readonly RegExp[]): Stat[] {
@@ -82,14 +96,20 @@ export function knowledgePipeline(
   )
 }
 
-/** Curation/review counters from `/foundation/stats`, when it is reachable. */
+/**
+ * Curation/review counters from `/foundation/stats`, when it is reachable.
+ *
+ * Returns `[]` for a missing payload or a response without any of the documented
+ * counters, so `CurationChart` renders nothing instead of a chart of nothing.
+ */
 export function curationPipeline(
   stats: Record<string, number> | null | undefined,
 ): Stat[] {
   if (!stats) return []
-  return matchKeys(stats, CURATION_PATTERNS).filter(
-    (stat) => Number.isFinite(stat.count) && stat.count >= 0,
-  )
+  return CURATION_FIELDS.filter(({ key }) => Number.isFinite(stats[key]))
+    .map(({ key, label }) => ({ label, count: stats[key] }))
+    .filter((stat) => stat.count >= 0)
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
 }
 
 /**

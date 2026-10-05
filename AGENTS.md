@@ -112,9 +112,11 @@ panel in the same commit.
   path they belong to.
 - **Role gating has exactly one source of truth: the server.** `src/lib/auth.ts` reads `GET
   /auth/me` and exports `useRole()` (reactive) plus pure `rankOf`/`can`/`roleBadge`. Route access
-  goes through `<RequireRole minimum>`; the sidebar (`NAV_ITEMS.minRole`) and command palette
-  (`filterCommands`) filter with the same `can()`. Never derive a role from the stored key, and
-  never gate only in the UI — the server still enforces it and an honest 401/403 must surface.
+  goes through `<RequireRole minimum={gateMinimum(spec)}>` — the minimum comes from the route
+  registry, never a literal in `App.tsx` (`routes.test.ts` fails the build if one appears); the
+  sidebar (`NAV_ITEMS.minRole`, mapped from `NAV_ROUTES`) and command palette (`filterCommands`)
+  filter with the same `can()`. Never derive a role from the stored key, and never gate only in the
+  UI — the server still enforces it and an honest 401/403 must surface.
 - **Server-side limits, not client-side pagination.** The word sub-resources take `limit` (1–100,
   evidence 1–200); the footers say `showing N rows (limit L)` and warn when `N === L`, because these
   endpoints return bare arrays with no server total. A "of N rows" total over fetched rows is a lie —

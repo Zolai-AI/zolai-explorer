@@ -1,11 +1,26 @@
 import { describe, expect, it } from 'vitest'
 import {
+  curationPipeline,
   maxValue,
   rowIndexLabel,
   shareLabel,
   shareOfTotal,
   zeroBasedBarPercent,
 } from './charts'
+
+/**
+ * Verbatim `GET /foundation/stats` payload — the `PipelineStatsResponse` field
+ * names from `zolai/api/foundation_router.py`, as parsed by `FoundationStatsSchema`.
+ */
+const FOUNDATION_STATS = {
+  raw_count: 128,
+  staging_count: 37,
+  canonical_count: 4812,
+  evidence_count: 963,
+  review_pending_count: 26,
+  review_resolved_count: 814,
+  batches_count: 4,
+}
 
 describe('zeroBasedBarPercent', () => {
   it('scales the largest value to the full width', () => {
@@ -53,6 +68,55 @@ describe('shareOfTotal / shareLabel', () => {
 
   it('never reports more than the whole', () => {
     expect(shareOfTotal(120, 100)).toBe(1)
+  })
+})
+
+describe('curationPipeline — the real /foundation/stats payload', () => {
+  it('reads the server field names, so CurationChart stops bailing out', () => {
+    // `CurationChart` renders `null` when this list is empty. It was always
+    // empty: the patterns matched "canonical" / "review pending" against keys
+    // that the endpoint spells `canonical_count` / `review_pending_count`.
+    const stats = curationPipeline(FOUNDATION_STATS)
+    expect(stats.length).toBeGreaterThan(0)
+    expect(stats).toContainEqual({ label: 'Canonical', count: 4812 })
+    expect(stats).toContainEqual({ label: 'Review pending', count: 26 })
+    expect(stats).toContainEqual({ label: 'Review resolved', count: 814 })
+  })
+
+  it('sorts the curation counters largest first', () => {
+    expect(curationPipeline(FOUNDATION_STATS).map((stat) => stat.label)).toEqual([
+      'Canonical',
+      'Evidence',
+      'Review resolved',
+      'Raw',
+      'Staging',
+      'Review pending',
+    ])
+  })
+
+  it('charts every documented counter and leaves batches_count out', () => {
+    const labels = curationPipeline(FOUNDATION_STATS).map((stat) => stat.label)
+    expect(labels).not.toContain('Batches')
+    expect(labels).toHaveLength(6)
+  })
+
+  it('skips counters the deployment did not report', () => {
+    expect(curationPipeline({ canonical_count: 12 })).toEqual([{ label: 'Canonical', count: 12 }])
+    expect(curationPipeline({ batches_count: 4 })).toEqual([])
+  })
+
+  it('drops a counter that is not a real count', () => {
+    const stats = curationPipeline({
+      canonical_count: Number.NaN,
+      staging_count: -1,
+      raw_count: 3,
+    } as Record<string, number>)
+    expect(stats).toEqual([{ label: 'Raw', count: 3 }])
+  })
+
+  it('returns nothing for a missing payload, so the card is omitted', () => {
+    expect(curationPipeline(null)).toEqual([])
+    expect(curationPipeline(undefined)).toEqual([])
   })
 })
 
