@@ -23,7 +23,7 @@ bun run dev        # http://localhost:5173/  (proxies /api + /health upstream)
 | `bun run dev` | Vite dev server with `/api` + `/health` proxied to `https://api.zolai.space` |
 | `bun run build` | `tsc -b` then `vite build` → `dist/` |
 | `bun run typecheck` | Type check only (`tsc -b --force`) |
-| `bun run test` | Vitest suite (90 tests) |
+| `bun run test` | Vitest suite (142 tests) |
 | `bun run deploy` | `vite build` + rsync to `pcore-server:/var/www/zolai-studio` + `nginx -t` + reload |
 
 Requires **bun** (1.4.1+). Never npm/yarn — this is a workspace-wide convention.
@@ -204,7 +204,7 @@ The same list is rendered as cards on `/links` under "Known API gaps".
 bun run test
 ```
 
-90 Vitest specs across five files:
+142 Vitest specs across nine files:
 
 - `src/lib/api.test.ts` — 401 → `ApiError` with `needsKey`; 15s timeout budget and abort →
   `timeout` / `aborted` distinction; transport failure → `network`; **empty body tolerated** instead
@@ -225,6 +225,14 @@ bun run test
 - `src/lib/datatable.test.ts` — the table sort comparator (numeric, locale-aware, natural ordering,
   nullish/NaN last), the TanStack `sortFn` built from it, the `hideBelow` → `hidden md:table-cell`
   map and the alignment map.
+- `src/lib/auth.test.ts` — `rankOf` / `can` / `roleBadge`, the tolerant `AuthMeSchema`, and the
+  command palette's role filter.
+- `src/features/agent/api.test.ts` — run timeout budget and the `POST /agent/runs`,
+  `GET /agent/runs/{id}` and feedback transports (method, path, body).
+- `src/features/assistant/api.test.ts` — `assistantChatPath` public/admin routing and the
+  `postAssistantChat` transport.
+- `src/features/settings/api.test.ts` — the `/admin/ai-providers` catalog transports (list, PUT,
+  activate, test).
 
 ## Deploy
 
