@@ -7,16 +7,21 @@ import {
   Gauge,
   KeyRound,
   Link2,
+  LogOut,
   MessageSquareQuote,
   ScanText,
   Search,
   Settings2,
   type LucideIcon,
 } from 'lucide-react'
+import { toast } from 'sonner'
+import { Badge } from './ui/badge'
 import { Button } from './ui/button'
 import { Separator } from './ui/separator'
-import { can, useRole, type Role } from '../lib/auth'
-import { NAV_ROUTES, DASHBOARD_PATH, type RouteIconName } from '../lib/routes'
+import { can, useAuthMe, useRole, type Role } from '../lib/auth'
+import { NAV_ROUTES, DASHBOARD_PATH, specOf, type RouteIconName } from '../lib/routes'
+import { signInFooterEntry, signInSurfaces } from '../lib/signIn'
+import { signOut } from '../lib/session'
 import { cn } from '../lib/utils'
 
 export type NavItem = {
@@ -68,6 +73,13 @@ export const NAV_ITEMS: NavItem[] = NAV_ROUTES.map((route) => ({
  *
  * `onNavigate` lets the mobile `<Sheet>` close itself after a tap.
  *
+ * The footer carries the sign-in entry — a link to the registry's sign-in page
+ * while anonymous, the role badge plus **Sign out** once the server recognises a
+ * key — for every role and at both widths. It is the one control that must not
+ * be role-filtered: hiding it from an identified user strands the session, and
+ * hiding it from an anonymous one recreates the chicken-and-egg trap the
+ * `nav: false` record exists to avoid.
+ *
  * `collapsed` is the `lg+` icon-rail mode. It is **never** applied below `lg` —
  * the caller only sets it for the persistent `<aside>`, and the `<Sheet>`
  * drawer always renders the full-width labelled list.
@@ -80,7 +92,14 @@ export function Sidebar({
   collapsed?: boolean
 }) {
   const role = useRole()
+  // The identity payload, not just the rank: the sign-in footer shows the role
+  // badge and the server's key prefix, both straight from `/auth/me`.
+  const me = useAuthMe()
   const items = NAV_ITEMS.filter((item) => can(role, item.minRole ?? 'anonymous'))
+  // Registry-derived, and deliberately **not** role-filtered: sign-in is offered
+  // to anonymous users, and an identified user needs the sign-out half of it.
+  const signIn = signInFooterEntry({ role: me.role, keyPrefix: me.key_prefix })
+  const showSignIn = signInSurfaces(specOf('login')).sidebar
 
   return (
     <nav
@@ -126,6 +145,62 @@ export function Sidebar({
       </ul>
 
       <div className={cn('mt-auto space-y-2 pt-3', collapsed && 'w-full')}>
+        <Separator />
+
+        {/* Sign-in footer — always present, for every role. Registry-derived
+            (`specOf('login')` + `signInFooterEntry`), never a role-gated nav
+            item, because the person who most needs to find it is the one who
+            cannot pass a gate yet. */}
+        {showSignIn &&
+          (signIn.action === 'sign-in' && signIn.to ? (
+            <NavLink to={signIn.to} onClick={onNavigate} className="block" title={signIn.title}>
+              {({ isActive }) => (
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    'max-lg:h-11 w-full justify-start gap-2.5 px-2.5',
+                    'border-amber-500/50 text-amber-700 hover:bg-amber-500/10 hover:text-amber-800 dark:text-amber-300',
+                    isActive && 'bg-amber-500/15 ring-1 ring-amber-500/30',
+                    collapsed && 'justify-center gap-0 border-0 px-0',
+                  )}
+                  aria-label={collapsed ? signIn.label : undefined}
+                  aria-current={isActive ? 'page' : undefined}
+                >
+                  <KeyRound className="size-4.5 shrink-0" aria-hidden />
+                  {!collapsed && <span className="truncate">{signIn.label}</span>}
+                </Button>
+              )}
+            </NavLink>
+          ) : (
+            <div className={cn('flex items-center gap-1', collapsed ? 'justify-center' : 'px-2.5')}>
+              {!collapsed && signIn.roleLabel && (
+                <Badge variant="outline" className="max-w-full truncate">
+                  {signIn.roleLabel}
+                  {signIn.keyPrefix ? ` ${signIn.keyPrefix}` : ''}
+                </Badge>
+              )}
+              <Button
+                variant="ghost"
+                // There is no server session to end: the key *was* the session, so
+                // dropping it plus the cache is the whole sign-out.
+                onClick={() => {
+                  signOut()
+                  toast.info('Signed out — the stored API key is gone.')
+                  onNavigate?.()
+                }}
+                title={signIn.title}
+                aria-label={collapsed ? signIn.label : undefined}
+                className={cn(
+                  'max-lg:h-11 w-full justify-start gap-2.5 px-0 text-muted-foreground hover:text-foreground',
+                  collapsed && 'justify-center gap-0',
+                )}
+              >
+                <LogOut className="size-4.5 shrink-0" aria-hidden />
+                {!collapsed && <span className="truncate">{signIn.label}</span>}
+              </Button>
+            </div>
+          ))}
+
         <Separator />
         {!collapsed && (
           <p className="px-2.5 text-[10px] leading-relaxed text-muted-foreground">

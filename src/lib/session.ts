@@ -36,6 +36,66 @@ export type VerifyFailure =
   /** The candidate was blank before we ever hit the network. */
   | 'blank'
 
+const FAILURE_COPY: Record<VerifyFailure, string> = {
+  blank: 'Enter a key first — nothing was sent.',
+  rejected: 'The API does not recognise that key. Check the value and try again.',
+  unreachable: 'Could not reach the API to verify the key. Nothing was stored.',
+}
+
+/** The one-line reason shown beside the key field. Pure so the wording is testable. */
+export function verifyFailureMessage(reason: VerifyFailure): string {
+  return FAILURE_COPY[reason]
+}
+
+/**
+ * How a failed verification is reported, per failure mode.
+ *
+ * The two failure modes are genuinely different problems and must not collapse
+ * into one "login failed" string:
+ *   - `rejected` — the API answered and refused the key. The fix is a different
+ *     key; retrying, or blaming the network, is wrong.
+ *   - `unreachable` — nothing answered at all: offline, a CORS preflight that did
+ *     not come back, or a Cloudflare bot challenge in front of the API host. The
+ *     key may be perfectly good, so it is *not* discarded as wrong — but it is
+ *     also not stored, because nothing vouched for it.
+ *
+ * `stored: false` is stated in the body of both, because "nothing was stored" is
+ * the fact a user most needs after a failure.
+ */
+export type VerifyFailureNotice = {
+  /** `error` for a refused key, `warn` for an unanswered probe. */
+  tone: 'error' | 'warn'
+  title: string
+  body: string
+  /** The field-level one-liner from `verifyFailureMessage`. */
+  message: string
+}
+
+const FAILURE_NOTICE: Record<VerifyFailure, { tone: VerifyFailureNotice['tone']; title: string; body: string }> = {
+  blank: {
+    tone: 'error',
+    title: 'Nothing to verify',
+    body: 'No key was entered, so no request was made and nothing was stored.',
+  },
+  rejected: {
+    tone: 'error',
+    title: 'Key rejected',
+    body:
+      'The API answered and does not recognise this key, so nothing was stored — a key the server refuses is never kept. Check the value for a stray character or a truncated paste, or ask an admin for a fresh key.',
+  },
+  unreachable: {
+    tone: 'warn',
+    title: 'API unreachable — key not verified',
+    body:
+      'No answer came back from the API, so nothing was stored. That is a transport problem (offline, a blocked CORS preflight, or a bot challenge in front of the API host), not a verdict on the key: retry once the API answers, and keep the key until then.',
+  },
+}
+
+export function verifyFailureNotice(reason: VerifyFailure): VerifyFailureNotice {
+  const notice = FAILURE_NOTICE[reason]
+  return { ...notice, message: FAILURE_COPY[reason] }
+}
+
 export type VerifyResult =
   | {
       ok: true
@@ -47,12 +107,6 @@ export type VerifyResult =
       mode: string
     }
   | { ok: false; reason: VerifyFailure; message: string }
-
-const FAILURE_COPY: Record<VerifyFailure, string> = {
-  blank: 'Enter a key first — nothing was sent.',
-  rejected: 'The API does not recognise that key. Check the value and try again.',
-  unreachable: 'Could not reach the API to verify the key. Nothing was stored.',
-}
 
 /**
  * Ask the server who this key is.
@@ -66,7 +120,7 @@ export async function verifyApiKey(
   signal?: AbortSignal,
 ): Promise<VerifyResult> {
   const key = typeof candidate === 'string' ? candidate.trim() : ''
-  if (key === '') return { ok: false, reason: 'blank', message: FAILURE_COPY.blank }
+  if (key === '') return { ok: false, reason: 'blank', message: verifyFailureMessage('blank') }
 
   let me: AuthMe
   try {
@@ -78,17 +132,17 @@ export async function verifyApiKey(
   } catch (error) {
     // 401 (strict deployments) and every transport failure land here.
     const reason: VerifyFailure = isApiError(error) && error.status === 401 ? 'rejected' : 'unreachable'
-    return { ok: false, reason, message: FAILURE_COPY[reason] }
+    return { ok: false, reason, message: verifyFailureMessage(reason) }
   }
 
   const prefix = me.key_prefix ?? ''
   if (prefix === '') {
     // 200 + no prefix + anonymous: the route answered, the key did not.
-    return { ok: false, reason: 'rejected', message: FAILURE_COPY.rejected }
+    return { ok: false, reason: 'rejected', message: verifyFailureMessage('rejected') }
   }
   if (!key.startsWith(prefix)) {
     // Defence in depth: the prefix the server echoed must match what we sent.
-    return { ok: false, reason: 'rejected', message: FAILURE_COPY.rejected }
+    return { ok: false, reason: 'rejected', message: verifyFailureMessage('rejected') }
   }
 
   return {

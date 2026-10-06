@@ -51,9 +51,16 @@ const ICONS: Record<CommandActionSpec['kind'], LucideIcon> = {
   word: Search,
 }
 
-/** Route commands reuse their nav icon; the ids mirror `NAV_ITEMS`. */
+/**
+ * Route commands reuse their nav icon; the ids mirror `NAV_ITEMS`.
+ *
+ * `nav-login` is here even though the sign-in record is not a nav item: it is in
+ * the palette through the registry's `palette` flag, and a registry command
+ * without an icon would silently fall back to the generic `Gauge`.
+ */
 const ROUTE_ICONS: Record<string, LucideIcon> = {
   'nav-dashboard': Gauge,
+  'nav-login': KeyRound,
   'nav-word': BookOpen,
   'nav-analyze': ScanText,
   'nav-search': SearchIcon,
@@ -78,10 +85,10 @@ export function isPaletteShortcut(event: KeyboardEvent): boolean {
 /**
  * ⌘K / Ctrl+K command palette.
  *
- * Groups mirror the shell: the seven routes, the two actions (API key dialog,
- * word lookup) and the three theme preferences. Selection is handled here so
- * every action is one click *or* Enter — `cmdk` gives Enter for free, which is
- * what the browser check exercises.
+ * Groups mirror the shell: the registry's palette routes (sign-in included), the
+ * two actions (API key dialog, word lookup) and the three theme preferences.
+ * Selection is handled here so every action is one click *or* Enter — `cmdk`
+ * gives Enter for free, which is what the browser check exercises.
  *
  * The palette itself is a `<Dialog>`, so it inherits the app's focus trap,
  * escape handling and mobile sizing (`sm:max-w-lg`, full-width below `sm`).
@@ -183,7 +190,7 @@ export function CommandPalette({
           else onOpenChange(true)
         }}
         title="Command palette"
-        description="Jump to a workbench, look up a word, or change the theme."
+        description="Jump to a workbench, sign in, look up a word, or change the theme."
       >
         <CommandInput placeholder="Type a command or search…" />
         <CommandList>

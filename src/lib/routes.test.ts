@@ -8,23 +8,44 @@ import {
   DASHBOARD_PATH,
   LOGIN_PATH,
   NAV_ROUTES,
+  PALETTE_ROUTES,
   PARAM_VARIANTS,
   ROUTES,
+  ROUTE_REGISTRY,
   collectionFromSearch,
   collectionPath,
   gateMinimum,
+  inPalette,
   pathOf,
   routeById,
   routeByPath,
   routePathForVariant,
   safeReturnPath,
   signInPath,
+  specOf,
   wordPath,
   type RouteIconName,
 } from './routes'
+import { SIGN_IN_SURFACES } from './signIn'
 
 /** The router source — read so a second copy of a role cannot hide in it. */
 const APP_SOURCE = readFileSync(fileURLToPath(new URL('../App.tsx', import.meta.url)), 'utf8')
+
+/**
+ * The shell surfaces sign-in has to be discoverable from. Read as source because
+ * the Node test environment has no DOM: a component that stops rendering the
+ * affordance is invisible to `renderToString`, and the founder-facing symptom
+ * ("there is no admin login on Studio") is exactly a rendering regression.
+ */
+const SURFACE_SOURCES = {
+  'components/TopBar.tsx': readFileSync(fileURLToPath(new URL('../components/TopBar.tsx', import.meta.url)), 'utf8'),
+  'components/Sidebar.tsx': readFileSync(fileURLToPath(new URL('../components/Sidebar.tsx', import.meta.url)), 'utf8'),
+  'components/CommandPalette.tsx': readFileSync(
+    fileURLToPath(new URL('../components/CommandPalette.tsx', import.meta.url)),
+    'utf8',
+  ),
+  'lib/commands.ts': readFileSync(fileURLToPath(new URL('./commands.ts', import.meta.url)), 'utf8'),
+} as const
 
 /**
  * `App.tsx` with its comments stripped: prose must neither fail nor satisfy a
@@ -135,6 +156,20 @@ describe('route registry integrity', () => {
     expect(routeByPath(LOGIN_PATH)?.minRole).toBe('anonymous')
   })
 
+  it('opts that one non-nav destination into ⌘K with the registry `palette` flag', () => {
+    // The defect this closes: `nav: false` also removed sign-in from the palette,
+    // so the destination existed but nothing offered it outside a gate prompt.
+    const hidden = ROUTE_REGISTRY.filter((route) => !route.nav)
+    expect(hidden).toHaveLength(1)
+    expect(hidden[0].palette).toBe(true)
+    expect(inPalette(hidden[0])).toBe(true)
+  })
+
+  it('lets no nav record carry the flag — it exists to name the exceptions only', () => {
+    expect(ROUTE_REGISTRY.filter((route) => route.nav && route.palette !== undefined)).toEqual([])
+    for (const route of NAV_ROUTES) expect(inPalette(route), route.id).toBe(true)
+  })
+
   it('is reachable through the lookup helpers', () => {
     expect(routeById('settings')?.path).toBe('/settings')
     expect(routeByPath('/word')?.id).toBe('word')
@@ -143,14 +178,21 @@ describe('route registry integrity', () => {
 })
 
 describe('router / sidebar / palette read the same records', () => {
-  it('the palette exposes exactly one command per navigable route', () => {
-    expect(ROUTE_COMMANDS.length).toBe(NAV_ROUTES.length)
-    for (const route of NAV_ROUTES) {
+  it('the palette exposes exactly one command per palette route, nav plus the flagged ones', () => {
+    expect(PALETTE_ROUTES.length).toBe(NAV_ROUTES.length + 1)
+    expect(ROUTE_COMMANDS.length).toBe(PALETTE_ROUTES.length)
+    for (const route of PALETTE_ROUTES) {
       const command = ROUTE_COMMANDS.find((c) => c.id === `nav-${route.id}`)
       expect(command, route.id).toBeDefined()
       expect(command?.to).toBe(route.path)
       expect(command?.minRole).toBe(route.minRole)
     }
+  })
+
+  it('keeps nav and palette distinct: only the flagged non-nav record is added', () => {
+    // One extra command, and it is sign-in — not a sidebar list that leaked into ⌘K.
+    const extra = ROUTE_COMMANDS.filter((c) => !NAV_ROUTES.some((route) => `nav-${route.id}` === c.id))
+    expect(extra.map((c) => c.id)).toEqual(['nav-login'])
   })
 
   it('keeps the palette ids and paths unique', () => {
@@ -374,5 +416,56 @@ describe('path drift guard — destinations come from the registry, not from lit
     expect(pathLiterals('<a href="/data">x</a>')).toHaveLength(1)
     expect(pathLiterals('<Link to={pathOf("settings")}>x</Link>')).toHaveLength(0)
     expect(pathLiterals("apiPost('/api/v1/word/x')")).toHaveLength(0)
+  })
+})
+describe('sign-in is offered by every shell surface (the "no admin login" defect)', () => {
+  it('the registry says the sign-in destination occupies all three surfaces', () => {
+    expect(SIGN_IN_SURFACES).toEqual({ topBar: true, sidebar: true, palette: true })
+    expect(specOf('login').path).toBe(LOGIN_PATH)
+  })
+
+  it('the top bar renders the registry sign-in control, not a local path', () => {
+    const code = codeOf(SURFACE_SOURCES['components/TopBar.tsx'])
+    // `signInEntry` carries the label/tone, `signInPath` the destination, and the
+    // role comes from the server probe rather than a stored key.
+    expect(code).toContain('signInEntry(')
+    expect(code).toContain('signInPath(')
+    expect(code).toContain('useAuthMe(')
+    expect(pathLiterals(SURFACE_SOURCES['components/TopBar.tsx'])).toEqual([])
+  })
+
+  it('the sidebar footer renders the sign-in/sign-out entry for every role', () => {
+    const code = codeOf(SURFACE_SOURCES['components/Sidebar.tsx'])
+    expect(code).toContain('signInFooterEntry(')
+    expect(code).toContain('signInSurfaces(')
+    expect(code).toContain('useAuthMe(')
+    expect(code).toContain('signOut()')
+    // …and it is derived from the registry record + the server identity, never
+    // from `can()` — the role filter that hides `/agent` and `/settings` must not
+    // be able to hide the way to sign in.
+    expect(code).toMatch(/const showSignIn = signInSurfaces\(specOf\('login'\)\)\.sidebar/)
+    expect(code).not.toMatch(/showSignIn\s*=\s*[^\n]*can\(/)
+    expect(pathLiterals(SURFACE_SOURCES['components/Sidebar.tsx'])).toEqual([])
+  })
+
+  it('the palette is built from the palette records, not from the nav list', () => {
+    const code = codeOf(SURFACE_SOURCES['lib/commands.ts'])
+    expect(code).toContain('PALETTE_ROUTES')
+    expect(code).not.toContain('NAV_ROUTES')
+  })
+
+  it('every palette command has an icon, so no route falls back to the generic glyph', () => {
+    const icons = new Set(
+      [...SURFACE_SOURCES['components/CommandPalette.tsx'].matchAll(/'(nav-[a-z-]+)':/g)].map(
+        (match) => match[1],
+      ),
+    )
+    expect(icons).toContain('nav-login')
+    for (const command of ROUTE_COMMANDS) {
+      expect(icons, command.id).toContain(command.id)
+    }
+    // Mutation probe: a command id with no icon entry is what the guard catches.
+    expect([...icons].includes('nav-nope')).toBe(false)
+    expect([...ROUTE_COMMANDS.map((c) => c.id)].includes('nav-nope')).toBe(false)
   })
 })

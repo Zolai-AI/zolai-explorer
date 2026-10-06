@@ -13,8 +13,13 @@
  *     new path without a component is a compile error);
  *   - `Sidebar.tsx` maps `icon` → a lucide component (`Record` over `RouteIconName`,
  *     so a missing icon is a compile error too);
- *   - `commands.ts` builds `ROUTE_COMMANDS` (`nav-{id}` ids, same paths);
+ *   - `commands.ts` builds `ROUTE_COMMANDS` (`nav-{id}` ids, same paths) from
+ *     `PALETTE_ROUTES` — primary nav plus the records flagged `palette: true`,
+ *     which is how sign-in stays in ⌘K without sitting in the sidebar's nav list;
  *   - `PARAM_VARIANTS` covers deep links with a path parameter.
+ *
+ * `specOf(id)` reads a whole record by id (path, icon, description) for the shell
+ * surfaces that render the sign-in control, so no component hand-types `'/login'`.
  *
  * `minRole` is the same value `<RequireRole minimum>` gates on, and it comes from
  * the **server** — see `src/lib/auth.ts`. Never derive a role from the stored key.
@@ -57,6 +62,18 @@ export type RouteSpec = {
    * prompt and the warn-mode banner link to).
    */
   nav: boolean
+  /**
+   * `true` when the record belongs in the ⌘K palette **even though** `nav` is
+   * `false`. Primary-nav records are in the palette by definition, so this flag
+   * only has to name the exceptions.
+   *
+   * It exists because `nav: false` silently removed `/login` from ⌘K as well as
+   * from the sidebar: the destination existed, was reachable, and was offered
+   * by nothing but a gate prompt — "there is no admin login on Studio". The
+   * flag keeps the two lists independent, still one registry, no second
+   * hand-written id list in `commands.ts`.
+   */
+  palette?: boolean
 }
 
 /**
@@ -83,8 +100,12 @@ export const ROUTES = [
     description: 'Verify an API key, replace or clear the stored one',
     minRole: 'anonymous',
     icon: 'key',
-    keywords: 'login sign in api key credential auth session',
+    keywords: 'login sign in api key credential auth session sign out logout',
     nav: false,
+    // Not primary navigation (it is a footer/top-bar control, not a workbench)
+    // but always discoverable: it must be reachable by ⌘K, by the sidebar
+    // footer and from the top bar, for every role, before any key is held.
+    palette: true,
   },
   {
     id: 'word',
@@ -187,6 +208,31 @@ export type RouteId = (typeof ROUTES)[number]['id']
 /** Destinations that belong in the sidebar / palette, in render order. */
 export const NAV_ROUTES = ROUTES.filter((route) => route.nav)
 
+/**
+ * Widened view of the registry.
+ *
+ * `ROUTES` is an `as const` tuple so `RoutePath`/`RouteId` stay literal types
+ * (that is what keys the router's `PAGES` map). Reading *optional* fields off
+ * the union itself is therefore a compile error, so helpers iterate this
+ * `RouteSpec`-typed view of the very same records.
+ */
+export const ROUTE_REGISTRY: readonly RouteSpec[] = ROUTES
+
+/**
+ * Whether a record belongs in the ⌘K palette.
+ *
+ * Primary navigation is in the palette by definition; a record that is
+ * deliberately out of the nav list opts back in with `palette: true`. The
+ * palette therefore reads *the same records* as the sidebar and can never need a
+ * hand-written id list to find `/login`.
+ */
+export function inPalette(spec: RouteSpec): boolean {
+  return spec.nav || spec.palette === true
+}
+
+/** Destinations the ⌘K palette offers: primary nav plus every flagged record. */
+export const PALETTE_ROUTES: readonly RouteSpec[] = ROUTE_REGISTRY.filter(inPalette)
+
 /** The sign-in path, referenced by the gate prompt and the warn-mode banner. */
 export const LOGIN_PATH: RoutePath = '/login'
 
@@ -214,6 +260,19 @@ const ROUTE_PATHS = Object.fromEntries(ROUTES.map((route) => [route.id, route.pa
  */
 export function pathOf(id: RouteId): RoutePath {
   return ROUTE_PATHS[id]
+}
+
+/**
+ * Registry record by id.
+ *
+ * `routeById` takes a plain string and answers `undefined` for an unknown id;
+ * this one is typed over `RouteId`, so the id is checked at compile time and the
+ * answer is always a record. The top bar, the sidebar footer and the ⌘K palette
+ * read the sign-in control through it — a shell that named `'/login'` by hand
+ * would 404 in silence after a rename.
+ */
+export function specOf(id: RouteId): RouteSpec {
+  return ROUTE_REGISTRY.find((route) => route.id === id) as RouteSpec
 }
 
 export function routeById(id: string): RouteSpec | undefined {

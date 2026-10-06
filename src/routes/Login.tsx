@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { KeyRound, LogIn, ShieldCheck } from 'lucide-react'
+import { KeyRound, LogIn, ShieldCheck, UserCheck } from 'lucide-react'
 import { useApiKey } from '../components/KeyDialog'
 import { Card } from '../components/Card'
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert'
@@ -9,8 +9,16 @@ import { Button } from '../components/ui/button'
 import { Field, FieldError, FieldLabel } from '../components/ui/field'
 import { Input } from '../components/ui/input'
 import { submitApiKey } from '../lib/forms'
+import { useAuthMe } from '../lib/auth'
 import { DASHBOARD_PATH, pathOf, safeReturnPath } from '../lib/routes'
-import { signIn, signInTitle, signOut, type VerifyFailure } from '../lib/session'
+import { identitySummary } from '../lib/signIn'
+import {
+  signIn,
+  signInTitle,
+  signOut,
+  verifyFailureNotice,
+  type VerifyFailure,
+} from '../lib/session'
 
 /**
  * Sign in — and it is honest about what that means.
@@ -20,14 +28,21 @@ import { signIn, signInTitle, signOut, type VerifyFailure } from '../lib/session
  * stores it only when the server recognises it. A rejected key is never written,
  * so a bad paste cannot clobber a working one.
  *
- * There is no session cookie to fake and no role to guess locally — after a
- * successful check the role comes from the same `/auth/me` payload the rest of
- * the app gates on.
+ * There is no session cookie to fake and no role to guess locally — the identity
+ * panel below the form reads the same `/auth/me` payload the whole app gates on,
+ * and a *stored* key the server does not recognise is reported as such instead of
+ * being dressed up as a live session. The two failure modes are kept apart: a
+ * key the API **refused** and an API that **never answered** need different
+ * things from the reader, and neither is "login failed".
+ *
+ * This page is reachable from the top bar, the sidebar footer and ⌘K for every
+ * role — see `src/lib/signIn.ts`.
  */
 export function Login() {
   const navigate = useNavigate()
   const [params] = useSearchParams()
   const { hasKey, masked } = useApiKey()
+  const me = useAuthMe()
 
   const [key, setKey] = useState('')
   const [error, setError] = useState<string | undefined>(undefined)
@@ -70,6 +85,10 @@ export function Login() {
     navigate(from, { replace: true })
   }
 
+  const notice = reason ? verifyFailureNotice(reason) : null
+  // What the server says about the stored key *now* — never a local assumption.
+  const identity = identitySummary({ role: me.role, keyPrefix: me.key_prefix, scopes: me.scopes }, hasKey)
+
   return (
     <div className="mx-auto flex w-full max-w-xl flex-col gap-5">
       <header>
@@ -109,13 +128,14 @@ export function Login() {
             <FieldError>{error}</FieldError>
           </Field>
 
-          {reason === 'unreachable' && (
-            <Alert>
-              <AlertTitle>Nothing was stored</AlertTitle>
-              <AlertDescription>
-                The API could not be reached, so the key was not verified. Public endpoints keep
-                working without it.
-              </AlertDescription>
+          {/* Two different problems, two different explanations: a refused key is
+              not a transport failure, and neither is worth calling a generic
+              "login failed". */}
+          {notice && (
+            <Alert variant={notice.tone === 'error' ? 'destructive' : 'default'}>
+              {notice.tone === 'error' ? <KeyRound aria-hidden /> : <ShieldCheck aria-hidden />}
+              <AlertTitle>{notice.title}</AlertTitle>
+              <AlertDescription>{notice.body}</AlertDescription>
             </Alert>
           )}
 
@@ -148,6 +168,59 @@ export function Login() {
           </p>
         )}
       </Card>
+
+      {/* Who the server says you are. Silent when there is no key; a warning, not
+          a success, when a stored key is not recognised. */}
+      {identity.show && (
+        <Card
+          title={
+            <span className="flex items-center gap-1.5">
+              {identity.tone === 'ok' && <UserCheck className="size-4 text-primary" aria-hidden />}
+              {identity.title}
+            </span>
+          }
+          subtitle="Verified identity — read back from GET /auth/me"
+          tone={identity.tone === 'ok' ? 'accent' : 'default'}
+        >
+          <div className="flex flex-col gap-3">
+            <p
+              className={
+                identity.tone === 'ok'
+                  ? 'flex flex-wrap items-center gap-2 text-sm'
+                  : 'text-sm text-amber-700 dark:text-amber-300'
+              }
+            >
+              {identity.tone === 'ok' && (
+                <Badge variant={me.role === 'admin' ? 'default' : 'secondary'}>{me.role}</Badge>
+              )}
+              {identity.detail}
+            </p>
+
+            <div className="flex flex-col gap-1.5">
+              <span className="text-[10px] tracking-wider text-muted-foreground uppercase">
+                scopes ({identity.scopes.length})
+              </span>
+              {identity.scopes.length > 0 ? (
+                <ul className="flex flex-wrap gap-1.5">
+                  {identity.scopes.map((scope) => (
+                    <li key={scope}>
+                      <Badge variant="outline" className="font-mono">
+                        {scope}
+                      </Badge>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  No scopes reported — the server grants nothing with this key.
+                </p>
+              )}
+            </div>
+
+            <p className="text-[11px] leading-relaxed text-muted-foreground">{identity.source}</p>
+          </div>
+        </Card>
+      )}
 
       <Card title="What a key unlocks" subtitle="the server decides — never this screen">
         <ul className="flex flex-col gap-2 text-xs text-muted-foreground">

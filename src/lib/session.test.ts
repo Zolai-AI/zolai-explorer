@@ -2,7 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { API_KEY_STORAGE_KEY, __setStorageForTests, getApiKey } from './key'
 import type { StorageLike } from './key'
 import { queryClient } from './queryClient'
-import { signIn, signOut, signInTitle, verifyApiKey } from './session'
+import {
+  signIn,
+  signOut,
+  signInTitle,
+  verifyApiKey,
+  verifyFailureMessage,
+  verifyFailureNotice,
+} from './session'
 
 function fakeStorage(): StorageLike & { dump: () => Record<string, string> } {
   const mem = new Map<string, string>()
@@ -186,5 +193,58 @@ describe('signInTitle', () => {
   it('says "replace" only when a key is already stored', () => {
     expect(signInTitle(false)).toMatch(/Sign in/)
     expect(signInTitle(true)).toMatch(/Replace/)
+  })
+})
+describe('verifyFailureMessage — one honest line per failure mode', () => {
+  it('names the mode instead of saying "login failed"', () => {
+    expect(verifyFailureMessage('blank')).toMatch(/nothing was sent/i)
+    expect(verifyFailureMessage('rejected')).toMatch(/does not recognise/i)
+    expect(verifyFailureMessage('unreachable')).toMatch(/could not reach/i)
+    for (const reason of ['blank', 'rejected', 'unreachable'] as const) {
+      expect(verifyFailureMessage(reason), reason).not.toMatch(/login failed/i)
+    }
+  })
+
+  it('is total — an unknown reason cannot throw or leak an empty string', () => {
+    // The map is keyed by the union, so this only proves the messages are real copy.
+    for (const reason of ['blank', 'rejected', 'unreachable'] as const) {
+      expect(verifyFailureMessage(reason).length).toBeGreaterThan(10)
+    }
+  })
+})
+
+describe('verifyFailureNotice — a refused key and an unanswered API are not the same', () => {
+  it('a rejected key says the server refused it and nothing was stored', () => {
+    const notice = verifyFailureNotice('rejected')
+    expect(notice.tone).toBe('error')
+    expect(notice.title).toMatch(/rejected/i)
+    expect(notice.body).toMatch(/answers|answered/i)
+    expect(notice.body).toMatch(/nothing was stored/i)
+    expect(notice.message).toBe(verifyFailureMessage('rejected'))
+  })
+
+  it('an unreachable API blames transport — and does not call the key bad', () => {
+    const notice = verifyFailureNotice('unreachable')
+    expect(notice.tone).toBe('warn')
+    expect(notice.title).toMatch(/unreachable|not verified/i)
+    expect(notice.body).toMatch(/nothing was stored/i)
+    // The honest part: the three real causes a browser hits on this deployment.
+    expect(notice.body).toMatch(/CORS/)
+    expect(notice.body).toMatch(/challenge/i)
+    expect(notice.body).not.toMatch(/does not recognise that key/)
+  })
+
+  it('keeps the two modes distinguishable — no generic "login failed" anywhere', () => {
+    const rejected = verifyFailureNotice('rejected')
+    const unreachable = verifyFailureNotice('unreachable')
+    expect(rejected.title).not.toBe(unreachable.title)
+    expect(rejected.body).not.toBe(unreachable.body)
+    expect([rejected, unreachable].map((n) => n.title).join(' ')).not.toMatch(/failed/i)
+  })
+
+  it('a blank paste never claims a request was made', () => {
+    const notice = verifyFailureNotice('blank')
+    expect(notice.title).toMatch(/nothing to verify/i)
+    expect(notice.body).toMatch(/no request/i)
   })
 })

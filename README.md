@@ -23,7 +23,7 @@ bun run dev        # http://localhost:5173/  (proxies /api + /health upstream)
 | `bun run dev` | Vite dev server with `/api` + `/health` proxied to `https://api.zolai.space` |
 | `bun run build` | `tsc -b` then `vite build` → `dist/` |
 | `bun run typecheck` | Type check only (`tsc -b --force`) |
-| `bun run test` | Vitest suite (269 tests) |
+| `bun run test` | Vitest suite (304 tests) |
 | `bun run deploy` | `vite build` + rsync to `pcore-server:/var/www/zolai-studio` + `nginx -t` + reload |
 
 Requires **bun** (1.4.1+). Never npm/yarn — this is a workspace-wide convention.
@@ -71,7 +71,7 @@ storage backend so the round-trip is unit tested without jsdom.
 | Route | Panel | Endpoints |
 |-------|-------|-----------|
 | `/` | Dashboard — collection tiles, health, knowledge version, quick jumps, external links | `/api/v1/knowledge/statistics`, `/api/v1/knowledge/version`, `/api/v1/auth/me`, `/health` |
-| `/login` | Sign in — **not a nav item**: verify-then-store against the public `GET /api/v1/auth/me`, persist only when the server recognises the key (a 200 with no `key_prefix` is *rejected*), and sign out to clear the key plus every cached response. Returns you to `?from=`, validated so it can only be a same-origin path | `GET /api/v1/auth/me` |
+| `/login` | Sign in — **not a nav item, but always discoverable** (top bar, sidebar footer, ⌘K). Verify-then-store against the public `GET /api/v1/auth/me`: persist only when the server recognises the key (a 200 with no `key_prefix` is *rejected*). Shows the verified identity read back from `/auth/me` — role, `key_prefix`, scopes — and a Sign out button; a *stored* key the server no longer recognises is reported as such, not as a live session. The two failure modes stay distinct: **Key rejected** (the API answered and refused it) vs **API unreachable — key not verified** (nothing answered: offline, CORS, bot challenge) — never a generic "login failed". Returns you to `?from=`, validated so it can only be a same-origin path | `GET /api/v1/auth/me` |
 | `/word`, `/word/:word` | Word entry + 5 sub-resource tabs, each with a server-side `limit` | `/api/v1/word/{word}` and `/api/v1/word/{word}/{forms,contexts,collocations,patterns,evidence}` |
 | `/analyze` | Sentence tokenisation + paragraph segmentation | `/api/v1/analyze/sentence`, `/api/v1/analyze/paragraph` |
 | `/search` | Lexical corpus search with per-source grouping | `/api/v1/search` |
@@ -88,13 +88,23 @@ the way out. Gate it and a user who cannot pass the gate can no longer acquire t
 a chicken-and-egg trap. `routes.test.ts` asserts both halves of that: exactly one non-nav record, and
 its `minRole` is `anonymous`.
 
+`nav: false` also used to remove it from ⌘K, because the palette read the sidebar's list — so the
+destination existed and *nothing offered it*: "there is no admin login on Studio". The record now
+carries a second flag, `palette: true`, and the two lists are independent: nav is where a destination
+*sits*, `palette` is whether ⌘K offers it. Sign-in is therefore reachable from three surfaces for
+**every** role — the top bar's primary control (`signInEntry`), the sidebar footer, which switches
+between *Sign in* and *role + Sign out* (`signInFooterEntry`), and ⌘K. All of them are derived from
+`src/lib/signIn.ts` + the registry record, so a surface that stops rendering the affordance fails
+`routes.test.ts`.
+
 `/word/pasian` and every other route deep-link and survive a browser refresh (SPA fallback:
 `try_files $uri $uri/ /index.html`).
 
 **One registry, four consumers.** `src/lib/routes.ts` holds every destination (path, label,
-description, `minRole`, icon key, palette keywords). `App.tsx` renders its `<Route>`s from the
-registry — `PAGES` is keyed by the derived `RoutePath`, so a route with no component is a *compile*
-error — while `Sidebar.tsx`, `commands.ts` (⌘K) and `<RequireRole>` read the same records.
+description, `minRole`, icon key, palette keywords, `nav` / `palette` flags). `App.tsx` renders its
+`<Route>`s from the registry — `PAGES` is keyed by the derived `RoutePath`, so a route with no
+component is a *compile* error — while `Sidebar.tsx` (`NAV_ROUTES`), `commands.ts` (⌘K,
+`PALETTE_ROUTES`) and `<RequireRole>` read the same records.
 `PARAM_VARIANTS` covers deep links with a path parameter (`/word/:word` → the `/word` panel).
 
 In-app destinations are read from that registry too: `pathOf('settings')`, `collectionPath(label)`,
@@ -340,7 +350,7 @@ The same list is rendered as cards on `/links` under "Known API gaps".
 bun run test
 ```
 
-269 Vitest specs across fifteen files:
+304 Vitest specs across sixteen files:
 
 - `src/lib/api.test.ts` — 401 → `ApiError` with `needsKey`; 15s timeout budget and abort →
   `timeout` / `aborted` distinction; transport failure → `network`; **empty body tolerated** instead
@@ -375,10 +385,22 @@ bun run test
   balanced `{param}` placeholders, `endpointPath` encoding + throwing on a missing parameter, limit
   clamping per route (100 vs the evidence cap of 200), *no path literal outside the registry*,
   *every record used*, and README/API-surface sync.
+- `src/lib/signIn.test.ts` — **discoverability**: the sign-in registry record is non-nav *and*
+  anonymous, `signInSurfaces` claims the top bar + sidebar + ⌘K for every role (and claims nothing for
+  a missing or privilege-gated record), the palette holds `nav-login` for anonymous *and* admin, the
+  top-bar control reads `Sign in` while anonymous and the role + server prefix once identified, the
+  sidebar footer switches `sign-in` → `sign-out` (`to: null`, so a sign-out cannot 404), and
+  `identitySummary` stays silent with no key, reports role/prefix/scopes after sign-in, and **warns**
+  rather than claims success when a stored key is unrecognised. Plus the registry-flag mutation probe:
+  flipping `palette` changes `inPalette`, `signInSurfaces` and `routeCommandsFor` membership.
 - `src/lib/session.test.ts` — sign-in is verify-then-store: the candidate key goes out in the
   header only and never the URL, a 200 + no `key_prefix` is a **rejected** key, a 401 is rejected
   while a transport failure is *unreachable*, a blank paste never reaches the network, a rejected key
-  stores nothing and leaves an existing key intact, and sign-out clears key + cache.
+  stores nothing and leaves an existing key intact, and sign-out clears key + cache. Plus the
+  **failure-mode mapping**: `verifyFailureMessage` / `verifyFailureNotice` name each mode
+  (*nothing was sent* / *does not recognise* / *could not reach*), keep **key rejected** and **API
+  unreachable** distinct (the latter blames transport — CORS, bot challenge — and never calls the key
+  bad), and contain no generic "login failed".
 - `src/features/apikeys/api.test.ts` — the `/admin/api-keys` transports (list, create, rotate,
   revoke) with method/path/body, tolerant parsing, honest 404/422 messages, and `isActiveKey`.
 - `src/lib/charts.test.ts` — the zero-based bar maths: width is `value / largest` (a 1-row and a
@@ -390,14 +412,20 @@ bun run test
   `coerceWordLimit` clamping an over-large or hostile value instead of letting the API 422.
 - `src/lib/routes.test.ts` — the route registry: unique ids/paths, every record labelled with a
   known icon + role, exactly one non-nav destination (sign-in, and it must be anonymous — the
-  chicken-and-egg guard), the palette exposing one command per navigable route with the same
-  path/role, deep-link resolution (`/word/:word` → `/word`), and the `?from=` / `?collection=` query
+  chicken-and-egg guard) which opts into ⌘K through the `palette` flag (no nav record may carry it),
+  the palette exposing one command per palette route with the same path/role and exactly one extra
+  (`nav-login`), deep-link resolution (`/word/:word` → `/word`), and the `?from=` / `?collection=` query
   builders. Plus the **path drift guard**: `pathOf` resolves every id to its own recorded path,
   `wordPath` encodes a hostile headword so it cannot escape its segment, `safeReturnPath` refuses an
   absolute, protocol-relative or control-character `?from=` (no open redirect, no `pushState` throw),
   and a scan of `src/routes` + `src/components` + `src/features` (plus `App.tsx`, with its
   registry-keyed `PAGES` map set aside and checked against the registry) fails on any `to=` /
-  `to:` / `href=` / `navigate(` bound to a hand-typed internal path.
+  `to:` / `href=` / `navigate(` bound to a hand-typed internal path. Plus the **surface guard**:
+  `TopBar.tsx`, `Sidebar.tsx`, `CommandPalette.tsx` and `commands.ts` are read as source and must
+  render the registry sign-in control (`signInEntry` / `signInFooterEntry` / `signInSurfaces` /
+  `signInPath`), derive it from `specOf('login')` rather than `can()`, build ⌘K from
+  `PALETTE_ROUTES` (never `NAV_ROUTES`), and give every palette command an icon — the checks that
+  would have caught "there is no admin login on Studio".
 
 ## Deploy
 

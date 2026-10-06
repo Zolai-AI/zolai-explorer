@@ -27,7 +27,12 @@ verbatim captures from the live API).
    `apiFetch(..., { apiKey })` and persist only when the server recognises the key. `/auth/me` is
    public and never 401s, so "200 with no `key_prefix`" means *rejected* — never store that. There
    are no accounts and no login endpoint in `zolai-core`: do not invent a username/password flow or
-   a session the server cannot back.
+   a session the server cannot back. **Sign-in must also stay *discoverable* from the top bar, the
+   sidebar footer and ⌘K, for every role** (`src/lib/signIn.ts` + `specOf('login')`) — including the
+   sign-*out* half, the only way an identified user drops a key. That was a real founder-facing
+   defect: `nav: false` removed `/login` from the sidebar *and* ⌘K, so landing on `/` showed no way in
+   at all. Keep the two failure modes apart too — a key the API **refused** versus an API that
+   **never answered** (`verifyFailureNotice`) — never a generic "login failed".
 2. **A minted plaintext key is shown once and dropped — every minting path, both an end and a
    dismiss.** `POST /admin/api-keys` (and `rotate`) are the only responses that carry a secret. They
    are therefore plain transports, **not** React Query mutations, so nothing parks a secret in the
@@ -113,6 +118,14 @@ panel in the same commit.
   adding a registry record — never by hand-editing a nav list, and never by adding a `<Route>` that
   no nav entry points at. Deep links with a path parameter go in `PARAM_VARIANTS` with the registry
   path they belong to.
+- **Sign-in surfaces are registry-driven too.** `src/lib/signIn.ts` owns the pure model
+  (`signInSurfaces`, `signInEntry`, `signInFooterEntry`, `identitySummary`) and the registry owns
+  membership: `palette: true` is what puts a `nav: false` record in ⌘K (`PALETTE_ROUTES`,
+  `inPalette`), and `minRole: 'anonymous'` is what lets the sidebar footer offer sign-in at all. A
+  shell surface reads the record (`specOf('login')`, `pathOf` / `signInPath`) and must **not** re-filter
+  the sign-in entry through `can()` — that filter hides `/agent` and `/settings`, and hiding the way to
+  sign in with it is the chicken-and-egg trap. `routes.test.ts` reads `TopBar.tsx`, `Sidebar.tsx`,
+  `CommandPalette.tsx` and `commands.ts` as source and fails when a surface stops rendering it.
 - **In-app destinations are read from that registry too.** `pathOf('settings')`,
   `collectionPath(label)`, `signInPath(from)`, `wordPath(headword)`, `DASHBOARD_PATH` and
   `LOGIN_PATH` — **never a path literal**. `routes.test.ts` scans `src/routes`, `src/components` and
@@ -151,7 +164,7 @@ panel in the same commit.
 
 ```bash
 bun run typecheck    # tsc -b --force
-bun run test         # 269 vitest specs
+bun run test         # 304 vitest specs
 bun run build        # must be warning-free
 ```
 

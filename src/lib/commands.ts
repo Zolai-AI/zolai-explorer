@@ -10,11 +10,15 @@
  * `can` from `./auth` — a pure function that happens to live next to the
  * `useRole()` hook — so this module still imports and runs in the plain-Node
  * vitest environment.
+ *
+ * Route commands come from the registry's **palette** set (`PALETTE_ROUTES`), not
+ * from the sidebar's nav list: the two are different rendering choices, and
+ * conflating them is what made sign-in undiscoverable from ⌘K.
  */
 
 import { wordFieldSchema, wordPath } from './forms'
 import { can, type Role } from './auth'
-import { NAV_ROUTES } from './routes'
+import { PALETTE_ROUTES, type RouteSpec } from './routes'
 import type { Theme } from './theme'
 
 export type CommandKind = 'navigate' | 'theme' | 'api-key' | 'word'
@@ -44,20 +48,38 @@ export const COMMAND_GROUP_ACTIONS = 'Actions'
 export const COMMAND_GROUP_APPEARANCE = 'Appearance'
 
 /**
- * One entry per navigable route, generated from the registry in
- * `src/lib/routes.ts` — the same records the router and the sidebar read. The
- * `nav-{id}` ids are stable because the registry ids are.
+ * One `navigate` command per record, generated from the registry — the `nav-{id}`
+ * ids are stable because the registry ids are.
+ *
+ * Takes the records as an argument so the *flag* is provable: a test can pass a
+ * registry with `palette` flipped and watch membership change, instead of trusting
+ * that the palette list is derived from the same records the sidebar reads.
  */
-export const ROUTE_COMMANDS: readonly CommandActionSpec[] = NAV_ROUTES.map((route) => ({
-  id: `nav-${route.id}`,
-  kind: 'navigate',
-  label: route.label,
-  group: COMMAND_GROUP_NAV,
-  keywords: route.keywords,
-  hint: route.path,
-  to: route.path,
-  minRole: route.minRole,
-}))
+export function routeCommandsFor(
+  routes: readonly RouteSpec[],
+): readonly CommandActionSpec[] {
+  return routes.map((route) => ({
+    id: `nav-${route.id}`,
+    kind: 'navigate' as const,
+    label: route.label,
+    group: COMMAND_GROUP_NAV,
+    keywords: route.keywords,
+    hint: route.path,
+    to: route.path,
+    minRole: route.minRole,
+  }))
+}
+
+/**
+ * Palette route commands.
+ *
+ * `PALETTE_ROUTES`, not `NAV_ROUTES`: the sidebar's primary list is a *rendering*
+ * choice, and reading it here is what made ⌘K inherit the same blind spot as the
+ * sidebar — `/login` was reachable, but nothing offered it. Sign-in therefore
+ * opts in through the registry's `palette` flag, and this module never names a
+ * route id.
+ */
+export const ROUTE_COMMANDS: readonly CommandActionSpec[] = routeCommandsFor(PALETTE_ROUTES)
 
 export const THEME_COMMANDS: readonly CommandActionSpec[] = [
   {
