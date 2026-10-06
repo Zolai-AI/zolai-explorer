@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { KeyRound, LogIn, ShieldCheck, UserCheck } from 'lucide-react'
+import { KeyRound, LogIn, ShieldCheck, UserCheck, RotateCcw } from 'lucide-react'
 import { useApiKey } from '../components/KeyDialog'
 import { Card } from '../components/Card'
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert'
@@ -16,24 +16,29 @@ import {
   signIn,
   signInTitle,
   signOut,
+  signInWithPassword,
+  signOutSession,
   verifyFailureNotice,
+  passwordVerifyFailureNotice,
   type VerifyFailure,
+  type PasswordVerifyFailure,
 } from '../lib/session'
 
 /**
  * Sign in — and it is honest about what that means.
  *
- * The API has **no accounts and no login endpoint**: identity *is* an API key,
- * so this screen verifies a pasted key against the public `GET /auth/me` and
- * stores it only when the server recognises it. A rejected key is never written,
- * so a bad paste cannot clobber a working one.
+ * The Zolai Core API now supports **two** credential paths:
+ *   1. **API key** (original): verify-then-store against `GET /auth/me`, stored in
+ *      `localStorage` as `zolai.apiKey`, sent as `X-API-Key`.
+ *   2. **Username + password** (new): `POST /auth/login` returns a short-lived
+ *      session token stored in `sessionStorage` as `zolai.session`, sent as
+ *      `Authorization: Bearer <token>`. On success the stored API key is **cleared**
+ *      (one active credential). Sign-out calls `POST /auth/logout` (best-effort) then
+ *      clears the session.
  *
- * There is no session cookie to fake and no role to guess locally — the identity
- * panel below the form reads the same `/auth/me` payload the whole app gates on,
- * and a *stored* key the server does not recognise is reported as such instead of
- * being dressed up as a live session. The two failure modes are kept apart: a
- * key the API **refused** and an API that **never answered** need different
- * things from the reader, and neither is "login failed".
+ * There are no accounts in the traditional sense — identity is still derived from
+ * the credential the server recognises. The two failure modes are kept apart for
+ * each path: a credential the API **refused** vs an API that **never answered**.
  *
  * This page is reachable from the top bar, the sidebar footer and ⌘K for every
  * role — see `src/lib/signIn.ts`.
@@ -44,48 +49,91 @@ export function Login() {
   const { hasKey, masked } = useApiKey()
   const me = useAuthMe()
 
+  // API key form state
   const [key, setKey] = useState('')
-  const [error, setError] = useState<string | undefined>(undefined)
-  const [reason, setReason] = useState<VerifyFailure | undefined>(undefined)
-  const [busy, setBusy] = useState(false)
+  const [keyError, setKeyError] = useState<string | undefined>(undefined)
+  const [keyReason, setKeyReason] = useState<VerifyFailure | undefined>(undefined)
+  const [keyBusy, setKeyBusy] = useState(false)
+
+  // Password form state
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [pwdError, setPwdError] = useState<string | undefined>(undefined)
+  const [pwdReason, setPwdReason] = useState<PasswordVerifyFailure | undefined>(undefined)
+  const [pwdBusy, setPwdBusy] = useState(false)
+
+  // Toggle between the two cards
+  const [mode, setMode] = useState<'api-key' | 'password'>('api-key')
 
   // `?from=` is attacker-controllable, so it is validated before it can reach
   // `navigate()`: an absolute or protocol-relative URL would be an open redirect,
   // and a value carrying a newline would throw inside `pushState`.
   const from = safeReturnPath(params.get('from'))
 
-  const submit = async () => {
-    // Same schema the paste-key dialog uses: a blank submit never reaches the network.
+  const submitKey = async () => {
     const validated = submitApiKey({ apiKey: key })
     if (!validated.ok) {
-      setError(validated.issues[0] ?? 'Invalid API key.')
-      setReason(undefined)
+      setKeyError(validated.issues[0] ?? 'Invalid API key.')
+      setKeyReason(undefined)
       return
     }
-    setBusy(true)
-    setError(undefined)
-    setReason(undefined)
+    setKeyBusy(true)
+    setKeyError(undefined)
+    setKeyReason(undefined)
     try {
       const result = await signIn(validated.value)
       if (!result.ok) {
-        setError(result.message)
-        setReason(result.reason)
+        setKeyError(result.message)
+        setKeyReason(result.reason)
         return
       }
       setKey('')
       navigate(from, { replace: true })
     } finally {
-      setBusy(false)
+      setKeyBusy(false)
     }
   }
 
-  const leave = () => {
+  const submitPassword = async () => {
+    const user = username.trim()
+    const pass = password.trim()
+    if (!user || !pass) {
+      setPwdError('Enter both username and password — nothing was sent.')
+      setPwdReason('blank')
+      return
+    }
+    setPwdBusy(true)
+    setPwdError(undefined)
+    setPwdReason(undefined)
+    try {
+      const result = await signInWithPassword(user, pass)
+      if (!result.ok) {
+        setPwdError(result.message)
+        setPwdReason(result.reason)
+        return
+      }
+      setUsername('')
+      setPassword('')
+      navigate(from, { replace: true })
+    } finally {
+      setPwdBusy(false)
+    }
+  }
+
+  const leaveKey = () => {
     signOut()
-    setError(undefined)
+    setKeyError(undefined)
     navigate(from, { replace: true })
   }
 
-  const notice = reason ? verifyFailureNotice(reason) : null
+  const leaveSession = async () => {
+    await signOutSession()
+    navigate(from, { replace: true })
+  }
+
+  const keyNotice = keyReason ? verifyFailureNotice(keyReason) : null
+  const pwdNotice = pwdReason ? passwordVerifyFailureNotice(pwdReason) : null
+
   // What the server says about the stored key *now* — never a local assumption.
   const identity = identitySummary({ role: me.role, keyPrefix: me.key_prefix, scopes: me.scopes }, hasKey)
 
@@ -103,16 +151,17 @@ export function Login() {
         </p>
       </header>
 
+      {/* Card 1: API Key verification (original flow) */}
       <Card title="Verify the key" subtitle="GET /auth/me — public, never stores anything">
         <form
           className="flex flex-col gap-3"
           noValidate
           onSubmit={(event) => {
             event.preventDefault()
-            void submit()
+            void submitKey()
           }}
         >
-          <Field data-invalid={error ? 'true' : undefined}>
+          <Field data-invalid={keyError ? 'true' : undefined}>
             <FieldLabel htmlFor="login-key">API key</FieldLabel>
             <Input
               id="login-key"
@@ -121,36 +170,36 @@ export function Login() {
               spellCheck={false}
               value={key}
               onChange={(event) => setKey(event.target.value)}
-              aria-invalid={error ? 'true' : undefined}
+              aria-invalid={keyError ? 'true' : undefined}
               placeholder="paste API key"
               className="h-11 font-mono"
             />
-            <FieldError>{error}</FieldError>
+            <FieldError>{keyError}</FieldError>
           </Field>
 
           {/* Two different problems, two different explanations: a refused key is
               not a transport failure, and neither is worth calling a generic
               "login failed". */}
-          {notice && (
-            <Alert variant={notice.tone === 'error' ? 'destructive' : 'default'}>
-              {notice.tone === 'error' ? <KeyRound aria-hidden /> : <ShieldCheck aria-hidden />}
-              <AlertTitle>{notice.title}</AlertTitle>
-              <AlertDescription>{notice.body}</AlertDescription>
+          {keyNotice && (
+            <Alert variant={keyNotice.tone === 'error' ? 'destructive' : 'default'}>
+              {keyNotice.tone === 'error' ? <KeyRound aria-hidden /> : <ShieldCheck aria-hidden />}
+              <AlertTitle>{keyNotice.title}</AlertTitle>
+              <AlertDescription>{keyNotice.body}</AlertDescription>
             </Alert>
           )}
 
           <div className="flex flex-wrap items-center gap-2">
-            <Button type="submit" className="max-lg:h-11" disabled={busy}>
+            <Button type="submit" className="max-lg:h-11" disabled={keyBusy}>
               <LogIn aria-hidden />
-              {busy ? 'Verifying…' : 'Verify and sign in'}
+              {keyBusy ? 'Verifying…' : 'Verify and sign in'}
             </Button>
             {hasKey && (
               <Button
                 type="button"
                 variant="outline"
                 className="max-lg:h-11"
-                onClick={leave}
-                disabled={busy}
+                onClick={leaveKey}
+                disabled={keyBusy}
               >
                 Sign out
               </Button>
@@ -167,7 +216,107 @@ export function Login() {
             replaces it; signing out removes it and clears every cached response.
           </p>
         )}
+
+        {/* Toggle to password form */}
+        <Button
+          type="button"
+          variant="link"
+          size="sm"
+          className="mt-2 h-auto max-lg:h-10 px-0"
+          onClick={() => setMode('password')}
+        >
+          <RotateCcw className="size-4 mr-1.5" aria-hidden />
+          Use username & password instead
+        </Button>
       </Card>
+
+      {/* Card 2: Username + Password form (new session flow) */}
+      {mode === 'password' && (
+        <Card
+          title="Sign in with username & password"
+          subtitle="POST /auth/login — returns a session token (Bearer), clears stored API key"
+        >
+          <form
+            className="flex flex-col gap-3"
+            noValidate
+            onSubmit={(event) => {
+              event.preventDefault()
+              void submitPassword()
+            }}
+          >
+            <Field data-invalid={pwdError ? 'true' : undefined}>
+              <FieldLabel htmlFor="login-username">Username</FieldLabel>
+              <Input
+                id="login-username"
+                type="text"
+                autoComplete="username"
+                spellCheck={false}
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
+                aria-invalid={pwdError ? 'true' : undefined}
+                placeholder="username"
+                className="h-11"
+              />
+              <FieldError>{pwdError}</FieldError>
+            </Field>
+
+            <Field data-invalid={pwdError ? 'true' : undefined}>
+              <FieldLabel htmlFor="login-password">Password</FieldLabel>
+              <Input
+                id="login-password"
+                type="password"
+                autoComplete="current-password"
+                spellCheck={false}
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                aria-invalid={pwdError ? 'true' : undefined}
+                placeholder="password"
+                className="h-11"
+              />
+              <FieldError>{pwdError}</FieldError>
+            </Field>
+
+            {pwdNotice && (
+              <Alert variant={pwdNotice.tone === 'error' ? 'destructive' : 'default'}>
+                {pwdNotice.tone === 'error' ? <KeyRound aria-hidden /> : <ShieldCheck aria-hidden />}
+                <AlertTitle>{pwdNotice.title}</AlertTitle>
+                <AlertDescription>{pwdNotice.body}</AlertDescription>
+              </Alert>
+            )}
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="submit" className="max-lg:h-11" disabled={pwdBusy}>
+                <LogIn aria-hidden />
+                {pwdBusy ? 'Signing in…' : 'Sign in'}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="max-lg:h-11"
+                onClick={leaveSession}
+                disabled={pwdBusy}
+              >
+                Sign out
+              </Button>
+              <Button asChild variant="link" size="sm" className="h-auto max-lg:h-10 px-0">
+                <Link to={DASHBOARD_PATH}>Back to dashboard</Link>
+              </Button>
+            </div>
+          </form>
+
+          {/* Toggle back to API key form */}
+          <Button
+            type="button"
+            variant="link"
+            size="sm"
+            className="mt-2 h-auto max-lg:h-10 px-0"
+            onClick={() => setMode('api-key')}
+          >
+            <RotateCcw className="size-4 mr-1.5" aria-hidden />
+            Use an API key instead
+          </Button>
+        </Card>
+      )}
 
       {/* Who the server says you are. Silent when there is no key; a warning, not
           a success, when a stored key is not recognised. */}

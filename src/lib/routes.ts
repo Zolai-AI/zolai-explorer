@@ -100,7 +100,7 @@ export const ROUTES = [
     description: 'Verify an API key, replace or clear the stored one',
     minRole: 'anonymous',
     icon: 'key',
-    keywords: 'login sign in api key credential auth session sign out logout',
+    keywords: 'login sign in api key credential auth session sign out logout username password',
     nav: false,
     // Not primary navigation (it is a footer/top-bar control, not a workbench)
     // but always discoverable: it must be reachable by ⌘K, by the sidebar

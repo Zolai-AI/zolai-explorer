@@ -71,7 +71,7 @@ storage backend so the round-trip is unit tested without jsdom.
 | Route | Panel | Endpoints |
 |-------|-------|-----------|
 | `/` | Dashboard — collection tiles, health, knowledge version, quick jumps, external links | `/api/v1/knowledge/statistics`, `/api/v1/knowledge/version`, `/api/v1/auth/me`, `/health` |
-| `/login` | Sign in — **not a nav item, but always discoverable** (top bar, sidebar footer, ⌘K). Verify-then-store against the public `GET /api/v1/auth/me`: persist only when the server recognises the key (a 200 with no `key_prefix` is *rejected*). Shows the verified identity read back from `/auth/me` — role, `key_prefix`, scopes — and a Sign out button; a *stored* key the server no longer recognises is reported as such, not as a live session. The two failure modes stay distinct: **Key rejected** (the API answered and refused it) vs **API unreachable — key not verified** (nothing answered: offline, CORS, bot challenge) — never a generic "login failed". Returns you to `?from=`, validated so it can only be a same-origin path | `GET /api/v1/auth/me` |
+| `/login` | Sign in — **not a nav item, but always discoverable** (top bar, sidebar footer, ⌘K). Two credential paths: **API key** — verify-then-store against `GET /api/v1/auth/me` (persist only when server recognises the key; 200 with no `key_prefix` = *rejected*). **Username + password** — `POST /api/v1/auth/login` returns a session token stored in `sessionStorage` as `zolai.session`, sent as `Authorization: Bearer`; on success the stored API key is **cleared** (one active credential). Sign-out calls `POST /api/v1/auth/logout` (best-effort) then clears the session. Both paths show verified identity from `/auth/me` — role, `key_prefix`, scopes, auth source — and a Sign out button. Failure modes stay distinct per path: **rejected** vs **unreachable** vs **rate_limited** — never a generic "login failed". Returns you to `?from=`, validated so it can only be a same-origin path | `GET /api/v1/auth/me`, `POST /api/v1/auth/login`, `POST /api/v1/auth/logout` |
 | `/word`, `/word/:word` | Word entry + 5 sub-resource tabs, each with a server-side `limit` | `/api/v1/word/{word}` and `/api/v1/word/{word}/{forms,contexts,collocations,patterns,evidence}` |
 | `/analyze` | Sentence tokenisation + paragraph segmentation | `/api/v1/analyze/sentence`, `/api/v1/analyze/paragraph` |
 | `/search` | Lexical corpus search with per-source grouping | `/api/v1/search` |
@@ -137,6 +137,8 @@ used, or if this table drifts.
 | POST | `/api/v1/analyze/paragraph` | `rag:read` | — |
 | POST | `/api/v1/search` | `dataset:read` | body |
 | POST | `/api/v1/rag` | `rag:read` | body |
+| POST | `/api/v1/auth/login` | public | — |
+| POST | `/api/v1/auth/logout` | session (Bearer) | — |
 | POST | `/api/v1/assistant/chat` | public | — |
 | POST | `/api/v1/admin/assistant/chat` | `agent:run` + admin role | — |
 | POST | `/api/v1/agent/runs` | `agent:run` | — |

@@ -27,19 +27,22 @@ import { AuthMeSchema, parseOrThrow, type AuthMe, type Role } from './schemas'
 
 export type { Role }
 
-/** Why a candidate key was not accepted. */
+/** Why a candidate credential was not accepted. */
 export type VerifyFailure =
-  /** The server answered, but does not recognise this key. */
+  /** The server answered, but does not recognise this credential. */
   | 'rejected'
   /** The request itself failed (offline, timeout, 5xx, unreadable body). */
   | 'unreachable'
   /** The candidate was blank before we ever hit the network. */
   | 'blank'
+  /** Too many attempts — the server responded 429. */
+  | 'rate_limited'
 
 const FAILURE_COPY: Record<VerifyFailure, string> = {
   blank: 'Enter a key first — nothing was sent.',
   rejected: 'The API does not recognise that key. Check the value and try again.',
   unreachable: 'Could not reach the API to verify the key. Nothing was stored.',
+  rate_limited: 'Too many attempts. Wait a moment and try again.',
 }
 
 /** The one-line reason shown beside the key field. Pure so the wording is testable. */
@@ -88,6 +91,12 @@ const FAILURE_NOTICE: Record<VerifyFailure, { tone: VerifyFailureNotice['tone'];
     title: 'API unreachable — key not verified',
     body:
       'No answer came back from the API, so nothing was stored. That is a transport problem (offline, a blocked CORS preflight, or a bot challenge in front of the API host), not a verdict on the key: retry once the API answers, and keep the key until then.',
+  },
+  rate_limited: {
+    tone: 'warn',
+    title: 'Rate limited — try again shortly',
+    body:
+      'The API responded 429 (too many requests). This is a temporary limit, not a verdict on the credential. Wait a moment and retry — nothing was stored.',
   },
 }
 
@@ -155,7 +164,14 @@ export async function verifyApiKey(
 }
 
 export type SignInResult =
-  | { ok: true; role: Role; keyPrefix: string; mode: string }
+  | {
+      ok: true
+      role: Role
+      keyPrefix: string
+      mode: string
+      authSource: 'api-key'
+      username: string | null
+    }
   | { ok: false; reason: VerifyFailure; message: string }
 
 /**
@@ -170,7 +186,7 @@ export async function signIn(candidate: unknown, signal?: AbortSignal): Promise<
   if (!verified.ok) return verified
   setApiKey(String(candidate).trim())
   queryClient.clear()
-  return { ok: true, role: verified.role, keyPrefix: verified.keyPrefix, mode: verified.mode }
+  return { ok: true, role: verified.role, keyPrefix: verified.keyPrefix, mode: verified.mode, authSource: 'api-key', username: null }
 }
 
 /**
@@ -181,6 +197,150 @@ export async function signIn(candidate: unknown, signal?: AbortSignal): Promise<
  */
 export function signOut(): void {
   clearApiKey()
+  queryClient.clear()
+}
+
+/* ------------------------------------------------------------------ password */
+
+import { apiPost } from './api'
+import { clearSession, setSession } from './sessionAuth'
+
+/** Why a password sign-in was not accepted. */
+export type PasswordVerifyFailure =
+  /** The server answered 401 — bad username or password. */
+  | 'rejected'
+  /** The request itself failed (offline, timeout, 5xx, unreadable body). */
+  | 'unreachable'
+  /** The candidate was blank before we ever hit the network. */
+  | 'blank'
+  /** Too many attempts — the server responded 429. */
+  | 'rate_limited'
+
+const PASSWORD_FAILURE_COPY: Record<PasswordVerifyFailure, string> = {
+  blank: 'Enter both username and password — nothing was sent.',
+  rejected: 'Invalid username or password.',
+  unreachable: 'Could not reach the API to verify the credentials. Nothing was stored.',
+  rate_limited: 'Too many attempts. Wait a moment and try again.',
+}
+
+export type PasswordVerifyNotice = {
+  tone: 'error' | 'warn'
+  title: string
+  body: string
+  message: string
+}
+
+const PASSWORD_FAILURE_NOTICE: Record<PasswordVerifyFailure, { tone: PasswordVerifyNotice['tone']; title: string; body: string }> = {
+  blank: {
+    tone: 'error',
+    title: 'Nothing to verify',
+    body: 'Username and/or password were missing, so no request was made and nothing was stored.',
+  },
+  rejected: {
+    tone: 'error',
+    title: 'Invalid credentials',
+    body: 'The API answered 401 — the username or password is incorrect. Nothing was stored.',
+  },
+  unreachable: {
+    tone: 'warn',
+    title: 'API unreachable — credentials not verified',
+    body:
+      'No answer came back from the API, so nothing was stored. That is a transport problem (offline, a blocked CORS preflight, or a bot challenge in front of the API host), not a verdict on the credentials: retry once the API answers.',
+  },
+  rate_limited: {
+    tone: 'warn',
+    title: 'Rate limited — try again shortly',
+    body:
+      'The API responded 429 (too many requests). This is a temporary limit, not a verdict on the credentials. Wait a moment and retry — nothing was stored.',
+  },
+}
+
+export function passwordVerifyFailureMessage(reason: PasswordVerifyFailure): string {
+  return PASSWORD_FAILURE_COPY[reason]
+}
+
+export function passwordVerifyFailureNotice(reason: PasswordVerifyFailure): PasswordVerifyNotice {
+  const notice = PASSWORD_FAILURE_NOTICE[reason]
+  return { ...notice, message: PASSWORD_FAILURE_COPY[reason] }
+}
+
+export type PasswordSignInResult =
+  | { ok: true; username: string; role: 'anonymous' | 'member' | 'admin'; expiresAt: number; authSource: 'session' }
+  | { ok: false; reason: PasswordVerifyFailure; message: string }
+
+/**
+ * Sign in with username and password.
+ *
+ * Calls `POST /auth/login` with `{ username, password }`. On success (200),
+ * stores the session token in `sessionStorage` (zolai.session), **clears any
+ * stored API key** (one active credential), clears the query cache, and
+ * returns the session info. On failure, stores nothing and returns a verdict
+ * the form can render inline.
+ */
+export async function signInWithPassword(
+  username: string,
+  password: string,
+  signal?: AbortSignal,
+): Promise<PasswordSignInResult> {
+  const user = username.trim()
+  const pass = password.trim()
+  if (!user || !pass) {
+    return { ok: false, reason: 'blank', message: passwordVerifyFailureMessage('blank') }
+  }
+
+  let response: { token: string; expires_at: number; username: string; role: 'anonymous' | 'member' | 'admin' }
+  try {
+    response = await apiPost<{
+      token: string
+      expires_at: number
+      username: string
+      role: 'anonymous' | 'member' | 'admin'
+    }>(endpointPath('identity.login'), { username: user, password: pass }, { signal })
+  } catch (error) {
+    // Map status codes to failure reasons.
+    let reason: PasswordVerifyFailure = 'unreachable'
+    if (error instanceof Error && 'status' in error) {
+      const status = (error as { status: number }).status
+      if (status === 401) reason = 'rejected'
+      else if (status === 429) reason = 'rate_limited'
+    }
+    return { ok: false, reason, message: passwordVerifyFailureMessage(reason) }
+  }
+
+  // Success: store session, clear API key (one active credential), clear cache.
+  setSession({
+    token: response.token,
+    expiresAt: response.expires_at,
+    username: response.username,
+    role: response.role,
+  })
+  clearApiKey()
+  queryClient.clear()
+
+  return {
+    ok: true,
+    username: response.username,
+    role: response.role,
+    expiresAt: response.expires_at,
+    authSource: 'session',
+  }
+}
+
+/**
+ * Sign out the current session.
+ *
+ * Best-effort call to `POST /auth/logout` (ignores failures), then clears the
+ * local session and the query cache. The API key in localStorage is **not**
+ * touched — the user can still have a long-lived key alongside a session.
+ */
+export async function signOutSession(signal?: AbortSignal): Promise<void> {
+  try {
+    await apiPost(endpointPath('identity.logout'), {}, { signal })
+  } catch {
+    // Best-effort: the server may not have a session to invalidate, or the
+    // request may fail. We still clear local state.
+  }
+  clearSession()
   queryClient.clear()
 }
 

@@ -222,10 +222,33 @@ export const AuthMeSchema = z.object({
   key_prefix: z.string().nullish().catch(null),
   scopes: strArray,
   mode: str,
+  // Additive fields (tolerant): may be added by the server without breaking clients.
+  username: z.string().nullish().catch(null),
+  auth_source: z.enum(['api-key', 'session', 'none']).catch('none'),
 })
 export type AuthMe = z.infer<typeof AuthMeSchema>
 
 export type Role = AuthMe['role']
+
+/** `POST /auth/login` request — tolerant so a partial payload degrades instead of throwing. */
+export const LoginRequestSchema = z.object({
+  username: z.string().trim().min(1).max(128).catch(''),
+  password: z.string().min(1).max(256).catch(''),
+})
+export type LoginRequest = z.infer<typeof LoginRequestSchema>
+
+/** `POST /auth/login` response — session token + metadata. */
+export const LoginResponseSchema = z.object({
+  token: z.string().catch(''),
+  expires_at: z.number().catch(0),
+  username: z.string().catch(''),
+  role: z.enum(['anonymous', 'member', 'admin']).catch('anonymous'),
+})
+export type LoginResponse = z.infer<typeof LoginResponseSchema>
+
+/** `POST /auth/logout` request — empty body. */
+export const LogoutRequestSchema = z.object({}).catch({})
+export type LogoutRequest = z.infer<typeof LogoutRequestSchema>
 
 /* -------------------------------------------------------------- providers */
 

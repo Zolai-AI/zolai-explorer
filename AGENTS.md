@@ -23,16 +23,18 @@ verbatim captures from the live API).
 1. **Never commit an API key.** The key lives in `localStorage` (`zolai.apiKey`) and is sent only as
    the `X-API-Key` header. No key in any tracked file, no key in a URL or query string, no `console`
    output of the key, no key in `.env.example`. If you add a credential-shaped string, it must be a
-   placeholder. **Sign-in is verify-then-store** (`src/lib/session.ts`): probe `/auth/me` with
-   `apiFetch(..., { apiKey })` and persist only when the server recognises the key. `/auth/me` is
-   public and never 401s, so "200 with no `key_prefix`" means *rejected* — never store that. There
-   are no accounts and no login endpoint in `zolai-core`: do not invent a username/password flow or
-   a session the server cannot back. **Sign-in must also stay *discoverable* from the top bar, the
-   sidebar footer and ⌘K, for every role** (`src/lib/signIn.ts` + `specOf('login')`) — including the
-   sign-*out* half, the only way an identified user drops a key. That was a real founder-facing
-   defect: `nav: false` removed `/login` from the sidebar *and* ⌘K, so landing on `/` showed no way in
-   at all. Keep the two failure modes apart too — a key the API **refused** versus an API that
-   **never answered** (`verifyFailureNotice`) — never a generic "login failed".
+   placeholder. **Sign-in is verify-then-store** (`src/lib/session.ts`): the API key path probes
+   `/auth/me` with `apiFetch(..., { apiKey })` and persists only when the server recognises the key.
+   The username/password path calls `POST /auth/login` and stores the returned session token in
+   `sessionStorage` (`zolai.session`), sent as `Authorization: Bearer`. `/auth/me` is public and
+   never 401s, so "200 with no `key_prefix`" means *rejected* — never store that. There are no
+   accounts in the traditional sense; identity is derived from the credential the server recognises.
+   **Sign-in must also stay *discoverable* from the top bar, the sidebar footer and ⌘K, for every
+   role** (`src/lib/signIn.ts` + `specOf('login')`) — including the sign-*out* half, the only way an
+   identified user drops a key. That was a real founder-facing defect: `nav: false` removed `/login`
+   from the sidebar *and* ⌘K, so landing on `/` showed no way in at all. Keep the two failure modes
+   apart too — a credential the API **refused** versus an API that **never answered**
+   (`verifyFailureNotice`, `passwordVerifyFailureNotice`) — never a generic "login failed".
 2. **A minted plaintext key is shown once and dropped — every minting path, both an end and a
    dismiss.** `POST /admin/api-keys` (and `rotate`) are the only responses that carry a secret. They
    are therefore plain transports, **not** React Query mutations, so nothing parks a secret in the

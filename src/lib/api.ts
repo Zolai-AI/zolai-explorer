@@ -11,7 +11,7 @@
  *   - tolerate empty bodies (returns `undefined`) rather than throwing.
  */
 
-import { getApiKey } from './key'
+import { authHeaderEntry } from './credentials'
 
 const RAW_BASE = import.meta.env.VITE_API_BASE ?? '/api/v1'
 
@@ -139,9 +139,14 @@ export async function apiFetch<T>(path: string, options: ApiRequestOptions = {})
   const url = options.absolute ? path : resolveUrl(path)
 
   const headers: Record<string, string> = { Accept: 'application/json' }
-  // An explicit `apiKey` wins (sign-in verification); otherwise the stored key.
-  const key = options.apiKey?.trim() || getApiKey()
-  if (key) headers['X-API-Key'] = key
+  // An explicit `apiKey` wins (sign-in verification); otherwise resolve from
+  // the credentials store (session wins, else key, never both).
+  if (options.apiKey?.trim()) {
+    headers['X-API-Key'] = options.apiKey.trim()
+  } else {
+    const auth = authHeaderEntry()
+    if (auth) headers[auth[0]] = auth[1]
+  }
   if (body !== undefined) headers['Content-Type'] = 'application/json'
 
   const controller = new AbortController()

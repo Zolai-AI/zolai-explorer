@@ -33,6 +33,10 @@ export type SignInIdentity = {
   keyPrefix?: string | null
   /** Scopes the server granted, rendered verbatim where the key's power is shown. */
   scopes?: readonly string[]
+  /** Auth source the server reported (`api-key`, `session`, `none`). */
+  authSource?: 'api-key' | 'session' | 'none'
+  /** Username when a session is active. */
+  username?: string | null
 }
 
 /** Normalise the prefix: the server may answer `null`, or a blank string. */

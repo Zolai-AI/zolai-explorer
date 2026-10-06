@@ -154,7 +154,7 @@ export function useAuthMe(): AuthMe {
     retry: false,
   })
   // No answer yet, or an unreadable one → least-privileged reading.
-  return query.data ?? { role: 'anonymous', key_prefix: null, scopes: [], mode: '' }
+  return query.data ?? { role: 'anonymous', key_prefix: null, scopes: [], mode: '', auth_source: 'none' as const, username: null }
 }
 
 /** Reactive role only — `useAuthMe()` when the payload itself is needed. */
