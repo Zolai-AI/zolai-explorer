@@ -16,7 +16,8 @@ set -euo pipefail
 
 REMOTE_HOST="${ZOLAI_DEPLOY_HOST:-pcore-server}"
 REMOTE_DIR="${ZOLAI_DEPLOY_DIR:-/var/www/zolai-studio}"
-LOCAL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/dist"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+LOCAL_DIR="${REPO_ROOT}/dist"
 
 # The rsync below runs with --delete, so refuse any destination that is not the
 # studio document root. Cheap insurance against a wrong ZOLAI_DEPLOY_DIR wiping
@@ -26,8 +27,15 @@ if [[ "${REMOTE_DIR}" != */zolai-studio ]]; then
   exit 1
 fi
 
+# Build the production bundle with absolute API base
+echo "==> running typecheck, tests, and build"
+cd "${REPO_ROOT}"
+bun run typecheck
+bun run test
+bun run build
+
 if [[ ! -f "${LOCAL_DIR}/index.html" ]]; then
-  echo "error: ${LOCAL_DIR}/index.html not found — run 'bun run build' first." >&2
+  echo "error: ${LOCAL_DIR}/index.html not found — build failed." >&2
   exit 1
 fi
 
