@@ -19,6 +19,7 @@ import {
   parseOrThrow,
   type AgentRun,
   type FeedbackResult,
+  type ProviderSelection,
 } from '../../lib/schemas'
 
 const BASE = endpointPath('agent.run.create')
@@ -31,10 +32,24 @@ export type FeedbackScore = -1 | 0 | 1
 
 const runKey = (id: number) => ['agent', 'run', id] as const
 
-export async function postAgentRun(goal: string): Promise<AgentRun> {
+/**
+ * Body builder — `provider` / `model` are an optional per-request override,
+ * echoed back by the server as `requested_provider` / `requested_model`.
+ */
+export function agentRunBody(goal: string, selection?: ProviderSelection): Record<string, unknown> {
+  const body: Record<string, unknown> = { goal }
+  if (selection?.provider) body.provider = selection.provider
+  if (selection?.model) body.model = selection.model
+  return body
+}
+
+export async function postAgentRun(
+  goal: string,
+  selection?: ProviderSelection,
+): Promise<AgentRun> {
   return parseOrThrow(
     AgentRunSchema,
-    await apiPost<unknown>(BASE, { goal }, { timeoutMs: RUN_TIMEOUT_MS }),
+    await apiPost<unknown>(BASE, agentRunBody(goal, selection), { timeoutMs: RUN_TIMEOUT_MS }),
     'agent run',
   )
 }
@@ -61,7 +76,13 @@ export async function postRunFeedback(
 export function useRunAgent() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (goal: string): Promise<AgentRun> => postAgentRun(goal),
+    mutationFn: ({
+      goal,
+      selection,
+    }: {
+      goal: string
+      selection?: ProviderSelection
+    }): Promise<AgentRun> => postAgentRun(goal, selection),
     onSuccess: (run) => {
       if (run.id > 0) void queryClient.invalidateQueries({ queryKey: runKey(run.id) })
       void queryClient.invalidateQueries({ queryKey: ['agent', 'runs'] })

@@ -23,7 +23,7 @@ bun run dev        # http://localhost:5173/  (proxies /api + /health upstream)
 | `bun run dev` | Vite dev server with `/api` + `/health` proxied to `https://api.zolai.space` |
 | `bun run build` | `tsc -b` then `vite build` → `dist/` |
 | `bun run typecheck` | Type check only (`tsc -b --force`) |
-| `bun run test` | Vitest suite (304 tests) |
+| `bun run test` | Vitest suite (374 tests) |
 | `bun run deploy` | `vite build` + rsync to `pcore-server:/var/www/zolai-studio` + `nginx -t` + reload |
 
 Requires **bun** (1.4.1+). Never npm/yarn — this is a workspace-wide convention.
@@ -76,11 +76,11 @@ storage backend so the round-trip is unit tested without jsdom.
 | `/analyze` | Sentence tokenisation + paragraph segmentation | `/api/v1/analyze/sentence`, `/api/v1/analyze/paragraph` |
 | `/search` | Lexical corpus search with per-source grouping | `/api/v1/search` |
 | `/rag` | Retrieval with honest placeholder labelling | `/api/v1/rag` |
-| `/assistant` | Assistant chat — public route is honest `retrieval_only` when no provider is active; admin mode adds provider/model and the tool trace | `POST /api/v1/assistant/chat`, `POST /api/v1/admin/assistant/chat` |
-| `/agent` | Goal-driven research runs with phase trace and feedback (member+) | `POST /api/v1/agent/runs`, `GET /api/v1/agent/runs/{run_id}`, `POST /api/v1/agent/runs/{run_id}/feedback` |
+| `/assistant` | Assistant chat — public route is honest `retrieval_only` when no provider is active; admin mode adds provider/model and the tool trace. Both modes carry a **provider/model selector** fed by `GET /api/v1/providers` (no hardcoded provider or model anywhere in `src/`); the answer shows the `provider · model` the server actually used, plus what was requested | `GET /api/v1/providers`, `POST /api/v1/assistant/chat`, `POST /api/v1/admin/assistant/chat` |
+| `/agent` | Goal-driven research runs with phase trace and feedback (member+); the same provider/model selector sits above the goal input and travels in the run body | `GET /api/v1/providers`, `POST /api/v1/agent/runs`, `GET /api/v1/agent/runs/{run_id}`, `POST /api/v1/agent/runs/{run_id}/feedback` |
 | `/data` | Collection table (zero-based `#`, bars from zero, `?collection=` filter), knowledge version, health | `/api/v1/knowledge/statistics`, `/api/v1/knowledge/version`, `/health` |
 | `/links` | Endpoint reference, server-rendered links, known gaps | — (renders `src/lib/endpoints.ts`) |
-| `/settings` | AI provider catalog **and** the admin API-keys panel (both admin): providers — rename, model, enable, paste key, activate, test; keys — list, issue, rotate, revoke. A minted secret is shown **once** (issue dialog: cleared on close; rotate banner: explicit *Dismiss*) and is never cached | `GET/PUT /api/v1/admin/ai-providers`, `POST /api/v1/admin/ai-providers/{catalog_id}/activate`, `POST /api/v1/admin/ai-providers/{catalog_id}/test`, `GET /api/v1/admin/api-keys`, `POST /api/v1/admin/api-keys`, `POST /api/v1/admin/api-keys/{key_id}/rotate`, `POST /api/v1/admin/api-keys/{key_id}/revoke` |
+| `/settings` | AI provider catalog, the admin API-keys panel **and** the admin users panel (all admin): providers — rename, model, enable, paste key, activate, test, refresh models; keys — list, issue, rotate, revoke; users — list, create, enable/disable, change role, change password, revoke sessions. A minted secret is shown **once** (issue dialog: cleared on close; rotate banner: explicit *Dismiss*) and is never cached; the users panel never sees a password or token, only the server's sanitized row | `GET/PUT /api/v1/admin/ai-providers`, `POST /api/v1/admin/ai-providers/{catalog_id}/activate`, `POST /api/v1/admin/ai-providers/{catalog_id}/test`, `POST /api/v1/admin/ai-providers/{catalog_id}/refresh-models`, `GET /api/v1/admin/api-keys`, `POST /api/v1/admin/api-keys`, `POST /api/v1/admin/api-keys/{key_id}/rotate`, `POST /api/v1/admin/api-keys/{key_id}/revoke`, `GET /api/v1/admin/users`, `POST /api/v1/admin/users`, `PUT /api/v1/admin/users/{username}`, `PUT /api/v1/admin/users/{username}/password`, `POST /api/v1/admin/users/{username}/revoke-sessions` |
 
 `/login` is the only destination with `nav: false`: it must stay reachable **before** any privilege is
 held, because the role prompt on `/agent` and `/settings` and the warn-mode banner all link to it as
@@ -147,14 +147,21 @@ used, or if this table drifts.
 | GET | `/api/v1/knowledge/statistics` | `dataset:read` | — |
 | GET | `/api/v1/knowledge/version` | `dataset:read` | — |
 | GET | `/api/v1/foundation/stats` | public (optional surface) | — |
+| GET | `/api/v1/providers` | public | — |
 | GET | `/api/v1/admin/ai-providers` | `settings:read` | — |
 | PUT | `/api/v1/admin/ai-providers/{catalog_id}` | `settings:write` | — |
 | POST | `/api/v1/admin/ai-providers/{catalog_id}/activate` | `settings:write` | — |
 | POST | `/api/v1/admin/ai-providers/{catalog_id}/test` | `settings:write` | — |
+| POST | `/api/v1/admin/ai-providers/{catalog_id}/refresh-models` | `settings:write` | — |
 | GET | `/api/v1/admin/api-keys` | `apikey:manage` | — |
 | POST | `/api/v1/admin/api-keys` | `apikey:manage` | — |
 | POST | `/api/v1/admin/api-keys/{key_id}/rotate` | `apikey:manage` | — |
 | POST | `/api/v1/admin/api-keys/{key_id}/revoke` | `apikey:manage` | — |
+| GET | `/api/v1/admin/users` | `user:manage` + admin role | — |
+| POST | `/api/v1/admin/users` | `user:manage` + admin role | — |
+| PUT | `/api/v1/admin/users/{username}` | `user:manage` + admin role | — |
+| PUT | `/api/v1/admin/users/{username}/password` | `user:manage` + admin role | — |
+| POST | `/api/v1/admin/users/{username}/revoke-sessions` | `user:manage` + admin role | — |
 
 There is **no** `page_size` anywhere in the API — `limit` is the only name, and it travels in the
 query string on GET routes and in the JSON body on the POST search/RAG routes. `/health`, `/docs`,
@@ -352,7 +359,7 @@ The same list is rendered as cards on `/links` under "Known API gaps".
 bun run test
 ```
 
-304 Vitest specs across sixteen files:
+374 Vitest specs across twenty-one files:
 
 - `src/lib/api.test.ts` — 401 → `ApiError` with `needsKey`; 15s timeout budget and abort →
   `timeout` / `aborted` distinction; transport failure → `network`; **empty body tolerated** instead
@@ -412,6 +419,21 @@ bun run test
 - `src/features/word/api.test.ts` — the sub-resource `limit` contract: choices per tab (100 vs the
   evidence cap of 200), each route's documented default, the registry endpoint behind every tab, and
   `coerceWordLimit` clamping an over-large or hostile value instead of letting the API 422.
+- `src/features/providers/api.test.ts` — the public catalog transport (`GET /providers`, no body,
+  no key, five-field rows with no `secret`/`enabled`/`is_active`), the admin
+  `POST /admin/ai-providers/{id}/refresh-models` transport (empty body, honest `source` of
+  `remote` vs `catalog`, 403 surfaced), and the **selector defaults**: `defaultSelection` takes the
+  first server row with its `selected_model`, falls back to its first published model, keeps a
+  provider with no models rather than inventing one, and yields an empty selection (so the server
+  keeps its own default) for an empty catalog; `modelsFor` lists only the chosen provider's models.
+- `src/features/users/api.test.ts` — the `/admin/users` transports (list, create, update, password,
+  revoke-sessions) with method/path/body, trimming on create, optional `display_name`/`role` omitted
+  when blank, numeric `enabled` normalised to a boolean, no `password_hash` ever expected in a row,
+  and honest `username_taken` / `user_not_found` / `invalid_input` messages.
+- `src/lib/providerLiterals.test.ts` — the **no-hardcoded-target guard**: every non-test file under
+  `src/` is scanned for provider ids and model ids (`pcore-brain`, `opencode/`, `gpt-*`, `claude-*`,
+  `gemini-*`, …), and `ProviderModelSelect` must stay fed by `useProviderCatalog()` +
+  `defaultSelection(...)` so the selectors can never pin this UI to one deployment's catalog.
 - `src/lib/routes.test.ts` — the route registry: unique ids/paths, every record labelled with a
   known icon + role, exactly one non-nav destination (sign-in, and it must be anonymous — the
   chicken-and-egg guard) which opts into ⌘K through the `palette` flag (no nav record may carry it),

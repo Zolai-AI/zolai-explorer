@@ -5,6 +5,7 @@ import { RUN_TIMEOUT_MS, useAgentRun, useRunAgent, useSendFeedback } from '../fe
 import { Card } from '../components/Card'
 import { Empty } from '../components/Empty'
 import { ErrorState } from '../components/ErrorState'
+import { ProviderModelSelect } from '../components/ProviderModelSelect'
 import { RawJson } from '../components/RawJson'
 import { Skeleton } from '../components/Skeleton'
 import { Badge } from '../components/ui/badge'
@@ -13,7 +14,7 @@ import { Textarea } from '../components/ui/textarea'
 import { can, useRole } from '../lib/auth'
 import { isApiError } from '../lib/api'
 import { formatCount } from '../lib/format'
-import type { AgentRun } from '../lib/schemas'
+import type { AgentRun, ProviderSelection } from '../lib/schemas'
 
 /** The orchestrator's four phases, in order (`zolai.agent.orchestrator`). */
 const PHASE_ORDER = ['research', 'build', 'review', 'shipped'] as const
@@ -40,6 +41,10 @@ export function Agent() {
   const role = useRole()
   const allowed = can(role, 'member')
   const [goal, setGoal] = useState('')
+  // Per-request target from the shared selector — travels in the run body as
+  // `provider`/`model` and comes back as `requested_*` + the `provider · model`
+  // the orchestrator actually used.
+  const [selection, setSelection] = useState<ProviderSelection>({ provider: '', model: '' })
   const [runId, setRunId] = useState<number | null>(null)
   const run = useRunAgent()
   // The POST answer is the first row; the GET keeps it authoritative afterwards
@@ -50,7 +55,7 @@ export function Agent() {
     event.preventDefault()
     const clean = goal.trim()
     if (!clean || run.isPending) return
-    run.mutate(clean, {
+    run.mutate({ goal: clean, selection }, {
       onSuccess: (created) => setRunId(created.id > 0 ? created.id : null),
       onError: (error: unknown) =>
         toast.error(failedTitle(error), { description: failedDetail(error) }),
@@ -85,6 +90,12 @@ export function Agent() {
         subtitle={`POST /agent/runs · budget ${Math.round(RUN_TIMEOUT_MS / 1000)}s client / 60s server`}
       >
         <form onSubmit={submit} className="flex flex-col gap-3">
+          <ProviderModelSelect
+            value={selection}
+            onChange={setSelection}
+            idPrefix="agent-target"
+            disabled={run.isPending}
+          />
           <Textarea
             value={goal}
             onChange={(event) => setGoal(event.target.value)}
@@ -118,7 +129,10 @@ export function Agent() {
           </div>
         </Card>
       ) : run.isError ? (
-        <ErrorState error={run.error} onRetry={() => run.mutate(goal.trim())} />
+        <ErrorState
+          error={run.error}
+          onRetry={() => run.mutate({ goal: goal.trim(), selection })}
+        />
       ) : !data ? (
         <Empty
           title="No run yet"
@@ -148,6 +162,17 @@ function PageHeader() {
 
 function RunPanel({ run }: { run: AgentRun }) {
   const feedback = useSendFeedback(run.id)
+  // What the composer asked for, when an override was sent — kept apart from
+  // `run.provider · run.model`, which is what actually ran.
+  const requested = run.requested_provider || run.requested_model ? (
+    <>
+      {' · requested '}
+      {run.requested_provider || 'server default'}
+      {run.requested_model ? ` · ${run.requested_model}` : ''}
+    </>
+  ) : (
+    ''
+  )
   const finished = run.status === 'succeeded' || run.status === 'failed'
   const voted = run.feedback_score === 1 || run.feedback_score === -1
 
@@ -284,7 +309,22 @@ function RunPanel({ run }: { run: AgentRun }) {
         </p>
       </Card>
 
-      <Card title="Answer" subtitle={run.provider ? `${run.provider} · ${run.model}` : 'rule draft — no provider used'}>
+      <Card
+        title="Answer"
+        subtitle={
+          run.provider ? (
+            <>
+              {`${run.provider} · ${run.model}`}
+              {requested}
+            </>
+          ) : (
+            <>
+              {'rule draft — no provider used'}
+              {requested}
+            </>
+          )
+        }
+      >
         {run.answer ? (
           <p className="text-sm leading-relaxed whitespace-pre-wrap">{run.answer}</p>
         ) : (

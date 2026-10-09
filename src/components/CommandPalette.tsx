@@ -6,6 +6,7 @@ import {
   Database,
   Gauge,
   KeyRound,
+  LogIn,
   Link2,
   MessageSquareQuote,
   Monitor,
@@ -60,7 +61,7 @@ const ICONS: Record<CommandActionSpec['kind'], LucideIcon> = {
  */
 const ROUTE_ICONS: Record<string, LucideIcon> = {
   'nav-dashboard': Gauge,
-  'nav-login': KeyRound,
+  'nav-login': LogIn,
   'nav-word': BookOpen,
   'nav-analyze': ScanText,
   'nav-search': SearchIcon,

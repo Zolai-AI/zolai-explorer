@@ -5,6 +5,7 @@ import { useAssistantChat, type AssistantMode } from '../features/assistant/api'
 import { Card } from '../components/Card'
 import { Empty } from '../components/Empty'
 import { ErrorState } from '../components/ErrorState'
+import { ProviderModelSelect } from '../components/ProviderModelSelect'
 import { Skeleton } from '../components/Skeleton'
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert'
 import { Badge } from '../components/ui/badge'
@@ -13,7 +14,7 @@ import { Switch } from '../components/ui/switch'
 import { Textarea } from '../components/ui/textarea'
 import { can, useRole } from '../lib/auth'
 import { formatCount, formatScore } from '../lib/format'
-import type { ChatResponse } from '../lib/schemas'
+import type { ChatResponse, ProviderSelection } from '../lib/schemas'
 
 type Exchange = {
   role: 'user' | 'assistant'
@@ -38,6 +39,9 @@ export function Assistant() {
   const isAdmin = can(role, 'admin')
   const [mode, setMode] = useState<AssistantMode>('public')
   const [message, setMessage] = useState('')
+  // Per-request target chosen in the selector — sent as `provider`/`model`,
+  // echoed back by the server as `requested_*` + the `provider · model` used.
+  const [selection, setSelection] = useState<ProviderSelection>({ provider: '', model: '' })
   const [history, setHistory] = useState<Exchange[]>([])
   const chat = useAssistantChat()
 
@@ -50,7 +54,7 @@ export function Assistant() {
       const clean = message.trim()
       if (!clean || chat.isPending) return
       chat.mutate(
-        { message: clean, mode: activeMode },
+        { message: clean, mode: activeMode, selection },
         {
           onSuccess: (response) => {
             setHistory((previous) => [
@@ -67,7 +71,7 @@ export function Assistant() {
         },
       )
     },
-    [activeMode, chat, message],
+    [activeMode, chat, message, selection],
   )
 
   // Label the latest answer with the mode it was actually produced under —
@@ -118,6 +122,12 @@ export function Assistant() {
         subtitle={`POST ${activeMode === 'admin' ? '/admin/assistant/chat' : '/assistant/chat'}`}
       >
         <form onSubmit={submit} className="flex flex-col gap-3">
+          <ProviderModelSelect
+            value={selection}
+            onChange={setSelection}
+            idPrefix="assistant-target"
+            disabled={chat.isPending}
+          />
           <Textarea
             value={message}
             onChange={(event) => setMessage(event.target.value)}
@@ -216,6 +226,15 @@ function AnswerPanel({ response, mode }: { response: ChatResponse; mode: Assista
             <dt className="inline">Turns </dt>
             <dd className="inline font-mono">{formatCount(response.turns)}</dd>
           </div>
+          {(response.requested_provider || response.requested_model) !== '' && (
+            <div>
+              <dt className="inline">Requested </dt>
+              <dd className="inline font-mono">
+                {response.requested_provider || 'server default'}
+                {response.requested_model ? ` · ${response.requested_model}` : ''}
+              </dd>
+            </div>
+          )}
           {mode === 'admin' && (
             <div>
               <dt className="inline">Route </dt>

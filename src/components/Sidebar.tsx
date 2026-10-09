@@ -7,6 +7,7 @@ import {
   Gauge,
   KeyRound,
   Link2,
+  LogIn,
   LogOut,
   MessageSquareQuote,
   ScanText,
@@ -166,7 +167,9 @@ export function Sidebar({
                   aria-label={collapsed ? signIn.label : undefined}
                   aria-current={isActive ? 'page' : undefined}
                 >
-                  <KeyRound className="size-4.5 shrink-0" aria-hidden />
+                  {/* Sign-in affordance: `LogIn`, so it cannot be confused
+                      with the `key` route icon in the nav map above. */}
+                  <LogIn className="size-4.5 shrink-0" aria-hidden />
                   {!collapsed && <span className="truncate">{signIn.label}</span>}
                 </Button>
               )}

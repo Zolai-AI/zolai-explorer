@@ -10,7 +10,12 @@
 import { useMutation } from '@tanstack/react-query'
 import { apiPost } from '../../lib/api'
 import { endpointPath } from '../../lib/endpoints'
-import { ChatResponseSchema, parseOrThrow, type ChatResponse } from '../../lib/schemas'
+import {
+  ChatResponseSchema,
+  parseOrThrow,
+  type ChatResponse,
+  type ProviderSelection,
+} from '../../lib/schemas'
 
 /** Public mode is anonymous-safe; admin mode needs an admin key. */
 export type AssistantMode = 'public' | 'admin'
@@ -21,15 +26,32 @@ export function assistantChatPath(mode: AssistantMode): string {
   return endpointPath(mode === 'admin' ? 'assistant.chat.admin' : 'assistant.chat.public')
 }
 
+/**
+ * Body builder — `provider` / `model` are an **optional** per-request override
+ * (Phase B): absent when nothing was chosen, so the server keeps its own
+ * default resolution, and echoed back by the server as `requested_provider` /
+ * `requested_model`.
+ */
+export function assistantChatBody(
+  message: string,
+  selection?: ProviderSelection,
+): Record<string, unknown> {
+  const body: Record<string, unknown> = { message }
+  if (selection?.provider) body.provider = selection.provider
+  if (selection?.model) body.model = selection.model
+  return body
+}
+
 export async function postAssistantChat(
   message: string,
   mode: AssistantMode = 'public',
+  selection?: ProviderSelection,
 ): Promise<ChatResponse> {
   return parseOrThrow(
     ChatResponseSchema,
     await apiPost<unknown>(
       assistantChatPath(mode),
-      { message },
+      assistantChatBody(message, selection),
       { timeoutMs: ASSISTANT_TIMEOUT_MS },
     ),
     'assistant chat',
@@ -41,9 +63,11 @@ export function useAssistantChat() {
     mutationFn: ({
       message,
       mode = 'public',
+      selection,
     }: {
       message: string
       mode?: AssistantMode
-    }): Promise<ChatResponse> => postAssistantChat(message, mode),
+      selection?: ProviderSelection
+    }): Promise<ChatResponse> => postAssistantChat(message, mode, selection),
   })
 }

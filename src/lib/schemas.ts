@@ -305,6 +305,51 @@ export const ActivateSchema = z.object({
 })
 export type ActivateResult = z.infer<typeof ActivateSchema>
 
+/**
+ * `GET /api/v1/providers` — the **public** projection of the catalog: exactly
+ * the five fields a client needs to choose a target, zero secrets by
+ * construction (the admin row's `secret` / `enabled` / bookkeeping never leave
+ * the admin routes). Anon-safe in every auth mode.
+ */
+export const PublicProviderSchema = z.object({
+  catalog_id: str,
+  name: str,
+  adapter: str,
+  models: strArray,
+  selected_model: str,
+})
+export type PublicProvider = z.infer<typeof PublicProviderSchema>
+
+export const ProviderCatalogSchema = z.object({
+  items: z.array(PublicProviderSchema).catch([]),
+  count: num,
+})
+export type ProviderCatalog = z.infer<typeof ProviderCatalogSchema>
+
+/**
+ * `POST /admin/ai-providers/{id}/refresh-models`. `source` is honest about
+ * where the list came from: `remote` answered the provider's models endpoint,
+ * `catalog` returned the row's declared list unchanged.
+ */
+export const RefreshModelsSchema = z.object({
+  catalog_id: str,
+  models: strArray,
+  source: z.enum(['remote', 'catalog']).catch('catalog'),
+})
+export type RefreshModels = z.infer<typeof RefreshModelsSchema>
+
+/**
+ * The optional per-request `provider` / `model` override shared by
+ * `POST /assistant/chat`, `POST /admin/assistant/chat` and `POST /agent/runs`.
+ * Empty strings mean "no override — keep the server default", and the response
+ * echoes what was asked for as `requested_provider` / `requested_model`.
+ */
+export const ProviderSelectionSchema = z.object({
+  provider: str,
+  model: str,
+})
+export type ProviderSelection = z.infer<typeof ProviderSelectionSchema>
+
 /* -------------------------------------------------------------- api keys */
 
 /**
@@ -357,6 +402,48 @@ export const ApiKeyRevokedSchema = z.object({
 })
 export type ApiKeyRevoked = z.infer<typeof ApiKeyRevokedSchema>
 
+/* ------------------------------------------------------------ admin users */
+
+/**
+ * One account as `GET/POST /admin/users` and `PUT /admin/users/{username}`
+ * serve it — `sanitize_user` strips the argon2 `password_hash`, and no token is
+ * ever part of the payload. The server stores `enabled` as `0 | 1`; the schema
+ * normalises it to a boolean so the panel never branches on a number.
+ */
+export const AdminUserSchema = z.object({
+  id: num,
+  username: str,
+  display_name: z.string().nullish().catch(null),
+  role: z.enum(['member', 'admin']).catch('member'),
+  enabled: z
+    .union([z.boolean(), z.number()])
+    .catch(false)
+    .transform((value) => value === true || value === 1),
+  created_at: str,
+  updated_at: str,
+  last_login: z.string().nullish().catch(null),
+})
+export type AdminUser = z.infer<typeof AdminUserSchema>
+
+export const AdminUserListSchema = z.object({
+  items: z.array(AdminUserSchema).catch([]),
+  count: num,
+})
+export type AdminUserList = z.infer<typeof AdminUserListSchema>
+
+/** `POST /admin/users` and `PUT /admin/users/{username}` — `{user: …}` envelope. */
+export const AdminUserEnvelopeSchema = z.object({
+  user: AdminUserSchema,
+})
+export type AdminUserEnvelope = z.infer<typeof AdminUserEnvelopeSchema>
+
+/** `POST /admin/users/{username}/revoke-sessions` — a count, never a token. */
+export const RevokeSessionsSchema = z.object({
+  username: str,
+  revoked: num,
+})
+export type RevokeSessionsResult = z.infer<typeof RevokeSessionsSchema>
+
 /* ------------------------------------------------------------- assistant */
 
 /** Citation shape returned by the assistant routes (`{source, ref, text, score}`). */
@@ -392,8 +479,12 @@ export const ChatResponseSchema = z.object({
   citations: z.array(AssistantCitationSchema).catch([]),
   tool_calls: z.array(ToolCallSchema).catch([]),
   turns: num,
+  /** The provider/model that actually answered (`''` on a retrieval fallback). */
   provider: str,
   model: str,
+  /** What the caller *asked* for (`''` when no override was sent). */
+  requested_provider: str,
+  requested_model: str,
   mode: str,
   retrieval_only: bool,
   latency_ms: num,
@@ -426,8 +517,12 @@ export const AgentRunSchema = z.object({
   tool_calls: z.array(ToolCallSchema).catch([]),
   evidence: z.array(record).catch([]),
   answer: str,
+  /** The provider/model that actually ran (`''` on a rule-only run). */
   provider: str,
   model: str,
+  /** What the caller *asked* for (`''` when no override was sent). */
+  requested_provider: str,
+  requested_model: str,
   turns: num,
   latency_ms: num,
   outcome: str,

@@ -25,6 +25,8 @@ import {
   SelectValue,
 } from '../components/ui/select'
 import { ApiKeysPanel } from '../features/apikeys/ApiKeysPanel'
+import { UsersPanel } from '../features/users/UsersPanel'
+import { can, useRole } from '../lib/auth'
 import { isApiError } from '../lib/api'
 import { formatCount } from '../lib/format'
 import type { Provider } from '../lib/schemas'
@@ -38,9 +40,14 @@ import type { Provider } from '../lib/schemas'
  * - the paste-key dialog is write-only: the value goes into one PUT and is
  *   dropped, never displayed back;
  * - a failed test shows the server's error text rather than an optimistic tick.
+ * - the **users panel** is mounted behind the admin role as well as the route
+ *   gate: `/settings` already requires `admin`, but the panel re-checks the
+ *   role the server reports rather than trusting the route alone.
  */
 export function Settings() {
   const providers = useAiProviders()
+  const role = useRole()
+  const isAdmin = can(role, 'admin')
   const items = providers.data?.items ?? []
 
   return (
@@ -51,10 +58,10 @@ export function Settings() {
           Provider settings
         </h1>
         <p className="mt-1 max-w-prose text-sm text-muted-foreground">
-          Admin-only surface: the AI-provider catalog behind the assistant and agent, plus issue /
-          rotate / revoke for the API keys those panels authenticate with. Stored secrets are masked
-          by the server — this screen only ever sees a plaintext value once, in the dialog that
-          minted it.
+          Admin-only surface: the AI-provider catalog behind the assistant and agent, issue / rotate /
+          revoke for the API keys those panels authenticate with, and the accounts that can sign in
+          with a password. Stored secrets are masked by the server — this screen only ever sees a
+          plaintext value once, in the dialog that minted it.
         </p>
       </header>
 
@@ -86,6 +93,8 @@ export function Settings() {
       )}
 
       <ApiKeysPanel />
+
+      {isAdmin && <UsersPanel />}
     </div>
   )
 }

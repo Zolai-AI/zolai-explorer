@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { ShieldCheck, KeyRound } from 'lucide-react'
+import { LogIn, ShieldCheck, KeyRound } from 'lucide-react'
 import { HealthPill } from './HealthPill'
 import { useApiKey } from './KeyDialog'
 import { ThemeToggle } from './ThemeToggle'
@@ -100,7 +100,9 @@ export function TopBar({
         >
           <Link to={signInPath(location.pathname)} title={entry.title}>
             {entry.anonymous ? (
-              <KeyRound aria-hidden />
+              // Sign-in, not a key: `KeyRound` stays on the API-key button
+              // above, so the two controls never read as the same affordance.
+              <LogIn aria-hidden />
             ) : (
               <ShieldCheck aria-hidden className="text-primary" />
             )}
