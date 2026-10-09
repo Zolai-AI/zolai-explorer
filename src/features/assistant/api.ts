@@ -31,14 +31,26 @@ export function assistantChatPath(mode: AssistantMode): string {
  * (Phase B): absent when nothing was chosen, so the server keeps its own
  * default resolution, and echoed back by the server as `requested_provider` /
  * `requested_model`.
+ *
+ * `api_key` is an optional per-request API key override (user-provided,
+ * not stored server-side). If provided, it takes precedence over the
+ * row's stored key or env fallback.
+ *
+ * `user_provider` is an optional per-request provider override for
+ * user-provided keys (OpenAI, OpenRouter, Gemini, custom).
  */
 export function assistantChatBody(
   message: string,
   selection?: ProviderSelection,
+  userApiKey?: string,
+  userProvider?: string,
 ): Record<string, unknown> {
   const body: Record<string, unknown> = { message }
   if (selection?.provider) body.provider = selection.provider
   if (selection?.model) body.model = selection.model
+  if (selection?.user_provider) body.user_provider = selection.user_provider
+  if (userApiKey) body.api_key = userApiKey
+  if (userProvider) body.user_provider = userProvider
   return body
 }
 
@@ -46,12 +58,14 @@ export async function postAssistantChat(
   message: string,
   mode: AssistantMode = 'public',
   selection?: ProviderSelection,
+  userApiKey?: string,
+  userProvider?: string,
 ): Promise<ChatResponse> {
   return parseOrThrow(
     ChatResponseSchema,
     await apiPost<unknown>(
       assistantChatPath(mode),
-      assistantChatBody(message, selection),
+      assistantChatBody(message, selection, userApiKey, userProvider),
       { timeoutMs: ASSISTANT_TIMEOUT_MS },
     ),
     'assistant chat',
@@ -64,10 +78,14 @@ export function useAssistantChat() {
       message,
       mode = 'public',
       selection,
+      userApiKey,
+      userProvider,
     }: {
       message: string
       mode?: AssistantMode
       selection?: ProviderSelection
-    }): Promise<ChatResponse> => postAssistantChat(message, mode, selection),
+      userApiKey?: string
+      userProvider?: string
+    }): Promise<ChatResponse> => postAssistantChat(message, mode, selection, userApiKey, userProvider),
   })
 }

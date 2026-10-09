@@ -4,6 +4,7 @@ import {
   Bot,
   Database,
   ExternalLink,
+  FileText,
   Gauge,
   KeyRound,
   Link2,
@@ -50,6 +51,7 @@ const NAV_ICONS: Record<RouteIconName, LucideIcon> = {
   link: Link2,
   settings: Settings2,
   key: KeyRound,
+  'file-text': FileText,
 }
 
 /**

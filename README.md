@@ -162,6 +162,9 @@ used, or if this table drifts.
 | PUT | `/api/v1/admin/users/{username}` | `user:manage` + admin role | — |
 | PUT | `/api/v1/admin/users/{username}/password` | `user:manage` + admin role | — |
 | POST | `/api/v1/admin/users/{username}/revoke-sessions` | `user:manage` + admin role | — |
+| GET | `/api/v1/records` | `dataset:read` | query, 1–500 (default 50) |
+| GET | `/api/v1/audit` | `audit:read` | query, 1–500 (default 50) |
+| PATCH | `/api/v1/review/records/{table}/{row_id}` | `dataset:edit` | — |
 
 There is **no** `page_size` anywhere in the API — `limit` is the only name, and it travels in the
 query string on GET routes and in the JSON body on the POST search/RAG routes. `/health`, `/docs`,

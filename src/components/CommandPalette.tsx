@@ -4,6 +4,7 @@ import {
   BookOpen,
   Bot,
   Database,
+  FileText,
   Gauge,
   KeyRound,
   LogIn,
@@ -71,6 +72,7 @@ const ROUTE_ICONS: Record<string, LucideIcon> = {
   'nav-data': Database,
   'nav-links': Link2,
   'nav-settings': Settings2,
+  'nav-review': FileText,
 }
 
 const THEME_ICONS: Record<Theme, LucideIcon> = {

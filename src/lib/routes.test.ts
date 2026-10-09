@@ -72,6 +72,7 @@ const ICONS: RouteIconName[] = [
   'link',
   'settings',
   'key',
+  'file-text',
 ]
 
 /** `<name> />` — a panel rendered by the router's `PAGES` map. */

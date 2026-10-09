@@ -41,6 +41,7 @@ export type RouteIconName =
   | 'link'
   | 'settings'
   | 'key'
+  | 'file-text'
 
 export type RouteSpec = {
   /** Stable id. The command palette exposes these as `nav-{id}`. */
@@ -185,6 +186,16 @@ export const ROUTES = [
     minRole: 'anonymous',
     icon: 'link',
     keywords: 'links docs metrics review api surface',
+    nav: true,
+  },
+  {
+    id: 'review',
+    path: '/review',
+    label: 'Review',
+    description: 'Record correction queue with audit trail',
+    minRole: 'member',
+    icon: 'file-text',
+    keywords: 'review correction audit record queue edit dataset',
     nav: true,
   },
   {

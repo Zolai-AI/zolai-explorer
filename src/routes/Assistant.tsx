@@ -1,5 +1,5 @@
 import { useCallback, useState, type FormEvent } from 'react'
-import { MessageSquareQuote, Send, ShieldCheck, Wrench } from 'lucide-react'
+import { MessageSquareQuote, Send, ShieldCheck, Wrench, Key, Lock } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAssistantChat, type AssistantMode } from '../features/assistant/api'
 import { Card } from '../components/Card'
@@ -10,8 +10,16 @@ import { Skeleton } from '../components/Skeleton'
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
+import { Input } from '../components/ui/input'
 import { Switch } from '../components/ui/switch'
 import { Textarea } from '../components/ui/textarea'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select'
 import { can, useRole } from '../lib/auth'
 import { formatCount, formatScore } from '../lib/format'
 import type { ChatResponse, ProviderSelection } from '../lib/schemas'
@@ -27,12 +35,14 @@ type Exchange = {
  * Assistant chat.
  *
  * Honesty rules (AGENTS.md):
- * - a `retrieval_only` answer is labelled **“Retrieval (no model)”** — never
- *   “generated”, never “AI answer”;
+ * - a `retrieval_only` answer is labelled **"Retrieval (no model)"** — never
+ *   "generated", never "AI answer";
  * - the admin↔public switch only renders for an admin role, because the admin
  *   route is strict role + scope gated server-side;
  * - admin mode shows `provider`/`model` and the tool trace; public mode shows
  *   citations only.
+ * - users can provide their own API key for the public assistant to use their
+ *   own provider (OpenAI, OpenRouter, etc.) without server-side storage.
  */
 export function Assistant() {
   const role = useRole()
@@ -40,8 +50,12 @@ export function Assistant() {
   const [mode, setMode] = useState<AssistantMode>('public')
   const [message, setMessage] = useState('')
   // Per-request target chosen in the selector — sent as `provider`/`model`,
-  // echoed back by the server as `requested_*` + the `provider · model` used.
+  // echoed back by the server as `requested_*` plus the `provider · model` used.
   const [selection, setSelection] = useState<ProviderSelection>({ provider: '', model: '' })
+  // User-provided API key for the public assistant (not stored server-side)
+  const [userApiKey, setUserApiKey] = useState('')
+  const [userProvider, setUserProvider] = useState('openai')
+  const [showApiKeyInput, setShowApiKeyInput] = useState(false)
   const [history, setHistory] = useState<Exchange[]>([])
   const chat = useAssistantChat()
 
@@ -54,7 +68,7 @@ export function Assistant() {
       const clean = message.trim()
       if (!clean || chat.isPending) return
       chat.mutate(
-        { message: clean, mode: activeMode, selection },
+        { message: clean, mode: activeMode, selection, userApiKey: userApiKey || undefined, userProvider: userProvider || undefined },
         {
           onSuccess: (response) => {
             setHistory((previous) => [
@@ -71,7 +85,7 @@ export function Assistant() {
         },
       )
     },
-    [activeMode, chat, message, selection],
+    [activeMode, chat, message, selection, userApiKey, userProvider],
   )
 
   // Label the latest answer with the mode it was actually produced under —
@@ -88,7 +102,7 @@ export function Assistant() {
           </h1>
           <p className="mt-1 max-w-prose text-sm text-muted-foreground">
             Retrieval-grounded chat over the knowledge base. With no active provider the server
-            answers honestly from retrieval — no model is called.
+            answers honestly from retrieval — no model is called. Add your own API key to use a model.
           </p>
         </div>
 
@@ -112,7 +126,7 @@ export function Assistant() {
           <AlertDescription>
             Posting to <span className="font-mono">/assistant/chat</span> — anonymous-safe in every
             auth mode, retrieval tools only. An admin key unlocks the admin route with the full
-            tool set and trace.
+            tool set and trace. Provide your own API key below to enable model generation.
           </AlertDescription>
         </Alert>
       )}
@@ -128,6 +142,66 @@ export function Assistant() {
             idPrefix="assistant-target"
             disabled={chat.isPending}
           />
+
+          {activeMode === 'public' && (
+            <div className="space-y-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="max-lg:h-10"
+                onClick={() => setShowApiKeyInput(!showApiKeyInput)}
+              >
+                {showApiKeyInput ? <Lock className="size-4" /> : <Key className="size-4" />}
+                {showApiKeyInput ? 'Hide API key' : 'Use your own API key'}
+              </Button>
+
+              {showApiKeyInput && (
+                <div className="flex flex-col gap-2">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Provider (for your key)</label>
+                      <Select value={userProvider} onValueChange={setUserProvider}>
+                        <SelectTrigger className="h-10 w-full">
+                          <SelectValue placeholder="Select provider…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="openai">OpenAI</SelectItem>
+                          <SelectItem value="openrouter">OpenRouter</SelectItem>
+                          <SelectItem value="gemini">Gemini</SelectItem>
+                          <SelectItem value="custom">Custom (OpenAI-compatible)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Model</label>
+                      <Input
+                        type="text"
+                        placeholder="your model id (e.g. from the provider's model list)"
+                        className="h-10 font-mono text-sm"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">API Key</label>
+                    <Input
+                      type="password"
+                      autoComplete="off"
+                      spellCheck={false}
+                      value={userApiKey}
+                      onChange={(e) => setUserApiKey(e.target.value)}
+                      placeholder="Paste your API key (sk-..., or your provider's key format)"
+                      className="h-10 font-mono text-sm"
+                    />
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Your key is sent only with this request over HTTPS. It is not stored on the server.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           <Textarea
             value={message}
             onChange={(event) => setMessage(event.target.value)}
@@ -233,6 +307,18 @@ function AnswerPanel({ response, mode }: { response: ChatResponse; mode: Assista
                 {response.requested_provider || 'server default'}
                 {response.requested_model ? ` · ${response.requested_model}` : ''}
               </dd>
+            </div>
+          )}
+          {response.requested_api_key && (
+            <div>
+              <dt className="inline">Key </dt>
+              <dd className="inline font-mono text-primary">user-provided</dd>
+            </div>
+          )}
+          {response.requested_user_provider && (
+            <div>
+              <dt className="inline">Provider </dt>
+              <dd className="inline font-mono text-primary">user-provided</dd>
             </div>
           )}
           {mode === 'admin' && (

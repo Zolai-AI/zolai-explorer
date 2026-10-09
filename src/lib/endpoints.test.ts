@@ -182,7 +182,7 @@ describe('README sync', () => {
   const readme = readFileSync(fileURLToPath(new URL('../../README.md', import.meta.url)), 'utf8')
 
   /** One table row: `| GET | \`/api/v1/auth/me\` | public | — |`. */
-  const README_ROW = /^\|\s*(GET|POST|PUT|DELETE)\s*\|\s*`([^`]+)`\s*\|([^|]*)\|([^|]*)\|/gm
+  const README_ROW = /^\|\s*(GET|POST|PUT|PATCH|DELETE)\s*\|\s*`([^`]+)`\s*\|([^|]*)\|([^|]*)\|/gm
 
   /** `query, 1–100 (default 20)` / `body` / `—` — the documented `limit` cell. */
   function limitCell(spec: EndpointSpec): string {

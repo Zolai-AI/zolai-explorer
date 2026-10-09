@@ -343,10 +343,14 @@ export type RefreshModels = z.infer<typeof RefreshModelsSchema>
  * `POST /assistant/chat`, `POST /admin/assistant/chat` and `POST /agent/runs`.
  * Empty strings mean "no override — keep the server default", and the response
  * echoes what was asked for as `requested_provider` / `requested_model`.
+ *
+ * `user_provider` is an optional per-request provider override for
+ * user-provided keys (OpenAI, OpenRouter, Gemini, custom).
  */
 export const ProviderSelectionSchema = z.object({
   provider: str,
   model: str,
+  user_provider: str.optional(),
 })
 export type ProviderSelection = z.infer<typeof ProviderSelectionSchema>
 
@@ -485,6 +489,10 @@ export const ChatResponseSchema = z.object({
   /** What the caller *asked* for (`''` when no override was sent). */
   requested_provider: str,
   requested_model: str,
+  /** Whether the caller provided a per-request API key. */
+  requested_api_key: bool,
+  /** Whether the caller provided a per-request user provider override. */
+  requested_user_provider: bool,
   mode: str,
   retrieval_only: bool,
   latency_ms: num,
@@ -494,6 +502,18 @@ export const ChatResponseSchema = z.object({
   persisted_run_id: nullableNum,
 })
 export type ChatResponse = z.infer<typeof ChatResponseSchema>
+
+/**
+ * PATCH /api/v1/review/records/{table}/{id} response.
+ */
+export const CorrectionResponseSchema = z.object({
+  table: str,
+  id: num,
+  updated_fields: strArray,
+  review_status: z.string().nullish().catch(null),
+  audit_rows: num,
+})
+export type CorrectionResponse = z.infer<typeof CorrectionResponseSchema>
 
 /* ------------------------------------------------------------------ agent */
 

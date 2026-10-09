@@ -20,7 +20,7 @@
  */
 
 /** HTTP method — mirrors `ApiMethod` in `src/lib/api.ts`. */
-export type EndpointMethod = 'GET' | 'POST' | 'PUT' | 'DELETE'
+export type EndpointMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 
 /** Functional area — the Links page groups rows by this. */
 export type EndpointArea =
@@ -483,6 +483,39 @@ export const ENDPOINTS: readonly EndpointSpec[] = [
     limitMax: null,
     limit: 'none',
     note: 'Logout-everywhere for one account; returns a count, never a token.',
+  },
+  {
+    id: 'records.list',
+    method: 'GET',
+    template: '/records',
+    area: 'knowledge',
+    scope: 'dataset:read',
+    limitDefault: 50,
+    limitMax: 500,
+    limit: 'query',
+    note: 'Whitelisted table rows (dictionary, bible_verses, grammar_patterns, phrases, vocabulary). Cursor-paginated; free-text filter over search fields.',
+  },
+  {
+    id: 'audit.list',
+    method: 'GET',
+    template: '/audit',
+    area: 'knowledge',
+    scope: 'audit:read',
+    limitDefault: 50,
+    limitMax: 500,
+    limit: 'query',
+    note: 'data_audit_log tail (newest first). Optional table/row_id filters. Cursor walks backwards.',
+  },
+  {
+    id: 'review.correct',
+    method: 'PATCH',
+    template: '/review/records/{table}/{row_id}',
+    area: 'admin',
+    scope: 'dataset:edit',
+    limitDefault: null,
+    limitMax: null,
+    limit: 'none',
+    note: 'Correct fields on a whitelisted row. Each corrected field writes an audit row; review_status set to "reviewed" where the column exists.',
   },
 ] as const
 
