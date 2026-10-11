@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fetchProviderCatalog, modelsFor, postRefreshModels } from './api'
+import { fetchProviderCatalog, modelPlaceholder, modelsFor, postRefreshModels } from './api'
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -101,5 +101,19 @@ describe('modelsFor', () => {
 
   it('returns [] for a provider that is not in the catalog', () => {
     expect(modelsFor([row()], 'missing')).toEqual([])
+  })
+})
+
+describe('modelPlaceholder (honest model picker hint)', () => {
+  it('asks for a provider first when none is chosen — not "nothing published"', () => {
+    expect(modelPlaceholder('', [])).toBe('Select a provider first')
+  })
+
+  it('says a chosen provider published no models', () => {
+    expect(modelPlaceholder('primary', [])).toBe('No model list published')
+  })
+
+  it('invites a model pick once a provider with models is chosen', () => {
+    expect(modelPlaceholder('primary', ['model-a', 'model-b'])).toBe('Select a model…')
   })
 })

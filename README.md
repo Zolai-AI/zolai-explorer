@@ -23,7 +23,7 @@ bun run dev        # http://localhost:5173/  (proxies /api + /health upstream)
 | `bun run dev` | Vite dev server with `/api` + `/health` proxied to `https://api.zolai.space` |
 | `bun run build` | `tsc -b` then `vite build` → `dist/` |
 | `bun run typecheck` | Type check only (`tsc -b --force`) |
-| `bun run test` | Vitest suite (375 tests) |
+| `bun run test` | Vitest suite (378 tests) |
 | `bun run deploy` | `vite build` + rsync to `pcore-server:/var/www/zolai-studio` + `nginx -t` + reload |
 
 Requires **bun** (1.4.1+). Never npm/yarn — this is a workspace-wide convention.
@@ -362,7 +362,7 @@ The same list is rendered as cards on `/links` under "Known API gaps".
 bun run test
 ```
 
-375 Vitest specs across twenty-one files:
+378 Vitest specs across twenty-one files:
 
 - `src/lib/api.test.ts` — 401 → `ApiError` with `needsKey`; 15s timeout budget and abort →
   `timeout` / `aborted` distinction; transport failure → `network`; **empty body tolerated** instead
@@ -426,9 +426,11 @@ bun run test
 - `src/features/providers/api.test.ts` — the public catalog transport (`GET /providers`, no body,
   no key, five-field rows with no `secret`/`enabled`/`is_active`), the admin
   `POST /admin/ai-providers/{id}/refresh-models` transport (empty body, honest `source` of
-  `remote` vs `catalog`, 403 surfaced), and `modelsFor` listing only the chosen provider's models.
-  There is **no selector default** by design: an empty selection means no override, so the server
-  keeps its own default instead of the first (alphabetical, keyless) catalog row.
+  `remote` vs `catalog`, 403 surfaced), `modelsFor` listing only the chosen provider's models, and
+  `modelPlaceholder` — the model picker asks for a provider first (not "nothing published"), says a
+  chosen row published no models, and invites a pick otherwise. There is **no selector default** by
+  design: an empty selection means no override, so the server keeps its own default instead of the
+  first (alphabetical, keyless) catalog row.
 - `src/features/users/api.test.ts` — the `/admin/users` transports (list, create, update, password,
   revoke-sessions) with method/path/body, trimming on create, optional `display_name`/`role` omitted
   when blank, numeric `enabled` normalised to a boolean, no `password_hash` ever expected in a row,

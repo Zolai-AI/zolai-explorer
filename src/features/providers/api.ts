@@ -75,3 +75,16 @@ export function modelsFor(
 ): readonly string[] {
   return items.find((item) => item.catalog_id === catalogId)?.models ?? []
 }
+
+/**
+ * The model `<Select>` placeholder. It depends on the **chosen provider**, not
+ * merely on the model list: no provider yet is "pick a provider first" (nothing
+ * is broken), a chosen provider that publishes nothing says so honestly, and a
+ * chosen provider with models invites a pick. Pure so the decision lives in one
+ * place (the component) and is unit-tested.
+ */
+export function modelPlaceholder(provider: string, models: readonly string[]): string {
+  if (provider === '') return 'Select a provider first'
+  if (models.length === 0) return 'No model list published'
+  return 'Select a model…'
+}

@@ -1,6 +1,6 @@
 import { RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
-import { modelsFor, useProviderCatalog, useRefreshModels } from '../features/providers/api'
+import { modelPlaceholder, modelsFor, useProviderCatalog, useRefreshModels } from '../features/providers/api'
 import { ErrorState } from './ErrorState'
 import { Skeleton } from './Skeleton'
 import { Button } from './ui/button'
@@ -164,7 +164,7 @@ export function ProviderModelSelect({
             disabled={disabled || models.length === 0}
           >
             <SelectTrigger id={`${idPrefix}-model`} className="h-10 w-full">
-              <SelectValue placeholder={models.length === 0 ? 'No model list published' : 'Select a model…'} />
+              <SelectValue placeholder={modelPlaceholder(value.provider, models)} />
             </SelectTrigger>
             <SelectContent>
               {models.map((model) => (
