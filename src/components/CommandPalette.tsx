@@ -73,6 +73,7 @@ const ROUTE_ICONS: Record<string, LucideIcon> = {
   'nav-links': Link2,
   'nav-settings': Settings2,
   'nav-review': FileText,
+  'nav-contribute': FileText,
 }
 
 const THEME_ICONS: Record<Theme, LucideIcon> = {

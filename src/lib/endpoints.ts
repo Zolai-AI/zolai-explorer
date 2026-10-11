@@ -275,6 +275,17 @@ export const ENDPOINTS: readonly EndpointSpec[] = [
     note: 'Public feedback on assistant chat response (thumbs −1|1).',
   },
   {
+    id: 'contributions.create',
+    method: 'POST',
+    template: '/contributions',
+    area: 'assistant',
+    scope: '',
+    limitDefault: null,
+    limitMax: null,
+    limit: 'none',
+    note: 'Submit a public dictionary contribution for editorial review.',
+  },
+  {
     id: 'agent.run.create',
     method: 'POST',
     template: '/agent/runs',

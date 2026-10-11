@@ -25,6 +25,10 @@ import { DASHBOARD_PATH } from '../lib/routes'
  * opened from a hamburger in the top bar; from `lg` up it is a persistent
  * sidebar that can collapse to an icon rail. The routed panel area is
  * width-capped so long payloads never stretch across a wide display.
+ *
+ * The collapse toggle is now at the TOP of the sidebar for discoverability.
+ * The sidebar uses `sticky top-0` + `h-screen` so it stays in view while
+ * the main content scrolls.
  */
 export function AppShell() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
@@ -69,12 +73,14 @@ export function AppShell() {
       {/* Persistent sidebar from lg up; collapsible to an icon rail. */}
       <aside
         data-collapsed={collapsed ? 'true' : 'false'}
-        className={`sticky top-0 hidden h-screen shrink-0 border-r bg-sidebar transition-[width] lg:block ${
-          collapsed ? 'w-16' : 'w-60'
-        }`}
+        className={`
+          sticky top-0 z-10
+          hidden h-screen shrink-0 border-r bg-sidebar transition-[width,margin] lg:block
+          ${collapsed ? 'w-16' : 'w-60'}
+        `}
       >
-        <Sidebar collapsed={collapsed} />
-        <div className="border-t p-1.5">
+        {/* Collapse toggle at TOP — always visible, never scrolled away */}
+        <div className="border-b p-1.5 flex-shrink-0">
           <Button
             variant="ghost"
             size="sm"
@@ -92,6 +98,11 @@ export function AppShell() {
               </>
             )}
           </Button>
+        </div>
+
+        {/* Navigation content — scrolls independently, toggle stays pinned at top */}
+        <div className="flex-1 overflow-y-auto">
+          <Sidebar collapsed={collapsed} />
         </div>
       </aside>
 

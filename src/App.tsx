@@ -16,6 +16,7 @@ import { Settings } from './routes/Settings'
 import { Assistant } from './routes/Assistant'
 import { Agent } from './routes/Agent'
 import { Review } from './routes/Review'
+import { Contribute } from './routes/Contribute'
 import { NotFound } from './routes/NotFound'
 import { KeyDialog } from './components/KeyDialog'
 import { Empty } from './components/Empty'
@@ -128,6 +129,7 @@ const PAGES: Record<RoutePath, ReactNode> = {
   '/data': <Data />,
   '/links': <Links />,
   '/review': <Review />,
+  '/contribute': <Contribute />,
   '/settings': <Settings />,
 }
 

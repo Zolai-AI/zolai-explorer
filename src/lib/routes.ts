@@ -199,6 +199,16 @@ export const ROUTES = [
     nav: true,
   },
   {
+    id: 'contribute',
+    path: '/contribute',
+    label: 'Contribute',
+    description: 'Submit new words, meanings, usage examples, and corrections',
+    minRole: 'anonymous',
+    icon: 'file-text',
+    keywords: 'contribute submit word meaning usage correction suggestion dictionary',
+    nav: true,
+  },
+  {
     id: 'settings',
     path: '/settings',
     label: 'Settings',
