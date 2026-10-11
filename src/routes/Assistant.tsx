@@ -70,6 +70,15 @@ export function Assistant() {
   // The admin switch must not outlive the role it was enabled by (key cleared).
   const activeMode: AssistantMode = isAdmin ? mode : 'public'
 
+  // The own-key panel is public-only: dropping into admin mode must not leave a
+  // pasted key travelling on admin-route requests.
+  useEffect(() => {
+    if (activeMode === 'admin') {
+      setUserApiKey('')
+      setShowApiKeyInput(false)
+    }
+  }, [activeMode])
+
   const submit = useCallback(
     (event: FormEvent) => {
       event.preventDefault()
@@ -77,7 +86,13 @@ export function Assistant() {
       if (!clean || submitting.current || chat.isPending) return
       submitting.current = true
       chat.mutate(
-        { message: clean, mode: activeMode, selection, userApiKey: userApiKey || undefined },
+        {
+          message: clean,
+          mode: activeMode,
+          selection,
+          // Public-only: never carry a pasted key onto the admin route.
+          userApiKey: activeMode === 'public' ? userApiKey || undefined : undefined,
+        },
         {
           onSuccess: (response) => {
             setHistory((previous) => [
@@ -114,10 +129,10 @@ export function Assistant() {
     toast.success('Copied to clipboard')
   }, [])
 
-  const handleFeedback = useCallback((_response: ChatResponse, score: 1 | -1) => {
-    // No feedback endpoint exists yet — say so instead of thanking the user
-    // for a send that never happened.
-    toast.info(score === 1 ? 'Marked helpful — noted locally' : 'Marked not helpful — noted locally', {
+  const handleFeedback = useCallback((_response: ChatResponse, _score: 1 | -1) => {
+    // No feedback endpoint exists yet, so the title claims nothing was
+    // recorded — the description says exactly what happened.
+    toast.info('Feedback', {
       description: 'Feedback is not sent to the server yet — nothing was recorded.',
     })
   }, [])
@@ -363,6 +378,7 @@ function AnswerPanel({ response, mode, onCopy, onFeedback }: { response: ChatRes
               <dd className="inline font-mono text-primary">user-provided</dd>
             </div>
           )}
+          {/* Tolerant server echo — the client never sends `user_provider`. */}
           {response.requested_user_provider && (
             <div>
               <dt className="inline">Provider </dt>
