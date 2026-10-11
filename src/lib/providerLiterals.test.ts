@@ -69,11 +69,11 @@ describe('no hardcoded provider or model ids in src/', () => {
   })
 
   it('keeps the selector fed by the API rather than by a constant', () => {
-    // The provider list and the default both come from the fetched payload —
-    // if that ever moves into a literal, the tests above are the backstop.
+    // The provider list comes from the fetched payload — if that ever moves
+    // into a literal, the scan above is the backstop. An empty selection is now
+    // a real "no override" state, so there is no seeded default to assert.
     const component = files.find((file) => file.path.endsWith('ProviderModelSelect.tsx'))
     expect(component).toBeDefined()
     expect(component?.text).toContain('useProviderCatalog()')
-    expect(component?.text).toContain('defaultSelection(')
   })
 })

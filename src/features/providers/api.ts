@@ -13,8 +13,8 @@
  * `fetch`); the hooks are the React Query surface over them.
  *
  * **No provider id and no model string is hardcoded anywhere in this file** —
- * every value comes from the server payload, and `defaultSelection` picks the
- * first row the server called active rather than naming one.
+ * every value comes from the server payload; the selectors derive their options
+ * from the fetched rows alone.
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -25,7 +25,6 @@ import {
   RefreshModelsSchema,
   parseOrThrow,
   type ProviderCatalog,
-  type ProviderSelection,
   type PublicProvider,
   type RefreshModels,
 } from '../../lib/schemas'
@@ -67,21 +66,6 @@ export function useRefreshModels() {
     mutationFn: (catalogId: string): Promise<RefreshModels> => postRefreshModels(catalogId),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: CATALOG_KEY }),
   })
-}
-
-/**
- * The default target: the **first row the server returned** (the catalog is
- * served in catalog order, active row first) with its `selected_model`, falling
- * back to the first model it publishes. Empty catalog → empty selection, which
- * the UI renders as "server default" rather than inventing a target.
- */
-export function defaultSelection(items: readonly PublicProvider[]): ProviderSelection {
-  const first = items[0]
-  if (!first) return { provider: '', model: '' }
-  return {
-    provider: first.catalog_id,
-    model: first.selected_model || first.models[0] || '',
-  }
 }
 
 /** Models published by one catalog row — what the model `<Select>` offers. */

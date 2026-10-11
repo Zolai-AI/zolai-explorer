@@ -23,7 +23,7 @@ bun run dev        # http://localhost:5173/  (proxies /api + /health upstream)
 | `bun run dev` | Vite dev server with `/api` + `/health` proxied to `https://api.zolai.space` |
 | `bun run build` | `tsc -b` then `vite build` → `dist/` |
 | `bun run typecheck` | Type check only (`tsc -b --force`) |
-| `bun run test` | Vitest suite (379 tests) |
+| `bun run test` | Vitest suite (375 tests) |
 | `bun run deploy` | `vite build` + rsync to `pcore-server:/var/www/zolai-studio` + `nginx -t` + reload |
 
 Requires **bun** (1.4.1+). Never npm/yarn — this is a workspace-wide convention.
@@ -76,7 +76,7 @@ storage backend so the round-trip is unit tested without jsdom.
 | `/analyze` | Sentence tokenisation + paragraph segmentation | `/api/v1/analyze/sentence`, `/api/v1/analyze/paragraph` |
 | `/search` | Lexical corpus search with per-source grouping | `/api/v1/search` |
 | `/rag` | Retrieval with honest placeholder labelling | `/api/v1/rag` |
-| `/assistant` | Assistant chat — public route is honest `retrieval_only` when no provider is active; admin mode adds provider/model and the tool trace. Both modes carry a **provider/model selector** fed by `GET /api/v1/providers` (no hardcoded provider or model anywhere in `src/`); the answer shows the `provider · model` the server actually used, plus what was requested. A pasted own key travels as **`api_key` only** against the selected catalog row — the client never sends `user_provider` and never names a vendor | `GET /api/v1/providers`, `POST /api/v1/assistant/chat`, `POST /api/v1/admin/assistant/chat` |
+| `/assistant` | Assistant chat — public route is honest `retrieval_only` when no provider is active; admin mode adds provider/model and the tool trace. Both modes carry a **provider/model selector** fed by `GET /api/v1/providers` (no hardcoded provider or model anywhere in `src/`) and **no override is sent unless you choose one** — an empty selection leaves the server to pick its own target (`Use server default` clears it again); the answer shows the `provider · model` the server actually used, plus what was requested. A pasted own key travels as **`api_key` only** against the **selected** catalog row — the client never sends `user_provider` and never names a vendor, so the key control stays disabled until a provider is chosen | `GET /api/v1/providers`, `POST /api/v1/assistant/chat`, `POST /api/v1/admin/assistant/chat` |
 | `/agent` | Goal-driven research runs with phase trace and feedback (member+); the same provider/model selector sits above the goal input and travels in the run body | `GET /api/v1/providers`, `POST /api/v1/agent/runs`, `GET /api/v1/agent/runs/{run_id}`, `POST /api/v1/agent/runs/{run_id}/feedback` |
 | `/data` | Collection table (zero-based `#`, bars from zero, `?collection=` filter), knowledge version, health | `/api/v1/knowledge/statistics`, `/api/v1/knowledge/version`, `/health` |
 | `/links` | Endpoint reference, server-rendered links, known gaps | — (renders `src/lib/endpoints.ts`) |
@@ -362,7 +362,7 @@ The same list is rendered as cards on `/links` under "Known API gaps".
 bun run test
 ```
 
-379 Vitest specs across twenty-one files:
+375 Vitest specs across twenty-one files:
 
 - `src/lib/api.test.ts` — 401 → `ApiError` with `needsKey`; 15s timeout budget and abort →
   `timeout` / `aborted` distinction; transport failure → `network`; **empty body tolerated** instead
@@ -426,18 +426,18 @@ bun run test
 - `src/features/providers/api.test.ts` — the public catalog transport (`GET /providers`, no body,
   no key, five-field rows with no `secret`/`enabled`/`is_active`), the admin
   `POST /admin/ai-providers/{id}/refresh-models` transport (empty body, honest `source` of
-  `remote` vs `catalog`, 403 surfaced), and the **selector defaults**: `defaultSelection` takes the
-  first server row with its `selected_model`, falls back to its first published model, keeps a
-  provider with no models rather than inventing one, and yields an empty selection (so the server
-  keeps its own default) for an empty catalog; `modelsFor` lists only the chosen provider's models.
+  `remote` vs `catalog`, 403 surfaced), and `modelsFor` listing only the chosen provider's models.
+  There is **no selector default** by design: an empty selection means no override, so the server
+  keeps its own default instead of the first (alphabetical, keyless) catalog row.
 - `src/features/users/api.test.ts` — the `/admin/users` transports (list, create, update, password,
   revoke-sessions) with method/path/body, trimming on create, optional `display_name`/`role` omitted
   when blank, numeric `enabled` normalised to a boolean, no `password_hash` ever expected in a row,
   and honest `username_taken` / `user_not_found` / `invalid_input` messages.
 - `src/lib/providerLiterals.test.ts` — the **no-hardcoded-target guard**: every non-test file under
   `src/` is scanned for provider ids and model ids (`pcore-brain`, `opencode/`, `gpt-*`, `claude-*`,
-  `gemini-*`, …), and `ProviderModelSelect` must stay fed by `useProviderCatalog()` +
-  `defaultSelection(...)` so the selectors can never pin this UI to one deployment's catalog.
+  `gemini-*`, …), and `ProviderModelSelect` must stay fed by `useProviderCatalog()` (with no
+  auto-seed — an empty selection sends no override) so the selectors can never pin this UI to one
+  deployment's catalog.
 - `src/lib/routes.test.ts` — the route registry: unique ids/paths, every record labelled with a
   known icon + role, exactly one non-nav destination (sign-in, and it must be anonymous — the
   chicken-and-egg guard) which opts into ⌘K through the `palette` flag (no nav record may carry it),

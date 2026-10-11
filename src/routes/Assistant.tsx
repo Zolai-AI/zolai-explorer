@@ -62,9 +62,11 @@ export function Assistant() {
 
   // A key pasted for one catalog row is not valid for another (different
   // base_url/adapter), so switching the target drops it rather than sending it
-  // somewhere it does not belong.
+  // somewhere it does not belong. With no target at all the control is disabled
+  // ("choose the provider your key belongs to first"), so collapse it too.
   useEffect(() => {
     setUserApiKey('')
+    if (selection.provider === '') setShowApiKeyInput(false)
   }, [selection.provider])
 
   // The admin switch must not outlive the role it was enabled by (key cleared).
@@ -199,11 +201,19 @@ export function Assistant() {
                 variant="outline"
                 size="sm"
                 className="max-lg:h-10"
+                disabled={selection.provider === ''}
                 onClick={() => setShowApiKeyInput(!showApiKeyInput)}
               >
                 {showApiKeyInput ? <Lock className="size-4" /> : <Key className="size-4" />}
                 {showApiKeyInput ? 'Hide API key' : 'Use your own API key'}
               </Button>
+
+              {selection.provider === '' && (
+                <p className="text-[11px] text-muted-foreground">
+                  Choose the provider your key belongs to first — your key is used against that
+                  catalog row&apos;s base URL, so it cannot be entered before a target is selected.
+                </p>
+              )}
 
               {showApiKeyInput && (
                 <Field>

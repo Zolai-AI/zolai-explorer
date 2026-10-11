@@ -1,10 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  defaultSelection,
-  fetchProviderCatalog,
-  modelsFor,
-  postRefreshModels,
-} from './api'
+import { fetchProviderCatalog, modelsFor, postRefreshModels } from './api'
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -94,30 +89,6 @@ describe('postRefreshModels', () => {
   it('surfaces an honest 403 when the key lacks settings:write', async () => {
     fetchMock.mockImplementation(async () => json({ detail: { error: 'forbidden' } }, 403))
     await expect(postRefreshModels('primary')).rejects.toThrow(/forbidden/)
-  })
-})
-
-describe('defaultSelection (selector defaults)', () => {
-  it('defaults to the first row the server returned, with its selected model', () => {
-    expect(defaultSelection([row()])).toEqual({ provider: 'primary', model: 'model-a' })
-  })
-
-  it('falls back to the first published model when none is selected', () => {
-    expect(defaultSelection([row({ selected_model: '', models: ['model-b', 'model-c'] })])).toEqual({
-      provider: 'primary',
-      model: 'model-b',
-    })
-  })
-
-  it('keeps a provider with an empty model list rather than inventing a model', () => {
-    expect(defaultSelection([row({ models: [], selected_model: '' })])).toEqual({
-      provider: 'primary',
-      model: '',
-    })
-  })
-
-  it('returns an empty selection for an empty catalog — the server keeps its default', () => {
-    expect(defaultSelection([])).toEqual({ provider: '', model: '' })
   })
 })
 
