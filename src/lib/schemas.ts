@@ -197,6 +197,9 @@ export const CitationSchema = z.object({
   id: z.union([z.number(), z.string()]).catch(0),
   source: str,
   text: str,
+  // The row's own content, when the source table publishes one. Without it a
+  // citation is just the headword, which is not citable evidence of anything.
+  definition: z.string().optional(),
 })
 export type Citation = z.infer<typeof CitationSchema>
 
@@ -204,9 +207,18 @@ export const RagSchema = z.object({
   question: str,
   context: str,
   citations: z.array(CitationSchema).catch([]),
-  // Placeholder text echoed from the retrieved snippets — NOT LLM-generated.
   answer: str,
   retrieved_count: num,
+  /**
+   * True when a model wrote `answer`. The server sends these so the UI never has
+   * to infer provenance by pattern-matching prose — an older server omits them
+   * and falls back to the conservative reading below.
+   */
+  generated: z.boolean().catch(false),
+  retrieval_only: z.boolean().catch(true),
+  provider: z.string().catch(''),
+  model: z.string().catch(''),
+  provider_error: z.string().catch(''),
 })
 export type RagResult = z.infer<typeof RagSchema>
 

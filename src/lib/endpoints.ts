@@ -661,9 +661,9 @@ export type ApiGap = { readonly id: string; readonly title: string; readonly bod
 
 export const API_GAPS: readonly ApiGap[] = [
   {
-    id: 'rag-placeholder-answer',
-    title: '/rag answers are placeholder echoes',
-    body: 'Retrieval is real — context and citations come from the corpus — but the answer string is a template, because the server holds a placeholder GEMINI_API_KEY and calls no model.',
+    id: 'rag-source-attribution',
+    title: '/rag citations carry the headword, not the gloss',
+    body: 'The answer is written by the configured model from the retrieved rows and cites them by number, but each citation names only the matched term. The row\'s own definition travels in the context block above it, not on the citation itself.',
   },
   {
     id: 'analyze-empty-sections',

@@ -25,25 +25,59 @@ import type { RagResult } from '../lib/schemas'
 const SAMPLES = ['Pasian', 'gam', 'thupha', 'kei ding', 'bang hang pai na hiam']
 
 /**
- * Honesty contract for this panel.
+ * Shown only when the server wrote the answer with a model.
  *
- * The live deployment answers `/rag` from a **lexical placeholder**: it echoes
- * the retrieved snippets back as an "answer" string. No LLM is called (the
- * server holds a placeholder `GEMINI_API_KEY`). This banner is therefore a
- * permanent part of the panel, not a dismissible notice — the answer field must
- * never be presented as model-generated text.
+ * Names the provider and model that produced it, so the text below is
+ * attributable rather than anonymous.
  */
-function PlaceholderNotice() {
+function GeneratedNotice({ provider, model }: { provider: string; model: string }) {
+  return (
+    <Alert>
+      <Sparkles aria-hidden />
+      <AlertTitle>Answer written by the configured model</AlertTitle>
+      <AlertDescription>
+        <span className="font-mono">{provider || 'provider unset'}</span>
+        {model ? <> · <span className="font-mono">{model}</span></> : null} — answering from the
+        retrieved rows only. Each claim cites its bracketed source, and anything the evidence does
+        not cover is reported as missing rather than filled in.
+      </AlertDescription>
+    </Alert>
+  )
+}
+
+/**
+ * Shown when the server returned evidence instead of a written answer.
+ *
+ * The server distinguishes "no provider configured" from "the call failed", and
+ * says which — collapsing the two would point an operator at a missing API key
+ * during what is really a timeout or an empty completion.
+ */
+function EvidenceNotice({ providerError }: { providerError: string }) {
+  const failedCall = providerError !== '' && providerError !== 'no_active_provider'
   return (
     <Alert className="border-amber-500/40 bg-amber-500/10 text-amber-900 dark:text-amber-200">
       <AlertTriangle aria-hidden />
-      <AlertTitle>Placeholder answer — not LLM-generated</AlertTitle>
+      <AlertTitle>Evidence only — no model wrote this answer</AlertTitle>
       <AlertDescription className="text-amber-800/90 dark:text-amber-100/80">
-        This deployment runs the lexical retrieval path only. The{' '}
-        <span className="font-mono">answer</span> below is a template echo of the snippets it
-        retrieved, and the server holds a placeholder <span className="font-mono">GEMINI_API_KEY</span>{' '}
-        so no model is called. Treat the <span className="font-mono">context</span> and{' '}
-        <span className="font-mono">citations</span> as the real output.
+        {failedCall ? (
+          <>
+            A model was resolved but the call did not return an answer
+            {providerError ? (
+              <>
+                {' '}
+                (<span className="font-mono">{providerError}</span>)
+              </>
+            ) : null}
+            . What follows is the retrieved evidence, not a written response.
+          </>
+        ) : (
+          <>
+            No LLM provider is active, so the <span className="font-mono">answer</span> below is
+            the retrieved evidence rather than a written response. Treat the{' '}
+            <span className="font-mono">context</span> and{' '}
+            <span className="font-mono">citations</span> as the real output.
+          </>
+        )}
       </AlertDescription>
     </Alert>
   )
@@ -71,8 +105,14 @@ export function Rag() {
 
   const data = rag.data
   const citations = data?.citations ?? []
+  // Provenance comes from the server, not from pattern-matching the prose. The
+  // older heuristic (`/^Based on \d+ sources:/`) is kept only as a floor for a
+  // server that predates the flags — and it can only ever *downgrade* a claim
+  // of generation, never invent one.
   const answerIsPlaceholderEcho =
     !data ||
+    data.retrieval_only ||
+    !data.generated ||
     data.retrieved_count === 0 ||
     data.answer.trim() === '' ||
     /^Based on \d+ sources:/i.test(data.answer.trim())
@@ -85,12 +125,18 @@ export function Rag() {
           RAG retrieval
         </h1>
         <p className="mt-1 max-w-prose text-sm text-muted-foreground">
-          Retrieval-augmented generation endpoint, shown honestly: the retrieved context and
-          citations are real corpus data, the answer is a placeholder.
+          Retrieval-augmented generation endpoint. The context and citations are real corpus rows;
+          the answer is written by the provider configured on the server, from those rows only.
+          With no provider the server returns the evidence itself and says so.
         </p>
       </header>
 
-      <PlaceholderNotice />
+      {data &&
+        (answerIsPlaceholderEcho ? (
+          <EvidenceNotice providerError={data.provider_error} />
+        ) : (
+          <GeneratedNotice provider={data.provider} model={data.model} />
+        ))}
 
       <Card
         title="Question"
@@ -170,21 +216,34 @@ export function Rag() {
               <Metric label="Context" value={`${data.context.length}`} hint="characters" />
               <Metric
                 label="Answer"
-                value={answerIsPlaceholderEcho ? 'placeholder' : 'unverified'}
-                hint="not model-generated"
+                value={answerIsPlaceholderEcho ? 'evidence' : 'generated'}
+                hint={
+                  answerIsPlaceholderEcho
+                    ? 'not model-written'
+                    : data?.model || 'model-written'
+                }
               />
             </div>
           </Card>
 
+          {/* Titled from what the server reported, not from a fixed label. */}
           <Card
-            title="Placeholder answer"
-            subtitle="echoed from the retrieved snippets — not generated"
-            tone="muted"
+            title={answerIsPlaceholderEcho ? 'Retrieved evidence' : 'Answer'}
+            subtitle={
+              answerIsPlaceholderEcho
+                ? 'the server returned its evidence — no model wrote this'
+                : `${data.provider || 'provider unset'} · ${data.model || 'model unset'}`
+            }
+            tone={answerIsPlaceholderEcho ? 'muted' : 'accent'}
           >
             {data.answer ? (
-              <pre className="scrollbar-thin max-h-48 overflow-auto rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 font-mono text-xs leading-relaxed whitespace-pre-wrap text-amber-900 dark:text-amber-100">
-                {data.answer}
-              </pre>
+              answerIsPlaceholderEcho ? (
+                <pre className="scrollbar-thin max-h-48 overflow-auto rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 font-mono text-xs leading-relaxed whitespace-pre-wrap text-amber-900 dark:text-amber-100">
+                  {data.answer}
+                </pre>
+              ) : (
+                <p className="text-sm leading-relaxed whitespace-pre-wrap">{data.answer}</p>
+              )
             ) : (
               <Empty compact title="Empty answer" hint="The endpoint returned an empty answer string." />
             )}
@@ -239,6 +298,12 @@ function CitationList({ data }: { data: RagResult }) {
             <p className="text-xs leading-relaxed break-words">
               {citation.text || <span className="text-muted-foreground italic">empty excerpt</span>}
             </p>
+            {/* The gloss is the citable part; a bare headword proves nothing. */}
+            {citation.definition && (
+              <p className="mt-1 text-xs leading-relaxed break-words text-muted-foreground">
+                {citation.definition}
+              </p>
+            )}
           </div>
         </li>
       ))}

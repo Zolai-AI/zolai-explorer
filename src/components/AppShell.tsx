@@ -149,9 +149,9 @@ export function AppShell() {
           Zolai Explorer — read-mostly studio for the Zolai Core API; role-gated writes go through
           your key. Language ground truth is ZVS 2018: SOV word order, ergative{' '}
           <span className="font-mono">in</span>, <span className="font-mono">kei</span>{' '}
-          negation. Assistant answers name the provider · model that wrote them;{' '}
-          <span className="font-mono">/rag</span> answers are still template echoes of their own
-          retrieved snippets, and say so on the panel.
+          negation. Both the assistant and <span className="font-mono">/rag</span> name the
+          provider · model that wrote an answer; with no provider they return the retrieved
+          evidence and say so on the panel.
         </footer>
       </div>
 
