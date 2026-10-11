@@ -36,7 +36,9 @@ export default defineConfig({
     },
   },
   test: {
+    // 'node' on purpose: the render tests use `react-dom/server`, so no DOM
+    // implementation is needed and the suite stays fast and dependency-free.
     environment: 'node',
-    include: ['src/**/*.test.ts'],
+    include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
   },
 })

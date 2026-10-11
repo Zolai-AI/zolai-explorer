@@ -1,5 +1,16 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
-import { MessageSquareQuote, Send, ShieldCheck, Wrench, Key, Lock, Copy, ThumbsUp, ThumbsDown } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
+import {
+  MessageSquareQuote,
+  Send,
+  ShieldCheck,
+  Wrench,
+  Key,
+  Lock,
+  Copy,
+  ThumbsUp,
+  ThumbsDown,
+  SlidersHorizontal,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import { useAssistantChat, type AssistantMode } from '../features/assistant/api'
 import { useProviderCatalog } from '../features/providers/api'
@@ -29,26 +40,35 @@ type Exchange = {
 /**
  * Assistant chat.
  *
+ * The composer comes **first** and stands on its own: a message plus Send is the
+ * whole contract, and it works for an anonymous visitor. No key, no provider
+ * picker, no setup — the server answers with whichever AI provider the operator
+ * configured on the server, and labels the answer with it.
+ *
+ * Everything that overrides that default lives behind one disclosure:
+ *   - **provider · model** — travel in the request body; the answer reports the
+ *     provider · model the server *actually* used, so an override that silently
+ *     failed is visible rather than hidden;
+ *   - **own API key** — used for this request only, never stored server-side.
+ *     It is meaningless without a target row (a key for one vendor is not valid
+ *     against another row's base_url), so it stays disabled until one is picked.
+ *
  * Honesty rules (AGENTS.md):
  * - a `retrieval_only` answer is labelled **"Retrieval (no model)"** — never
  *   "generated", never "AI answer";
- * - the admin↔public switch only renders for an admin role, because the admin
+ * - the admin↔public switch renders only for an admin role, because the admin
  *   route is strict role + scope gated server-side;
- * - admin mode shows `provider`/`model` and the tool trace; public mode shows
- *   citations only.
- * - a caller can paste their own API key for **this request only**: it travels
- *   as `api_key` against the selected catalog row, is never stored server-side,
- *   and the client never sends a provider of its own — the target is always the
- *   server's catalog selection.
+ * - admin mode shows the tool trace; public mode shows citations only.
  */
 export function Assistant() {
   const role = useRole()
   const isAdmin = can(role, 'admin')
   const [mode, setMode] = useState<AssistantMode>('public')
   const [message, setMessage] = useState('')
-  // Per-request target chosen in the selector — sent as `provider`/`model`,
-  // echoed back by the server as `requested_*` plus the `provider · model` used.
+  // Optional per-request target; empty means "no override" so the server keeps
+  // resolving its own configured provider.
   const [selection, setSelection] = useState<ProviderSelection>({ provider: '', model: '' })
+  const [showAdvanced, setShowAdvanced] = useState(false)
   // User-provided API key for the public assistant (not stored server-side).
   const [userApiKey, setUserApiKey] = useState('')
   const [showApiKeyInput, setShowApiKeyInput] = useState(false)
@@ -59,6 +79,7 @@ export function Assistant() {
   // Single-flight guard: `chat.isPending` only flips on the next render, so a
   // second submit in the same tick would otherwise fire a second POST.
   const submitting = useRef(false)
+  const composerRef = useRef<HTMLTextAreaElement | null>(null)
 
   // A key pasted for one catalog row is not valid for another (different
   // base_url/adapter), so switching the target drops it rather than sending it
@@ -81,10 +102,9 @@ export function Assistant() {
     }
   }, [activeMode])
 
-  const submit = useCallback(
-    (event: FormEvent) => {
-      event.preventDefault()
-      const clean = message.trim()
+  const send = useCallback(
+    (text: string) => {
+      const clean = text.trim()
       if (!clean || submitting.current || chat.isPending) return
       submitting.current = true
       chat.mutate(
@@ -110,11 +130,33 @@ export function Assistant() {
             }),
           onSettled: () => {
             submitting.current = false
+            // Return focus to the composer so the next question is one keystroke away.
+            composerRef.current?.focus()
           },
         },
       )
     },
-    [activeMode, chat, message, selection, userApiKey],
+    [activeMode, chat, selection, userApiKey],
+  )
+
+  const submit = useCallback(
+    (event: FormEvent) => {
+      event.preventDefault()
+      send(message)
+    },
+    [message, send],
+  )
+
+  // Enter sends, Shift+Enter breaks the line — the chat convention. A modifier
+  // or a held Shift is a newline, never a send.
+  const onComposerKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLTextAreaElement>) => {
+      if (event.key !== 'Enter' || event.shiftKey || event.altKey || event.nativeEvent.isComposing)
+        return
+      event.preventDefault()
+      send(message)
+    },
+    [message, send],
   )
 
   // Label the latest answer with the mode it was actually produced under —
@@ -140,7 +182,7 @@ export function Assistant() {
   }, [])
 
   return (
-    <div className="flex flex-col gap-5 h-full max-h-[calc(100vh-8rem)]">
+    <div className="flex min-w-0 flex-col gap-5">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
@@ -148,10 +190,9 @@ export function Assistant() {
             Assistant
           </h1>
           <p className="mt-1 max-w-prose text-sm text-muted-foreground">
-            Retrieval-grounded chat over the knowledge base. A catalog provider only answers with a
-            model when an API key is in play — one configured for that catalog row on the server, or
-            one you paste below. With no key the server answers honestly from retrieval: no model is
-            called.
+            Retrieval-grounded chat over the knowledge base. Type a question and send — the AI
+            provider configured for this deployment answers it, and every answer names the model
+            that wrote it alongside its citations.
           </p>
         </div>
 
@@ -174,88 +215,127 @@ export function Assistant() {
           <AlertTitle>Public assistant</AlertTitle>
           <AlertDescription>
             Posting to <span className="font-mono">/assistant/chat</span> — anonymous-safe in every
-            auth mode, retrieval tools only. An admin key unlocks the admin route with the full
-            tool set and trace. The selected catalog provider needs an API key to answer with a
-            model — one configured server-side for that row, or one you paste below for this
-            request only. With no key, the server answers from retrieval and says so.
+            auth mode. No key needed: the server answers with the AI provider configured on it. An
+            admin key additionally unlocks <span className="font-mono">/admin/assistant/chat</span>{' '}
+            with the full tool set and trace.
           </AlertDescription>
         </Alert>
       )}
 
+      {/* The composer is the page. Provider overrides live inside it, collapsed. */}
       <Card
-        title="Message"
+        title="Chat"
         subtitle={`POST ${activeMode === 'admin' ? '/admin/assistant/chat' : '/assistant/chat'}`}
       >
         <form onSubmit={submit} className="flex flex-col gap-3">
-          <ProviderModelSelect
-            value={selection}
-            onChange={setSelection}
-            idPrefix="assistant-target"
-            disabled={chat.isPending}
-          />
-
-          {activeMode === 'public' && (
-            <div className="space-y-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="max-lg:h-10"
-                disabled={selection.provider === ''}
-                onClick={() => setShowApiKeyInput(!showApiKeyInput)}
-              >
-                {showApiKeyInput ? <Lock className="size-4" /> : <Key className="size-4" />}
-                {showApiKeyInput ? 'Hide API key' : 'Use your own API key'}
-              </Button>
-
-              {selection.provider === '' && (
-                <p className="text-[11px] text-muted-foreground">
-                  Choose the provider your key belongs to first — your key is used against that
-                  catalog row&apos;s base URL, so it cannot be entered before a target is selected.
-                </p>
-              )}
-
-              {showApiKeyInput && (
-                <Field>
-                  <FieldLabel htmlFor="assistant-api-key">{apiKeyLabel}</FieldLabel>
-                  <Input
-                    id="assistant-api-key"
-                    type="password"
-                    autoComplete="off"
-                    spellCheck={false}
-                    value={userApiKey}
-                    onChange={(event) => setUserApiKey(event.target.value)}
-                    placeholder="Paste your API key"
-                    className="h-10 font-mono text-sm"
-                  />
-                  <FieldDescription>
-                    Sent only with this request over HTTPS and never stored on the server. The
-                    server calls the <strong>selected catalog provider</strong> with it — switching
-                    the provider above clears the field, because a key for one vendor is not valid
-                    for another.
-                  </FieldDescription>
-                </Field>
-              )}
-            </div>
-          )}
-
           <Field>
             <FieldLabel htmlFor="assistant-message">Message</FieldLabel>
             <Textarea
               id="assistant-message"
+              ref={composerRef}
               value={message}
               onChange={(event) => setMessage(event.target.value)}
+              onKeyDown={onComposerKeyDown}
               placeholder="Ask about a Zolai word, verse or grammar rule…"
               rows={3}
-              className="min-h-20 resize-y"
+              className="min-h-24 resize-y"
             />
+            <FieldDescription>
+              <kbd className="font-mono">Enter</kbd> sends ·{' '}
+              <kbd className="font-mono">Shift</kbd> + <kbd className="font-mono">Enter</kbd> adds
+              a line
+            </FieldDescription>
           </Field>
-          <div className="flex justify-end">
+
+          <div className="flex flex-wrap items-center gap-2">
             <Button type="submit" disabled={!message.trim() || chat.isPending} className="h-10">
               <Send aria-hidden />
               {chat.isPending ? 'Thinking…' : 'Send'}
             </Button>
+
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="max-lg:h-10"
+              aria-expanded={showAdvanced}
+              aria-controls="assistant-advanced"
+              onClick={() => setShowAdvanced(!showAdvanced)}
+            >
+              <SlidersHorizontal className="size-4" aria-hidden />
+              {showAdvanced ? 'Hide options' : 'Provider options'}
+            </Button>
+
+            {selection.provider !== '' && (
+              <Badge variant="secondary" className="ml-auto">
+                Override: {selectedRow?.name || selection.provider}
+              </Badge>
+            )}
           </div>
+
+          {showAdvanced && (
+            <div
+              id="assistant-advanced"
+              className="flex flex-col gap-4 rounded-lg border border-dashed bg-muted/30 p-3"
+            >
+              <p className="text-xs text-muted-foreground">
+                Optional. Leave both unset and the server keeps using the provider configured on it
+                — this only changes <em>which</em> provider answers.
+              </p>
+
+              <ProviderModelSelect
+                value={selection}
+                onChange={setSelection}
+                idPrefix="assistant-target"
+                disabled={chat.isPending}
+              />
+
+              {activeMode === 'public' && (
+                <div className="flex flex-col gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="max-lg:h-10 self-start"
+                    disabled={selection.provider === ''}
+                    onClick={() => setShowApiKeyInput(!showApiKeyInput)}
+                  >
+                    {showApiKeyInput ? <Lock className="size-4" /> : <Key className="size-4" />}
+                    {showApiKeyInput ? 'Hide API key' : 'Use your own API key'}
+                  </Button>
+
+                  {selection.provider === '' && (
+                    <p className="text-[11px] text-muted-foreground">
+                      Pick a provider above first — your key is used against that catalog row&apos;s
+                      base URL, so it cannot be entered before a target is selected.
+                    </p>
+                  )}
+
+                  {showApiKeyInput && (
+                    <Field>
+                      <FieldLabel htmlFor="assistant-api-key">{apiKeyLabel}</FieldLabel>
+                      <Input
+                        id="assistant-api-key"
+                        type="password"
+                        autoComplete="off"
+                        spellCheck={false}
+                        value={userApiKey}
+                        onChange={(event) => setUserApiKey(event.target.value)}
+                        placeholder="Paste your API key"
+                        className="h-10 font-mono text-sm"
+                      />
+                      <FieldDescription>
+                        Sent only with this request over HTTPS and never stored on the server. It
+                        replaces the server&apos;s configured key for the selected row — switching
+                        the provider clears the field, because a key for one vendor is not valid for
+                        another.
+                      </FieldDescription>
+                    </Field>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </form>
       </Card>
 
@@ -273,7 +353,7 @@ export function Assistant() {
       ) : !last?.response ? (
         <Empty
           title="No conversation yet"
-          hint="Ask a question. Answers carry citations back to the corpus; without an active provider the server says so instead of inventing text."
+          hint="Ask a question in the box above. Answers carry citations back to the corpus and name the model that wrote them; with no active provider the server says so instead of inventing text."
         />
       ) : (
         <AnswerPanel response={last.response} mode={last.mode} onCopy={handleCopy} onFeedback={handleFeedback} />
@@ -281,7 +361,7 @@ export function Assistant() {
 
       {history.length > 0 && (
         <Card title="Transcript" subtitle={`${history.length} messages`} tone="muted">
-          <ol className="flex flex-col gap-3 max-h-96 overflow-y-auto">
+          <ol className="flex max-h-96 flex-col gap-3 overflow-y-auto">
             {history.map((entry, index) => (
               <li
                 key={index}
@@ -297,7 +377,7 @@ export function Assistant() {
                   <p className="mb-1 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
                     {entry.role === 'user' ? 'You' : `Assistant · ${entry.mode}`}
                   </p>
-                  <p className="whitespace-pre-wrap break-words">{entry.text}</p>
+                  <p className="break-words whitespace-pre-wrap">{entry.text}</p>
                 </div>
               </li>
             ))}
@@ -308,7 +388,17 @@ export function Assistant() {
   )
 }
 
-function AnswerPanel({ response, mode, onCopy, onFeedback }: { response: ChatResponse; mode: AssistantMode; onCopy: (text: string) => void; onFeedback: (response: ChatResponse, score: 1 | -1) => void }) {
+function AnswerPanel({
+  response,
+  mode,
+  onCopy,
+  onFeedback,
+}: {
+  response: ChatResponse
+  mode: AssistantMode
+  onCopy: (text: string) => void
+  onFeedback: (response: ChatResponse, score: 1 | -1) => void
+}) {
   const retrievalOnly = response.retrieval_only
   const citations = response.citations ?? []
 
@@ -342,7 +432,7 @@ function AnswerPanel({ response, mode, onCopy, onFeedback }: { response: ChatRes
         }
       >
         <p className="text-sm leading-relaxed whitespace-pre-wrap">{response.answer}</p>
-        <div className="flex flex-wrap gap-2 mt-3">
+        <div className="mt-3 flex flex-wrap gap-2">
           <Button
             variant="outline"
             size="sm"
@@ -388,13 +478,6 @@ function AnswerPanel({ response, mode, onCopy, onFeedback }: { response: ChatRes
               <dd className="inline font-mono text-primary">user-provided</dd>
             </div>
           )}
-          {/* Tolerant server echo — the client never sends `user_provider`. */}
-          {response.requested_user_provider && (
-            <div>
-              <dt className="inline">Provider </dt>
-              <dd className="inline font-mono text-primary">user-provided</dd>
-            </div>
-          )}
           {mode === 'admin' && (
             <div>
               <dt className="inline">Route </dt>
@@ -429,7 +512,7 @@ function AnswerPanel({ response, mode, onCopy, onFeedback }: { response: ChatRes
                     </span>
                   )}
                 </div>
-                <p className="text-xs leading-relaxed break-words">{citation.text}</p>
+                <p className="break-words text-xs leading-relaxed">{citation.text}</p>
               </li>
             ))}
           </ol>

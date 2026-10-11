@@ -11,7 +11,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "deploy": "vite build && bash scripts/deploy.sh"
+    "deploy": "vite build && bash scripts/deploy.sh",
+    "e2e": "bun run scripts/e2e-studio.ts"
   },
   "dependencies": {
     "@fontsource-variable/geist": "5.3.0",

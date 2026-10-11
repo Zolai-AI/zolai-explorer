@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { KeyRound, LogIn, ShieldCheck, UserCheck, RotateCcw } from 'lucide-react'
+import { KeyRound, LogIn, ShieldCheck, UserCheck, Eye, EyeOff } from 'lucide-react'
 import { useApiKey } from '../components/KeyDialog'
 import { Card } from '../components/Card'
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert'
@@ -22,6 +22,7 @@ import {
   passwordVerifyFailureNotice,
   type VerifyFailure,
   type PasswordVerifyFailure,
+  type SignInSurface,
 } from '../lib/session'
 
 /**
@@ -54,6 +55,7 @@ export function Login() {
   const [keyError, setKeyError] = useState<string | undefined>(undefined)
   const [keyReason, setKeyReason] = useState<VerifyFailure | undefined>(undefined)
   const [keyBusy, setKeyBusy] = useState(false)
+  const [keyVisible, setKeyVisible] = useState(false)
 
   // Password form state
   const [username, setUsername] = useState('')
@@ -61,9 +63,12 @@ export function Login() {
   const [pwdError, setPwdError] = useState<string | undefined>(undefined)
   const [pwdReason, setPwdReason] = useState<PasswordVerifyFailure | undefined>(undefined)
   const [pwdBusy, setPwdBusy] = useState(false)
+  const [pwdVisible, setPwdVisible] = useState(false)
 
   // Toggle between the two cards
-  const [mode, setMode] = useState<'api-key' | 'password'>('api-key')
+  // The password card leads: it is the credential an operator actually holds.
+  // The API-key card stays one click away for a key issued by an admin.
+  const [mode, setMode] = useState<SignInSurface>('password')
 
   // `?from=` is attacker-controllable, so it is validated before it can reach
   // `navigate()`: an absolute or protocol-relative URL would be an open redirect,
@@ -142,16 +147,17 @@ export function Login() {
       <header>
         <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
           <KeyRound className="size-5 text-primary" aria-hidden />
-          {signInTitle(hasKey)}
+          {signInTitle(mode, hasKey)}
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          The Zolai Core API has no accounts: a key <em>is</em> the credential, and the server
-          derives the role from its scopes. Paste a key and this screen asks the API who you are
-          before it stores anything.
+          {mode === 'password'
+            ? 'Sign in with the username and password an admin created for you. The server returns a session token for this browser tab only; the role comes from your scopes, never from this screen.'
+            : 'The Zolai Core API has no accounts: a key is the credential, and the server derives the role from its scopes. Paste a key and this screen asks the API who you are before it stores anything.'}
         </p>
       </header>
 
-      {/* Card 1: API Key verification (original flow) */}
+      {/* Card 1: API Key verification — only while this surface is on screen. */}
+      {mode === 'api-key' && (
       <Card title="Verify the key" subtitle="GET /auth/me — public, never stores anything">
         <form
           className="flex flex-col gap-3"
@@ -163,18 +169,30 @@ export function Login() {
         >
           <Field data-invalid={keyError ? 'true' : undefined}>
             <FieldLabel htmlFor="login-key">API key</FieldLabel>
-            <Input
-              id="login-key"
-              type="password"
-              autoComplete="off"
-              spellCheck={false}
-              value={key}
-              onChange={(event) => setKey(event.target.value)}
-              aria-invalid={keyError ? 'true' : undefined}
-              placeholder="paste API key"
-              className="h-11 font-mono"
-            />
-            <FieldError>{keyError}</FieldError>
+            <div className="relative">
+              <Input
+                id="login-key"
+                type={keyVisible ? 'text' : 'password'}
+                autoComplete="off"
+                spellCheck={false}
+                value={key}
+                onChange={(event) => setKey(event.target.value)}
+                aria-invalid={keyError ? 'true' : undefined}
+                placeholder="paste API key"
+                className="h-11 font-mono pr-12"
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="absolute right-3 top-1/2 -translate-y-1/2 h-8"
+                onClick={() => setKeyVisible(!keyVisible)}
+                aria-label={keyVisible ? 'Hide key' : 'Show key'}
+              >
+                {keyVisible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+              </Button>
+              <FieldError>{keyError}</FieldError>
+            </div>
           </Field>
 
           {/* Two different problems, two different explanations: a refused key is
@@ -225,10 +243,11 @@ export function Login() {
           className="mt-2 h-auto max-lg:h-10 px-0"
           onClick={() => setMode('password')}
         >
-          <RotateCcw className="size-4 mr-1.5" aria-hidden />
+          <UserCheck className="size-4 mr-1.5" aria-hidden />
           Use username & password instead
         </Button>
       </Card>
+      )}
 
       {/* Card 2: Username + Password form (new session flow) */}
       {mode === 'password' && (
@@ -262,18 +281,30 @@ export function Login() {
 
             <Field data-invalid={pwdError ? 'true' : undefined}>
               <FieldLabel htmlFor="login-password">Password</FieldLabel>
-              <Input
-                id="login-password"
-                type="password"
-                autoComplete="current-password"
-                spellCheck={false}
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                aria-invalid={pwdError ? 'true' : undefined}
-                placeholder="password"
-                className="h-11"
-              />
-              <FieldError>{pwdError}</FieldError>
+              <div className="relative">
+                <Input
+                  id="login-password"
+                  type={pwdVisible ? 'text' : 'password'}
+                  autoComplete="current-password"
+                  spellCheck={false}
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  aria-invalid={pwdError ? 'true' : undefined}
+                  placeholder="password"
+                  className="h-11 pr-12"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 h-8"
+                  onClick={() => setPwdVisible(!pwdVisible)}
+                  aria-label={pwdVisible ? 'Hide password' : 'Show password'}
+                >
+                  {pwdVisible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                </Button>
+                <FieldError>{pwdError}</FieldError>
+              </div>
             </Field>
 
             {pwdNotice && (
@@ -312,7 +343,7 @@ export function Login() {
             className="mt-2 h-auto max-lg:h-10 px-0"
             onClick={() => setMode('api-key')}
           >
-            <RotateCcw className="size-4 mr-1.5" aria-hidden />
+            <KeyRound className="size-4 mr-1.5" aria-hidden />
             Use an API key instead
           </Button>
         </Card>

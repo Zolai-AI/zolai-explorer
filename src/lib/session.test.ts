@@ -212,9 +212,15 @@ describe('signOut', () => {
 })
 
 describe('signInTitle', () => {
+  it('names the password surface without mentioning a key', () => {
+    // The password card leads: its title must not talk about an API key.
+    expect(signInTitle('password', false)).toBe('Sign in')
+    expect(signInTitle('password', true)).toBe('Sign in')
+  })
+
   it('says "replace" only when a key is already stored', () => {
-    expect(signInTitle(false)).toMatch(/Sign in/)
-    expect(signInTitle(true)).toMatch(/Replace/)
+    expect(signInTitle('api-key', false)).toMatch(/Sign in/)
+    expect(signInTitle('api-key', true)).toMatch(/Replace/)
   })
 })
 describe('verifyFailureMessage — one honest line per failure mode', () => {

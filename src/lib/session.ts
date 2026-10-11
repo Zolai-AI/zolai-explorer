@@ -344,7 +344,17 @@ export async function signOutSession(signal?: AbortSignal): Promise<void> {
   queryClient.clear()
 }
 
-/** Copy for the sign-in screen, pure so the wording is testable. */
-export function signInTitle(hasStoredKey: boolean): string {
+/**
+ * Copy for the sign-in screen, pure so the wording is testable.
+ *
+ * The title names the surface actually on screen: the password card is the
+ * default (it is the credential a human actually has), the API-key card is the
+ * secondary path for a key issued by an admin.
+ */
+export function signInTitle(surface: SignInSurface, hasStoredKey: boolean): string {
+  if (surface === 'password') return 'Sign in'
   return hasStoredKey ? 'Replace the stored API key' : 'Sign in with an API key'
 }
+
+/** Which credential card the sign-in screen is showing. */
+export type SignInSurface = 'password' | 'api-key'

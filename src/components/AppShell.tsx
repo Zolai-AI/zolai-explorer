@@ -137,9 +137,10 @@ export function AppShell() {
         <footer className="border-t px-4 py-4 text-[11px] leading-relaxed text-muted-foreground sm:px-6">
           Zolai Explorer — read-mostly studio for the Zolai Core API; role-gated writes go through
           your key. Language ground truth is ZVS 2018: SOV word order, ergative{' '}
-          <span className="font-mono">in</span>,{' '}
-          <span className="font-mono">kei</span> negation. RAG answers on this deployment are
-          placeholder echoes, not model-generated text.
+          <span className="font-mono">in</span>, <span className="font-mono">kei</span>{' '}
+          negation. Assistant answers name the provider · model that wrote them;{' '}
+          <span className="font-mono">/rag</span> answers are still template echoes of their own
+          retrieved snippets, and say so on the panel.
         </footer>
       </div>
 
