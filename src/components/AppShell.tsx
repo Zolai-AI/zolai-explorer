@@ -59,6 +59,11 @@ export function AppShell() {
       : location.pathname.startsWith(item.to),
   )
 
+  useEffect(() => {
+    const label = active?.label
+    document.title = label ? `${label} · Zolai Studio` : 'Zolai Studio'
+  }, [active])
+
   return (
     <div className="flex min-h-full bg-background">
       {/* Persistent sidebar from lg up; collapsible to an icon rail. */}
