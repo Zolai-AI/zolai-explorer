@@ -356,11 +356,16 @@ export function Dashboard() {
       <Card title="External API surface" subtitle="Server-rendered — opens in a new tab">
         <ul className="grid gap-2 sm:grid-cols-3">
           {EXTERNAL_LINKS.map((link) => (
-            <li key={link.href}>
+            // `min-w-0` on the grid item plus `shrink whitespace-normal` on the
+            // button: a grid item defaults to `min-width:auto`, and Button's base
+            // is `shrink-0 whitespace-nowrap`, so a long note forced the row to
+            // its max-content width and pushed the whole page sideways on a
+            // phone. Both have to give for the text to wrap.
+            <li key={link.href} className="min-w-0">
               <Button
                 variant="outline"
                 asChild
-                className="h-auto max-lg:min-h-11 w-full items-start justify-start gap-2 px-3 py-2 text-left"
+                className="h-auto max-lg:min-h-11 w-full min-w-0 shrink items-start justify-start gap-2 whitespace-normal px-3 py-2 text-left"
               >
                 <a href={link.href} target="_blank" rel="noreferrer noopener">
                   <ExternalLink className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" aria-hidden />

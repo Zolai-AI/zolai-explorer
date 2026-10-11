@@ -4,6 +4,8 @@ node_modules/
 # build output
 dist/
 dist-ssr/
+# local test-origin bundle (scripts/test-origin.ts); rebuilt by `bun run build:test`
+dist-test/
 
 # local env files — NEVER commit real keys
 .env

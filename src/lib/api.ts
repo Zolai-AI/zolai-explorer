@@ -90,6 +90,14 @@ export type ApiRequestOptions = {
    * header and nowhere else: never logged, never in a URL, never cached.
    */
   apiKey?: string
+  /**
+   * Send *this* session token as `Authorization: Bearer` for exactly one request.
+   *
+   * Sign-out needs it: the local session is cleared first so the UI updates the
+   * instant the user clicks, and the logout call then has to carry the token
+   * explicitly, because by then the stored one is already gone.
+   */
+  bearerToken?: string
 }
 
 /** Absolute URL for an API path — relative paths are joined onto `API_BASE`. */
@@ -141,7 +149,9 @@ export async function apiFetch<T>(path: string, options: ApiRequestOptions = {})
   const headers: Record<string, string> = { Accept: 'application/json' }
   // An explicit `apiKey` wins (sign-in verification); otherwise resolve from
   // the credentials store (session wins, else key, never both).
-  if (options.apiKey?.trim()) {
+  if (options.bearerToken?.trim()) {
+    headers['Authorization'] = `Bearer ${options.bearerToken.trim()}`
+  } else if (options.apiKey?.trim()) {
     headers['X-API-Key'] = options.apiKey.trim()
   } else {
     const auth = authHeaderEntry()

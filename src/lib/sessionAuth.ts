@@ -13,6 +13,8 @@
 
 export const SESSION_STORAGE_KEY = 'zolai.session'
 
+export type SessionRole = 'anonymous' | 'member' | 'admin'
+
 export type SessionPayload = {
   /** Opaque session token issued by the server. */
   token: string
@@ -21,7 +23,27 @@ export type SessionPayload = {
   /** Username the session belongs to. */
   username: string
   /** Role the server derived for this session. */
-  role: 'anonymous' | 'member' | 'admin'
+  role: SessionRole
+}
+
+/**
+ * Read the server's `expires_at` into epoch milliseconds.
+ *
+ * The server sends a **naive UTC string**, `"YYYY-MM-DD HH:mm:ss"` — no `Z`, no
+ * offset. Passing that straight through as if it were a number is what silently
+ * broke session restore: `Date.now() >= "2026-10-12 04:36:47"` coerces to
+ * `NaN`, the comparison is always false, and an expired token looks valid.
+ * Anything already carrying a zone is parsed as-is.
+ */
+export function parseExpiresAt(value: unknown): number | null {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+  if (typeof value !== 'string') return null
+  const raw = value.trim()
+  if (!raw) return null
+  const iso = raw.replace(' ', 'T')
+  const hasZone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(iso)
+  const ms = Date.parse(hasZone ? iso : `${iso}Z`)
+  return Number.isFinite(ms) ? ms : null
 }
 
 export type StorageLike = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
@@ -70,14 +92,24 @@ export function getSession(): SessionPayload | null {
   const raw = getSessionRaw()
   if (!raw) return null
   try {
-    const parsed = JSON.parse(raw) as SessionPayload
-    if (!parsed.token || !parsed.expiresAt || !parsed.username || !parsed.role) return null
-    if (Date.now() >= parsed.expiresAt) {
+    const parsed = JSON.parse(raw) as Partial<SessionPayload> & { expires_at?: unknown }
+    // Only the token and a real expiry are load-bearing: the token is what
+    // authenticates, and the server's own `/auth/me` is the authority on role.
+    // Requiring username/role here meant a payload missing them restored as
+    // "anonymous" and sent no credential at all.
+    const expiresAt = parseExpiresAt(parsed.expiresAt ?? parsed.expires_at)
+    if (!parsed.token || expiresAt === null) return null
+    if (Date.now() >= expiresAt) {
       // Expired — drop it silently.
       clearSession()
       return null
     }
-    return parsed
+    return {
+      token: parsed.token,
+      expiresAt,
+      username: parsed.username ?? '',
+      role: (parsed.role ?? 'anonymous') as SessionRole,
+    }
   } catch {
     return null
   }

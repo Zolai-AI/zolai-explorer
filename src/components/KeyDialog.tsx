@@ -86,7 +86,7 @@ export function KeyDialog({
       }
       setApiKey(result.value)
       // Any previously cached response may have been produced without a key.
-      queryClient.clear()
+      void queryClient.resetQueries()
       toast.success('API key stored in this browser only.')
       form.clearErrors('apiKey')
       onClose()
@@ -96,7 +96,7 @@ export function KeyDialog({
 
   const clear = useCallback(() => {
     clearApiKey()
-    queryClient.clear()
+    void queryClient.resetQueries()
     toast.info('API key cleared from this browser.')
     onClose()
   }, [onClose])

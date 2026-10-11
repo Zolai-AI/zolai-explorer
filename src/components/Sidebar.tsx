@@ -186,12 +186,17 @@ export function Sidebar({
               )}
               <Button
                 variant="ghost"
-                // There is no server session to end: the key *was* the session, so
-                // dropping it plus the cache is the whole sign-out.
+                // Ends whichever credential is active — a password session if
+                // there is one, otherwise the stored key — and says which.
                 onClick={() => {
-                  signOut()
-                  toast.info('Signed out — the stored API key is gone.')
-                  onNavigate?.()
+                  void signOut().then((result) => {
+                    toast.info(
+                      result.kind === 'session'
+                        ? `Signed out — the session for ${result.username ?? 'this account'} is gone.`
+                        : 'Signed out — the stored API key is gone.',
+                    )
+                    onNavigate?.()
+                  })
                 }}
                 title={signIn.title}
                 aria-label={collapsed ? signIn.label : undefined}

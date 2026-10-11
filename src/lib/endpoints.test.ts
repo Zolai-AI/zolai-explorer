@@ -238,3 +238,28 @@ describe('README sync', () => {
     expect(readme).toContain('not available')
   })
 })
+describe('queryLimitPath — required query parameters', () => {
+  it('carries a required query param into the path', () => {
+    // /records has no {table} placeholder, so nothing else would put the
+    // required table in the query string — and the server answers 422 without
+    // it. This is the exact URL the review page depends on.
+    expect(queryLimitPath('records.list', { table: 'dictionary' }, 50)).toBe(
+      '/records?table=dictionary&limit=50',
+    )
+  })
+
+  it('refuses to build a path that omits one, instead of 422-ing in use', () => {
+    expect(() => queryLimitPath('records.list', {}, 50)).toThrow(/table/)
+    expect(() => queryLimitPath('records.list', { table: '  ' }, 50)).toThrow(/table/)
+  })
+
+  it('leaves endpoints without required params alone', () => {
+    expect(queryLimitPath('audit.list', {}, 50)).toBe('/audit?limit=50')
+  })
+
+  it('clamps the limit while keeping the required params', () => {
+    expect(queryLimitPath('records.list', { table: 'dictionary' }, 10_000)).toBe(
+      '/records?table=dictionary&limit=500',
+    )
+  })
+})

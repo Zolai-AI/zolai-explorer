@@ -28,6 +28,8 @@ import { Textarea } from '../components/ui/textarea'
 import { Field, FieldDescription, FieldLabel } from '../components/ui/field'
 import { can, useRole } from '../lib/auth'
 import { formatCount, formatScore } from '../lib/format'
+import { apiPost } from '../lib/api'
+import { endpointPath } from '../lib/endpoints'
 import type { ChatResponse, ProviderSelection } from '../lib/schemas'
 
 type Exchange = {
@@ -173,12 +175,28 @@ export function Assistant() {
     toast.success('Copied to clipboard')
   }, [])
 
-  const handleFeedback = useCallback((_response: ChatResponse, _score: 1 | -1) => {
-    // No feedback endpoint exists yet, so the title claims nothing was
-    // recorded — the description says exactly what happened.
-    toast.info('Feedback', {
-      description: 'Feedback is not sent to the server yet — nothing was recorded.',
-    })
+  const handleFeedback = useCallback(async (response: ChatResponse, userMessage: string, score: 1 | -1) => {
+    if (!userMessage) {
+      toast.error('Feedback failed', { description: 'Could not determine original question' })
+      return
+    }
+    try {
+      await apiPost(
+        endpointPath('assistant.feedback'),
+        {
+          message: userMessage,
+          response: response.answer,
+          mode: response.mode || 'public',
+          retrieval_only: response.retrieval_only,
+          provider: response.provider,
+          model: response.model,
+          score,
+        }
+      )
+      toast.success(score === 1 ? 'Thanks for the feedback!' : 'Feedback recorded')
+    } catch (error) {
+      toast.error('Feedback failed', { description: String(error) })
+    }
   }, [])
 
   return (
@@ -356,7 +374,13 @@ export function Assistant() {
           hint="Ask a question in the box above. Answers carry citations back to the corpus and name the model that wrote them; with no active provider the server says so instead of inventing text."
         />
       ) : (
-        <AnswerPanel response={last.response} mode={last.mode} onCopy={handleCopy} onFeedback={handleFeedback} />
+        <AnswerPanel
+          response={last.response}
+          mode={last.mode}
+          userMessage={history[history.length - 2]?.text || ''}
+          onCopy={handleCopy}
+          onFeedback={handleFeedback}
+        />
       )}
 
       {history.length > 0 && (
@@ -391,13 +415,15 @@ export function Assistant() {
 function AnswerPanel({
   response,
   mode,
+  userMessage,
   onCopy,
   onFeedback,
 }: {
   response: ChatResponse
   mode: AssistantMode
+  userMessage: string
   onCopy: (text: string) => void
-  onFeedback: (response: ChatResponse, score: 1 | -1) => void
+  onFeedback: (response: ChatResponse, userMessage: string, score: 1 | -1) => void
 }) {
   const retrievalOnly = response.retrieval_only
   const citations = response.citations ?? []
@@ -437,7 +463,7 @@ function AnswerPanel({
             variant="outline"
             size="sm"
             className="max-lg:h-10"
-            onClick={() => onFeedback(response, 1)}
+            onClick={() => onFeedback(response, userMessage, 1)}
             aria-label="Helpful"
           >
             <ThumbsUp className="size-4" aria-hidden />
@@ -447,7 +473,7 @@ function AnswerPanel({
             variant="outline"
             size="sm"
             className="max-lg:h-10"
-            onClick={() => onFeedback(response, -1)}
+            onClick={() => onFeedback(response, userMessage, -1)}
             aria-label="Not helpful"
           >
             <ThumbsDown className="size-4" aria-hidden />

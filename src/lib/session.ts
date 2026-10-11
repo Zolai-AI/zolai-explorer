@@ -185,7 +185,7 @@ export async function signIn(candidate: unknown, signal?: AbortSignal): Promise<
   const verified = await verifyApiKey(candidate, signal)
   if (!verified.ok) return verified
   setApiKey(String(candidate).trim())
-  queryClient.clear()
+  dropCachedResponses()
   return { ok: true, role: verified.role, keyPrefix: verified.keyPrefix, mode: verified.mode, authSource: 'api-key', username: null }
 }
 
@@ -195,15 +195,52 @@ export async function signIn(candidate: unknown, signal?: AbortSignal): Promise<
  * There is no server session to end — the key *was* the session — so clearing
  * storage plus the cache is the complete operation.
  */
-export function signOut(): void {
+/**
+ * What `signOut()` actually ended — the caller says so honestly instead of
+ * always claiming the API key is gone.
+ */
+export type SignOutResult = { kind: 'session'; username: string | null } | { kind: 'api-key' }
+
+/**
+ * Sign out of whichever credential is **currently active**.
+ *
+ * A password session is the active credential whenever one exists, so this has
+ * to end the session. Clearing only the API key — which is all this used to do —
+ * left the session token in `sessionStorage`, so the app kept sending it as a
+ * `Bearer` credential and the UI kept reporting the role it was signed in with:
+ * pressing "Sign out" produced a "the stored API key is gone" toast and no
+ * actual sign-out at all.
+ *
+ * With no session, the key *was* the credential: drop it and the cache.
+ */
+export async function signOut(signal?: AbortSignal): Promise<SignOutResult> {
+  const session = getSession()
+  if (session) {
+    await signOutSession(signal)
+    return { kind: 'session', username: session.username || null }
+  }
   clearApiKey()
-  queryClient.clear()
+  dropCachedResponses()
+  return { kind: 'api-key' }
+}
+
+/**
+ * Drop every cached response and make mounted observers refetch.
+ *
+ * `queryClient.clear()` removes the queries but leaves mounted `useQuery`
+ * observers holding the data they already had, so after signing out the app
+ * kept rendering the signed-in UI until a full page reload. `resetQueries()`
+ * puts each query back to its initial state *and* re-runs the active ones,
+ * which is what a credential change actually requires.
+ */
+function dropCachedResponses(): void {
+  void queryClient.resetQueries()
 }
 
 /* ------------------------------------------------------------------ password */
 
 import { apiPost } from './api'
-import { clearSession, setSession } from './sessionAuth'
+import { clearSession, getSession, parseExpiresAt, setSession, type SessionRole } from './sessionAuth'
 
 /** Why a password sign-in was not accepted. */
 export type PasswordVerifyFailure =
@@ -277,6 +314,21 @@ export type PasswordSignInResult =
  * returns the session info. On failure, stores nothing and returns a verdict
  * the form can render inline.
  */
+/**
+ * `POST /auth/login` as the server actually answers it.
+ *
+ * `expires_at` is a naive UTC string and the identity is nested under `user`.
+ * The flat `username`/`role` fields are tolerated for older responses.
+ */
+type LoginResponse = {
+  token: string
+  token_type?: string
+  expires_at: string | number
+  user?: { id?: number; username?: string; display_name?: string; role?: Role; scopes?: string[] }
+  username?: string
+  role?: Role
+}
+
 export async function signInWithPassword(
   username: string,
   password: string,
@@ -288,14 +340,13 @@ export async function signInWithPassword(
     return { ok: false, reason: 'blank', message: passwordVerifyFailureMessage('blank') }
   }
 
-  let response: { token: string; expires_at: number; username: string; role: 'anonymous' | 'member' | 'admin' }
+  let response: LoginResponse
   try {
-    response = await apiPost<{
-      token: string
-      expires_at: number
-      username: string
-      role: 'anonymous' | 'member' | 'admin'
-    }>(endpointPath('identity.login'), { username: user, password: pass }, { signal })
+    response = await apiPost<LoginResponse>(
+      endpointPath('identity.login'),
+      { username: user, password: pass },
+      { signal },
+    )
   } catch (error) {
     // Map status codes to failure reasons.
     let reason: PasswordVerifyFailure = 'unreachable'
@@ -307,21 +358,31 @@ export async function signInWithPassword(
     return { ok: false, reason, message: passwordVerifyFailureMessage(reason) }
   }
 
+  // `expires_at` arrives as a naive UTC string and the identity lives under
+  // `user`. Reading `username`/`role` off the top level yielded `undefined`,
+  // so the stored payload was missing them and every page load after this one
+  // restored as anonymous — sign-in appeared to work for exactly one page.
+  const expiresAt = parseExpiresAt(response.expires_at)
+  if (!response.token || expiresAt === null) {
+    return {
+      ok: false,
+      reason: 'unreachable',
+      message: 'The server replied without a usable session token. Nothing was stored.',
+    }
+  }
+  const sessionUsername = response.user?.username ?? response.username ?? user
+  const role = (response.user?.role ?? response.role ?? 'anonymous') as SessionRole
+
   // Success: store session, clear API key (one active credential), clear cache.
-  setSession({
-    token: response.token,
-    expiresAt: response.expires_at,
-    username: response.username,
-    role: response.role,
-  })
+  setSession({ token: response.token, expiresAt, username: sessionUsername, role })
   clearApiKey()
-  queryClient.clear()
+  dropCachedResponses()
 
   return {
     ok: true,
-    username: response.username,
-    role: response.role,
-    expiresAt: response.expires_at,
+    username: sessionUsername,
+    role,
+    expiresAt,
     authSource: 'session',
   }
 }
@@ -334,14 +395,25 @@ export async function signInWithPassword(
  * touched — the user can still have a long-lived key alongside a session.
  */
 export async function signOutSession(signal?: AbortSignal): Promise<void> {
+  // Local state first, so the UI reflects the sign-out immediately. Waiting on
+  // the server first meant the app kept sending a credential and showing the
+  // old role for as long as the round-trip took — several seconds on this
+  // deployment, long enough that pressing "Sign out" looked like it had done
+  // nothing at all.
+  const token = getSession()?.token
+  clearSession()
+  dropCachedResponses()
+
+  // Then tell the server, carrying the token explicitly since it is no longer
+  // in storage. Best-effort: if this fails the browser is signed out anyway and
+  // the server-side session simply ages out.
+  if (!token) return
   try {
-    await apiPost(endpointPath('identity.logout'), {}, { signal })
+    await apiPost(endpointPath('identity.logout'), {}, { signal, bearerToken: token })
   } catch {
     // Best-effort: the server may not have a session to invalidate, or the
-    // request may fail. We still clear local state.
+    // request may fail. Local state is already clear.
   }
-  clearSession()
-  queryClient.clear()
 }
 
 /**

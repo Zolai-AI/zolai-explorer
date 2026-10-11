@@ -61,7 +61,11 @@ export function TopBar({
         </span>
       </div>
 
-      <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+      {/* `min-w-0 shrink` (not `shrink-0`): with every control pinned to its
+          intrinsic width the bar overflowed the viewport by 2px at exactly the
+          `sm` breakpoint. The group now yields, the labels inside it ellipsize,
+          and the controls that must not squash keep their own `shrink-0`. */}
+      <div className="flex min-w-0 shrink items-center gap-1 sm:gap-2">
         <HealthPill />
 
         {/* Hidden below `sm` — the logo and 7 nav items cover navigation there,
@@ -74,7 +78,7 @@ export function TopBar({
         <Button
           variant="outline"
           onClick={() => onOpenApiKey()}
-          className={`max-lg:h-10 ${hasKey ? '' : 'border-amber-500/50 bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 dark:text-amber-300'}`}
+          className={`max-lg:h-10 shrink-0 ${hasKey ? '' : 'border-amber-500/50 bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 dark:text-amber-300'}`}
           title={hasKey ? `API key set (${masked})` : 'No API key — public endpoints only'}
         >
           <KeyRound aria-hidden />
@@ -91,7 +95,7 @@ export function TopBar({
           asChild
           variant="outline"
           className={cn(
-            'max-lg:h-10 max-lg:w-10 max-lg:justify-center max-lg:px-0',
+            'max-lg:h-10 max-lg:w-10 max-lg:justify-center max-lg:px-0 min-w-0',
             // Amber while anonymous — the same language the no-key state has
             // always used, so "there is no key here" reads at a glance.
             entry.anonymous &&
@@ -106,7 +110,7 @@ export function TopBar({
             ) : (
               <ShieldCheck aria-hidden className="text-primary" />
             )}
-            <span className="hidden sm:inline">{entry.label}</span>
+            <span className="hidden truncate sm:inline">{entry.label}</span>
             {!entry.anonymous && (
               <Badge variant={badge.variant} className="hidden lg:inline-flex">
                 {badge.label}

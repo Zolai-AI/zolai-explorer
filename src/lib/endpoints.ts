@@ -74,6 +74,16 @@ export type EndpointSpec = {
    */
   limitMax: number | null
   limit: LimitPlacement
+  /**
+   * Query parameters the server **requires**. The server answers 422 without
+   * them, so `queryLimitPath` refuses to build a path that omits one.
+   *
+   * `/records` is the reason this exists: its template carries no `{table}`
+   * placeholder, so `endpointPath` had nothing to substitute and the required
+   * `table` was silently dropped — the review page asked for `/records?limit=50`
+   * and got a 422 instead of rows.
+   */
+  requiredQuery?: readonly string[]
   /** Short, honest note rendered on the Links page. */
   note: string
 }
@@ -252,6 +262,17 @@ export const ENDPOINTS: readonly EndpointSpec[] = [
     limitMax: null,
     limit: 'none',
     note: 'Admin chat — strict admin role + agent:run, full tool set and trace.',
+  },
+  {
+    id: 'assistant.feedback',
+    method: 'POST',
+    template: '/assistant/feedback',
+    area: 'assistant',
+    scope: '',
+    limitDefault: null,
+    limitMax: null,
+    limit: 'none',
+    note: 'Public feedback on assistant chat response (thumbs −1|1).',
   },
   {
     id: 'agent.run.create',
@@ -493,6 +514,7 @@ export const ENDPOINTS: readonly EndpointSpec[] = [
     limitDefault: 50,
     limitMax: 500,
     limit: 'query',
+    requiredQuery: ['table'],
     note: 'Whitelisted table rows (dictionary, bible_verses, grammar_patterns, phrases, vocabulary). Cursor-paginated; free-text filter over search fields.',
   },
   {
@@ -592,7 +614,19 @@ export function queryLimitPath(
   }
   const clamped = clampLimit(id, limit)
   const base = endpointPath(id, params)
-  return `${base}?limit=${clamped}`
+
+  // Required query params are checked *before* the path is built, so a caller
+  // that forgets one fails loudly in development instead of 422-ing in use.
+  const query = new URLSearchParams()
+  for (const name of spec.requiredQuery ?? []) {
+    const value = params[name]
+    if (value === undefined || value === null || String(value).trim() === '') {
+      throw new Error(`queryLimitPath('${id}') is missing the '${name}' query parameter`)
+    }
+    query.set(name, String(value).trim())
+  }
+  query.set('limit', String(clamped))
+  return `${base}?${query.toString()}`
 }
 
 /**

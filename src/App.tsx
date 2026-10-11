@@ -23,7 +23,8 @@ import { Button } from './components/ui/button'
 import { Toaster } from './components/ui/sonner'
 import { TooltipProvider } from './components/ui/tooltip'
 import { queryClient } from './lib/queryClient'
-import { can, roleBadge, useRole, type Role } from './lib/auth'
+import { Skeleton } from './components/Skeleton'
+import { ROLES, can, roleBadge, useAuthMeQuery, type Role } from './lib/auth'
 import {
   DASHBOARD_PATH,
   PARAM_VARIANTS,
@@ -44,14 +45,33 @@ import {
  * a member key.
  */
 export function RequireRole({ minimum, children }: { minimum: Role; children: ReactNode }) {
-  const role = useRole()
+  const identity = useAuthMeQuery()
+  // The role comes from the registry via the server's answer; nothing here
+  // hardcodes a role name (the drift guard in `routes.test.ts` enforces it).
+  const role = identity.data?.role
   const location = useLocation()
   const [keyDialogOpen, setKeyDialogOpen] = useState(false)
 
-  if (can(role, minimum)) return <>{children}</>
+  if (role && can(role, minimum)) return <>{children}</>
+
+  // The server has not answered yet. That is not "you are anonymous" — it is
+  // "we do not know yet", and saying otherwise showed a signed-in admin an
+  // access wall whenever `/auth/me` was slow.
+  if (identity.isPending) {
+    return (
+      <div className="flex flex-col gap-3" aria-busy="true">
+        <Skeleton className="h-6 w-48" />
+        <Skeleton className="h-4 w-96 max-w-full" />
+        <Skeleton className="h-40 w-full" />
+        <span className="sr-only">Checking your access…</span>
+      </div>
+    )
+  }
 
   const needed = roleBadge(minimum)
-  const have = roleBadge(role)
+  // Reached only once the server has answered and the role falls short; the
+  // least-privileged role stands in while the answer is in flight.
+  const have = roleBadge(role ?? ROLES[0])
 
   return (
     <div className="flex flex-col gap-4">

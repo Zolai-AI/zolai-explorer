@@ -76,7 +76,7 @@ storage backend so the round-trip is unit tested without jsdom.
 | `/analyze` | Sentence tokenisation + paragraph segmentation | `/api/v1/analyze/sentence`, `/api/v1/analyze/paragraph` |
 | `/search` | Lexical corpus search with per-source grouping | `/api/v1/search` |
 | `/rag` | Retrieval with honest placeholder labelling | `/api/v1/rag` |
-| `/assistant` | Assistant chat — public route is honest `retrieval_only` when no provider is active; admin mode adds provider/model and the tool trace. Both modes carry a **provider/model selector** fed by `GET /api/v1/providers` (no hardcoded provider or model anywhere in `src/`) and **no override is sent unless you choose one** — an empty selection leaves the server to pick its own target (`Use server default` clears it again); the answer shows the `provider · model` the server actually used, plus what was requested. A pasted own key travels as **`api_key` only** against the **selected** catalog row — the client never sends `user_provider` and never names a vendor, so the key control stays disabled until a provider is chosen | `GET /api/v1/providers`, `POST /api/v1/assistant/chat`, `POST /api/v1/admin/assistant/chat` |
+| `/assistant` | Assistant chat — public route is honest `retrieval_only` when no provider is active; admin mode adds provider/model and the tool trace. Both modes carry a **provider/model selector** fed by `GET /api/v1/providers` (no hardcoded provider or model anywhere in `src/`) and **no override is sent unless you choose one** — an empty selection leaves the server to pick its own target (`Use server default` clears it again); the answer shows the `provider · model` the server actually used, plus what was requested. A pasted own key travels as **`api_key` only** against the **selected** catalog row — the client never sends `user_provider` and never names a vendor, so the key control stays disabled until a provider is chosen | `GET /api/v1/providers`, `POST /api/v1/assistant/chat`, `POST /api/v1/admin/assistant/chat`, `POST /api/v1/assistant/feedback` |
 | `/agent` | Goal-driven research runs with phase trace and feedback (member+); the same provider/model selector sits above the goal input and travels in the run body | `GET /api/v1/providers`, `POST /api/v1/agent/runs`, `GET /api/v1/agent/runs/{run_id}`, `POST /api/v1/agent/runs/{run_id}/feedback` |
 | `/data` | Collection table (zero-based `#`, bars from zero, `?collection=` filter), knowledge version, health | `/api/v1/knowledge/statistics`, `/api/v1/knowledge/version`, `/health` |
 | `/links` | Endpoint reference, server-rendered links, known gaps | — (renders `src/lib/endpoints.ts`) |
@@ -141,6 +141,7 @@ used, or if this table drifts.
 | POST | `/api/v1/auth/logout` | session (Bearer) | — |
 | POST | `/api/v1/assistant/chat` | public | — |
 | POST | `/api/v1/admin/assistant/chat` | `agent:run` + admin role | — |
+| POST | `/api/v1/assistant/feedback` | public | — |
 | POST | `/api/v1/agent/runs` | `agent:run` | — |
 | GET | `/api/v1/agent/runs/{run_id}` | `agent:read` | — |
 | POST | `/api/v1/agent/runs/{run_id}/feedback` | `agent:run` | — |

@@ -327,9 +327,13 @@ function RecordBrowser({
               Showing {formatCount(items.length)} rows{hasMore ? ' (limit reached)' : ''}
             </span>
             <div className="flex gap-2">
+              {/* `size="sm"` is 28px tall — too small to hit on a phone, so the
+                  pagination chevrons grow to 40px below `lg`, as every other
+                  mobile control in this app does. */}
               <Button
                 variant="outline"
                 size="sm"
+                className="max-lg:size-10"
                 disabled={!cursor}
                 onClick={() => handlePage(cursor ? String(Math.max(0, parseInt(cursor, 10) - 50)) : null)}
               >
@@ -338,6 +342,7 @@ function RecordBrowser({
               <Button
                 variant="outline"
                 size="sm"
+                className="max-lg:size-10"
                 disabled={!hasMore || !nextCursor}
                 onClick={() => handlePage(nextCursor)}
               >

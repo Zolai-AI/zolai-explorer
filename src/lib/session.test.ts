@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { API_KEY_STORAGE_KEY, __setStorageForTests, getApiKey } from './key'
-import { SESSION_STORAGE_KEY, __setStorageForTests as setSessionStorage, getSession } from './sessionAuth'
+import {
+  SESSION_STORAGE_KEY,
+  __setStorageForTests as setSessionStorage,
+  getSession,
+  parseExpiresAt,
+} from './sessionAuth'
+import { resolveAuthHeader } from './credentials'
 import type { StorageLike } from './key'
 import { queryClient } from './queryClient'
 import {
@@ -41,17 +47,35 @@ function authMe(
   )
 }
 
-/** `POST /auth/login` answers with a session token. */
+/**
+ * `POST /auth/login` answers with a session token.
+ *
+ * The body is the **real server shape**: `expires_at` is a naive UTC string and
+ * the identity is nested under `user`. An earlier version of this helper
+ * returned a flat body with a numeric `expires_at`, which is what the code
+ * wrongly assumed — so the tests passed against a shape the server never sends,
+ * and session restore broke in production.
+ */
 function loginResponse(
   token = 'sess_abcdefghijklmnop',
-  expiresAt = Date.now() + 3600_000,
+  expiresAt: string | number = isoUtc(Date.now() + 3600_000),
   username = 'testuser',
   role: 'anonymous' | 'member' | 'admin' = 'member',
 ) {
   return new Response(
-    JSON.stringify({ token, expires_at: expiresAt, username, role }),
+    JSON.stringify({
+      token,
+      token_type: 'bearer',
+      expires_at: expiresAt,
+      user: { id: 1, username, display_name: username, role, scopes: ['rag:read'] },
+    }),
     { status: 200, headers: { 'content-type': 'application/json' } },
   )
+}
+
+/** Format epoch ms the way the server does: `"YYYY-MM-DD HH:mm:ss"`, naive UTC. */
+function isoUtc(ms: number): string {
+  return `${new Date(ms).toISOString().slice(0, 19).replace('T', ' ')}`
 }
 
 function lastHeaders(mock: { mock: { calls: readonly unknown[][] } }): Record<string, string> {
@@ -483,5 +507,155 @@ describe('passwordVerifyFailureNotice — a refused credential and an unanswered
     const notice = passwordVerifyFailureNotice('blank')
     expect(notice.title).toMatch(/nothing to verify/i)
     expect(notice.body).toMatch(/no request/i)
+  })
+})
+
+
+describe('parseExpiresAt — the server sends a naive UTC string', () => {
+  it('reads "YYYY-MM-DD HH:mm:ss" as UTC, not as NaN', () => {
+    // The bug this guards: `"2026-10-12 04:36:47" >= Date.now()` coerces to
+    // NaN, so an expired session compared as still-valid.
+    expect(parseExpiresAt('2026-10-12 04:36:47')).toBe(Date.UTC(2026, 9, 12, 4, 36, 47))
+  })
+
+  it('passes a number through and keeps an explicit zone intact', () => {
+    expect(parseExpiresAt(1_700_000_000_000)).toBe(1_700_000_000_000)
+    expect(parseExpiresAt('2026-10-12T04:36:47Z')).toBe(Date.UTC(2026, 9, 12, 4, 36, 47))
+  })
+
+  it('returns null for anything unusable rather than guessing', () => {
+    for (const bad of ['', '   ', 'soon', null, undefined, {}, Number.NaN]) {
+      expect(parseExpiresAt(bad)).toBeNull()
+    }
+  })
+})
+
+describe('session survives a fresh page load', () => {
+  let storage: ReturnType<typeof fakeStorage>
+
+  beforeEach(() => {
+    storage = fakeStorage()
+    setSessionStorage(storage)
+    __setStorageForTests(storage)
+  })
+  afterEach(() => {
+    setSessionStorage(null)
+    __setStorageForTests(null)
+  })
+
+  it('restores a session written by signInWithPassword and sends it as a Bearer', async () => {
+    const fetchMock = vi.fn(async () => loginResponse('sess_live', isoUtc(Date.now() + 3600_000), 'alice', 'admin'))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await signInWithPassword('alice', 'hunter2')
+    expect(result.ok).toBe(true)
+
+    // A reload is just a fresh read of storage — no module state carried over.
+    const restored = getSession()
+    expect(restored?.token).toBe('sess_live')
+    expect(restored?.username).toBe('alice')
+    expect(restored?.role).toBe('admin')
+    expect(restored?.expiresAt).toBeGreaterThan(Date.now())
+
+    // And that restored session is what authenticates the next request.
+    expect(resolveAuthHeader()).toEqual({ type: 'bearer', token: 'sess_live' })
+  })
+
+  it('still restores a token even when identity fields are absent', () => {
+    // The token is the credential; role comes from /auth/me. Losing the
+    // username/role must not silently downgrade the session to anonymous.
+    storage.setItem(
+      SESSION_STORAGE_KEY,
+      JSON.stringify({ token: 'sess_bare', expiresAt: Date.now() + 60_000 }),
+    )
+    expect(resolveAuthHeader()).toEqual({ type: 'bearer', token: 'sess_bare' })
+  })
+
+  it('drops an expired session instead of treating it as valid', () => {
+    storage.setItem(
+      SESSION_STORAGE_KEY,
+      JSON.stringify({ token: 'sess_old', expiresAt: Date.now() - 1000, username: 'a', role: 'admin' }),
+    )
+    expect(getSession()).toBeNull()
+    expect(storage.getItem(SESSION_STORAGE_KEY)).toBeNull()
+    expect(resolveAuthHeader()).toEqual({ type: 'none' })
+  })
+})
+
+
+describe('signOut — ends whichever credential is active', () => {
+  let storage: ReturnType<typeof fakeStorage>
+
+  beforeEach(() => {
+    storage = fakeStorage()
+    setSessionStorage(storage)
+    __setStorageForTests(storage)
+    queryClient.clear()
+  })
+  afterEach(() => {
+    setSessionStorage(null)
+    __setStorageForTests(null)
+  })
+
+  it('ends the SESSION, not just the key', async () => {
+    // The regression: sign-out only cleared the API key, so a password session
+    // survived it and the app kept reporting the role it was signed in with.
+    storage.setItem(
+      SESSION_STORAGE_KEY,
+      JSON.stringify({ token: 'sess_live', expiresAt: Date.now() + 3600_000, username: 'alice', role: 'admin' }),
+    )
+    const fetchMock = vi.fn(async () => new Response('{}', { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await signOut()
+
+    expect(result).toEqual({ kind: 'session', username: 'alice' })
+    expect(getSession()).toBeNull()
+    expect(resolveAuthHeader()).toEqual({ type: 'none' })
+  })
+
+  it('clears local state BEFORE waiting on the server, and carries the token', async () => {
+    storage.setItem(
+      SESSION_STORAGE_KEY,
+      JSON.stringify({ token: 'sess_live', expiresAt: Date.now() + 3600_000, username: 'alice', role: 'admin' }),
+    )
+    let resolveFetch: (v: Response) => void = () => {}
+    const pending = new Promise<Response>((r) => (resolveFetch = r))
+    const fetchMock = vi.fn(() => pending)
+    vi.stubGlobal('fetch', fetchMock)
+
+    const signOutPromise = signOut()
+
+    // Local state is gone before the network call resolves: signing out must
+    // never leave the UI showing the old role because the server is slow.
+    expect(getSession()).toBeNull()
+
+    resolveFetch(new Response('{}', { status: 200 }))
+    await signOutPromise
+
+    const headers = lastHeaders(fetchMock as never) as Record<string, string>
+    expect(headers.Authorization).toBe('Bearer sess_live')
+  })
+
+  it('still clears local state when the logout call fails', async () => {
+    storage.setItem(
+      SESSION_STORAGE_KEY,
+      JSON.stringify({ token: 'sess_live', expiresAt: Date.now() + 3600_000, username: 'alice', role: 'admin' }),
+    )
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('nope', { status: 500 })))
+
+    const result = await signOut()
+
+    expect(result.kind).toBe('session')
+    expect(getSession()).toBeNull()
+  })
+
+  it('falls back to clearing the key when no session is active', async () => {
+    storage.setItem(API_KEY_STORAGE_KEY, 'zolai_sk_abcdefghijklmnop')
+
+    const result = await signOut()
+
+    expect(result).toEqual({ kind: 'api-key' })
+    expect(getApiKey()).toBe('')
   })
 })

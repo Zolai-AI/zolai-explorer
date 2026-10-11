@@ -15,69 +15,11 @@
  * Credentials come from the environment and are never committed; omit them to
  * run the anonymous-assistant half only.
  */
-const CDP_HTTP = process.env.CDP_HTTP ?? 'http://127.0.0.1:9222'
+import { closeTab, newTab, Session, setReactValue, sleep } from './lib/cdp'
+
 const STUDIO = (process.env.STUDIO_URL ?? 'https://studio.zolai.space').replace(/\/$/, '')
 const USER = process.env.STUDIO_USER
 const PASS = process.env.STUDIO_PASS
-
-type Tab = { id: string; webSocketDebuggerUrl: string }
-
-async function newTab(url: string): Promise<Tab> {
-  const r = await fetch(`${CDP_HTTP}/json/new?${encodeURIComponent(url)}`, { method: 'PUT' })
-  return (await r.json()) as Tab
-}
-
-class Session {
-  private ws!: WebSocket
-  private id = 0
-  private pending = new Map<number, (v: any) => void>()
-  constructor(private tab: Tab) {}
-  async open() {
-    this.ws = new WebSocket(this.tab.webSocketDebuggerUrl)
-    await new Promise<void>((res, rej) => { this.ws.onopen = () => res(); this.ws.onerror = rej })
-    this.ws.onmessage = (ev) => {
-      const m = JSON.parse(String(ev.data))
-      if (m.id && this.pending.has(m.id)) { this.pending.get(m.id)!(m); this.pending.delete(m.id) }
-    }
-    await this.send('Page.enable')
-    await this.send('Runtime.enable')
-  }
-  send(method: string, params: any = {}) {
-    const id = ++this.id
-    this.ws.send(JSON.stringify({ id, method, params }))
-    return new Promise<any>((res) => this.pending.set(id, res))
-  }
-  async goto(url: string) {
-    await this.send('Page.navigate', { url })
-    await this.waitFor('document.readyState === "complete"', 20_000)
-    await sleep(2500) // let react-query settle
-  }
-  async eval<T = string>(expr: string): Promise<T> {
-    const r = await this.send('Runtime.evaluate', { expression: expr, awaitPromise: true, returnByValue: true })
-    if (r.result?.exceptionDetails) throw new Error(JSON.stringify(r.result.exceptionDetails))
-    return r.result?.result?.value as T
-  }
-  async waitFor(expr: string, ms = 25_000) {
-    const t0 = Date.now()
-    while (Date.now() - t0 < ms) {
-      try { if (await this.eval(`!!(${expr})`)) return true } catch {}
-      await sleep(400)
-    }
-    throw new Error(`timeout waiting for: ${expr}`)
-  }
-  close() { this.ws.close() }
-}
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
-
-// React-controlled inputs need the native setter, then an input event.
-const setReactValue = (sel: string, value: string) => `(() => {
-  const el = document.querySelector(${JSON.stringify(sel)});
-  if (!el) return 'missing:' + ${JSON.stringify(sel)};
-  const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-  Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, ${JSON.stringify(value)});
-  el.dispatchEvent(new Event('input', { bubbles: true }));
-  return 'ok';
-})()`
 
 const failures: string[] = []
 function check(name: string, ok: boolean, detail = '') {
@@ -144,20 +86,81 @@ async function testLogin(s: Session) {
   const path = await s.eval<string>(`location.pathname`)
   check('signed in and redirected off /login', path !== '/login', `→ ${path}`)
 
+  // The real proof the session works is a *gated* page after a full page load.
+  // An earlier version of this check grepped for "/admin/assistant/chat", which
+  // also appears in the copy every anonymous visitor sees — it passed while the
+  // session was in fact dead on the second page.
+  await s.goto(`${STUDIO}/review`)
+  const review = await s.eval<string>(`document.querySelector('main').innerText`)
+  check('session survives a page load (no anonymous downgrade)', !/currently anonymous/i.test(review))
+  check('gated /review renders its content, not an access gate', !/access required/i.test(review))
+
   await s.goto(`${STUDIO}/assistant`)
-  const txt = await s.eval<string>(`document.body.innerText`)
-  check('admin route unlocks for the signed-in admin', /\/admin\/assistant\/chat/.test(txt))
+  const assistant = await s.eval<string>(`document.querySelector('main').innerText`)
+  check(
+    'admin-only assistant toggle appears for an admin',
+    /Admin mode/.test(assistant),
+    /Admin mode/.test(assistant) ? '' : 'the switch renders only for an admin role',
+  )
+
+  // --- sign out must actually end the session ---------------------------
+  // This used to clear only the stored API key, so a password session survived
+  // it: the toast said "the stored API key is gone", the token stayed in
+  // sessionStorage and the app kept reporting admin.
+  await s.goto(`${STUDIO}/settings`)
+  check(
+    'signed in: /settings shows its content',
+    !/access required/i.test(await s.eval<string>(`document.querySelector('main').innerText`)),
+  )
+
+  const clicked = await s.click('text=sign out')
+  check('sign-out control was found and clicked', clicked)
+  // Wait on the condition, not a fixed sleep: the logout round-trip plus the
+  // cache refetch is over a second and varies.
+  let cleared = await s.waitFor(`!sessionStorage.getItem('zolai.session')`, 10_000)
+  // A dispatched real mouse event occasionally lands without the page acting on
+  // it (the click is proven good by the retry). Re-click once rather than fail
+  // the suite on a harness artefact — the app behaviour is what is under test,
+  // and it is also covered by the unit tests in `session.test.ts`.
+  if (!cleared) {
+    await s.click('text=sign out')
+    cleared = await s.waitFor(`!sessionStorage.getItem('zolai.session')`, 15_000)
+  }
+  check('sign-out cleared the session', cleared,
+    cleared ? '' : `session still: ${(await s.eval<string | null>(`sessionStorage.getItem('zolai.session')`) ?? 'none').slice(0, 24)}`)
+
+  check(
+    'sign out removes the session token',
+    !(await s.eval<string | null>(`sessionStorage.getItem('zolai.session')`)),
+  )
+  // The gate now shows a skeleton while the identity query re-fetches rather
+  // than flashing "you are anonymous", so wait for the wall to actually appear.
+  await s.waitFor(`/access required/i.test(document.querySelector('main').innerText)`, 20_000)
+  const after = await s.eval<string>(`document.querySelector('main').innerText`)
+  check('sign out re-gates /settings', /access required/i.test(after))
+  check('sign out drops the admin role', /currently anonymous/i.test(after))
+
+  await s.goto(`${STUDIO}/settings`)
+  check(
+    'still signed out after a full page load',
+    /access required/i.test(await s.eval<string>(`document.querySelector('main').innerText`)),
+  )
 }
 
 const tab = await newTab('about:blank')
 const s = new Session(tab)
 await s.open()
+// Pin the viewport. The default headless window is ~780x493, which is below the
+// `lg` breakpoint where the sidebar is persistent — the sign-out control then
+// lives in a closed mobile drawer with a 0x0 rect, and the click silently did
+// nothing. 1280x900 matches the persistent-sidebar layout.
+await s.setViewport(1280, 900)
 try {
   await testChat(s)
   await testLogin(s)
 } finally {
   s.close()
-  await fetch(`${CDP_HTTP}/json/close/${tab.id}`)
+  await closeTab(tab)
 }
 console.log(`\n${failures.length === 0 ? 'ALL PASS' : 'FAILURES: ' + failures.join(', ')}`)
 process.exit(failures.length === 0 ? 0 : 1)

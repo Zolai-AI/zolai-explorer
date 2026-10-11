@@ -126,7 +126,7 @@ export function Login() {
   }
 
   const leaveKey = () => {
-    signOut()
+    void signOut()
     setKeyError(undefined)
     navigate(from, { replace: true })
   }
@@ -421,7 +421,9 @@ export function Login() {
             Provider catalog, key admin, admin assistant — any of{' '}
             <code className="font-mono">* apikey:manage settings:write user:manage role:manage</code>.
           </li>
-          <li className="flex items-start gap-1.5 pt-1">
+          {/* `flex-wrap` so the sentence flows onto more lines instead of being
+              squeezed onto one as a single flex line. */}
+          <li className="flex flex-wrap items-start gap-x-1.5 pt-1">
             <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
             Keys are issued by an admin on{' '}
             <Link to={pathOf('settings')} className="underline">

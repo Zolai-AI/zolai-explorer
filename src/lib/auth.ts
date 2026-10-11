@@ -137,15 +137,19 @@ function serverSnapshot(): number {
   return 0
 }
 
-/**
- * Who am I, as the server sees it. Refetches on every stored-key change;
- * any failure (offline, older server without the route, malformed body)
- * reads as `anonymous` — the gate then *withholds* the UI instead of
- * guessing privileges.
- */
-export function useAuthMe(): AuthMe {
+const ANONYMOUS: AuthMe = {
+  role: 'anonymous',
+  key_prefix: null,
+  scopes: [],
+  mode: '',
+  auth_source: 'none',
+  username: null,
+}
+
+/** The identity query itself, for callers that must tell "unknown" from "none". */
+export function useAuthMeQuery() {
   const keyGen = useSyncExternalStore(subscribeRoleChange, keyGenerationSnapshot, serverSnapshot)
-  const query = useQuery({
+  return useQuery({
     queryKey: ['auth', 'me', keyGen],
     queryFn: async ({ signal }): Promise<AuthMe> =>
       parseOrThrow(AuthMeSchema, await apiGet<unknown>(endpointPath('identity.me'), { signal }), 'auth/me'),
@@ -153,8 +157,21 @@ export function useAuthMe(): AuthMe {
     // Identity is a gate, not a dashboard: one probe, no retry storm.
     retry: false,
   })
-  // No answer yet, or an unreadable one → least-privileged reading.
-  return query.data ?? { role: 'anonymous', key_prefix: null, scopes: [], mode: '', auth_source: 'none' as const, username: null }
+}
+
+/**
+ * Who am I, as the server sees it. Refetches on every stored-key change;
+ * any failure (offline, older server without the route, malformed body)
+ * reads as `anonymous` — the gate then *withholds* the UI instead of
+ * guessing privileges.
+ *
+ * Note the identity query is still in flight here too: a caller that shows an
+ * access wall on this value will flash "you are anonymous" on every cold load,
+ * and on a slow `/auth/me` leave it there. Use `useAuthMeQuery()` where
+ * "not answered yet" has to be shown differently from "answered: none".
+ */
+export function useAuthMe(): AuthMe {
+  return useAuthMeQuery().data ?? ANONYMOUS
 }
 
 /** Reactive role only — `useAuthMe()` when the payload itself is needed. */

@@ -106,11 +106,13 @@ export function Links() {
       >
         <ul className="grid gap-2 sm:grid-cols-2">
           {OUTSIDE.map((item) => (
-            <li key={item.path}>
+            // See Dashboard: `min-w-0` on the item and `shrink whitespace-normal`
+            // on the button, or a long note overflows the viewport on a phone.
+            <li key={item.path} className="min-w-0">
               <Button
                 variant="outline"
                 asChild
-                className="h-auto max-lg:min-h-11 w-full items-start justify-start gap-2 px-3 py-2.5 text-left"
+                className="h-auto max-lg:min-h-11 w-full min-w-0 shrink items-start justify-start gap-2 whitespace-normal px-3 py-2.5 text-left"
               >
                 <a href={item.href} target="_blank" rel="noreferrer noopener">
                   <ExternalLink className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" aria-hidden />
