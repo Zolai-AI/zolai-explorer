@@ -96,6 +96,9 @@ async function testLogin(s: Session) {
   check('gated /review renders its content, not an access gate', !/access required/i.test(review))
 
   await s.goto(`${STUDIO}/assistant`)
+  // The role-gated affordances render once /auth/me answers; reading the page
+  // immediately races that and reports a missing control that is about to appear.
+  await s.waitFor(`/Admin mode/.test(document.querySelector('main').innerText)`, 15_000)
   const assistant = await s.eval<string>(`document.querySelector('main').innerText`)
   check(
     'admin-only assistant toggle appears for an admin',
