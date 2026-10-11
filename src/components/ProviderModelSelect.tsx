@@ -65,14 +65,31 @@ export function ProviderModelSelect({
   const seeded = useRef(false)
 
   useEffect(() => {
-    if (seeded.current || catalog.isPending || catalog.isError) return
-    if (value.provider !== '' || items.length === 0) {
+    if (catalog.isPending || catalog.isError) return
+    if (value.provider !== '') {
+      // The provider is already chosen (by a seed, a pick, or restored state) —
+      // never replace it. What still needs repairing is an *empty* model: a
+      // provider with a published list must resolve to its own default
+      // (`selected_model`, else the first model) instead of going out blank.
       seeded.current = true
+      if (value.model === '') {
+        const row = items.find((item) => item.catalog_id === value.provider)
+        const model = row?.selected_model || row?.models[0] || ''
+        if (model !== '') onChange({ provider: value.provider, model })
+      }
       return
     }
+    if (seeded.current || items.length === 0) return
     seeded.current = true
     onChange(defaultSelection(items))
-  }, [catalog.isPending, catalog.isError, items, value.provider, onChange])
+  }, [
+    catalog.isPending,
+    catalog.isError,
+    items,
+    value.provider,
+    value.model,
+    onChange,
+  ])
 
   const pickProvider = (catalogId: string) => {
     const row = items.find((item) => item.catalog_id === catalogId)

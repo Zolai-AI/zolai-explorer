@@ -23,7 +23,7 @@ bun run dev        # http://localhost:5173/  (proxies /api + /health upstream)
 | `bun run dev` | Vite dev server with `/api` + `/health` proxied to `https://api.zolai.space` |
 | `bun run build` | `tsc -b` then `vite build` → `dist/` |
 | `bun run typecheck` | Type check only (`tsc -b --force`) |
-| `bun run test` | Vitest suite (374 tests) |
+| `bun run test` | Vitest suite (379 tests) |
 | `bun run deploy` | `vite build` + rsync to `pcore-server:/var/www/zolai-studio` + `nginx -t` + reload |
 
 Requires **bun** (1.4.1+). Never npm/yarn — this is a workspace-wide convention.
@@ -76,7 +76,7 @@ storage backend so the round-trip is unit tested without jsdom.
 | `/analyze` | Sentence tokenisation + paragraph segmentation | `/api/v1/analyze/sentence`, `/api/v1/analyze/paragraph` |
 | `/search` | Lexical corpus search with per-source grouping | `/api/v1/search` |
 | `/rag` | Retrieval with honest placeholder labelling | `/api/v1/rag` |
-| `/assistant` | Assistant chat — public route is honest `retrieval_only` when no provider is active; admin mode adds provider/model and the tool trace. Both modes carry a **provider/model selector** fed by `GET /api/v1/providers` (no hardcoded provider or model anywhere in `src/`); the answer shows the `provider · model` the server actually used, plus what was requested | `GET /api/v1/providers`, `POST /api/v1/assistant/chat`, `POST /api/v1/admin/assistant/chat` |
+| `/assistant` | Assistant chat — public route is honest `retrieval_only` when no provider is active; admin mode adds provider/model and the tool trace. Both modes carry a **provider/model selector** fed by `GET /api/v1/providers` (no hardcoded provider or model anywhere in `src/`); the answer shows the `provider · model` the server actually used, plus what was requested. A pasted own key travels as **`api_key` only** against the selected catalog row — the client never sends `user_provider` and never names a vendor | `GET /api/v1/providers`, `POST /api/v1/assistant/chat`, `POST /api/v1/admin/assistant/chat` |
 | `/agent` | Goal-driven research runs with phase trace and feedback (member+); the same provider/model selector sits above the goal input and travels in the run body | `GET /api/v1/providers`, `POST /api/v1/agent/runs`, `GET /api/v1/agent/runs/{run_id}`, `POST /api/v1/agent/runs/{run_id}/feedback` |
 | `/data` | Collection table (zero-based `#`, bars from zero, `?collection=` filter), knowledge version, health | `/api/v1/knowledge/statistics`, `/api/v1/knowledge/version`, `/health` |
 | `/links` | Endpoint reference, server-rendered links, known gaps | — (renders `src/lib/endpoints.ts`) |
@@ -362,7 +362,7 @@ The same list is rendered as cards on `/links` under "Known API gaps".
 bun run test
 ```
 
-374 Vitest specs across twenty-one files:
+379 Vitest specs across twenty-one files:
 
 - `src/lib/api.test.ts` — 401 → `ApiError` with `needsKey`; 15s timeout budget and abort →
   `timeout` / `aborted` distinction; transport failure → `network`; **empty body tolerated** instead
@@ -389,7 +389,8 @@ bun run test
   command palette's role filter.
 - `src/features/agent/api.test.ts` — run timeout budget and the `POST /agent/runs`,
   `GET /agent/runs/{id}` and feedback transports (method, path, body).
-- `src/features/assistant/api.test.ts` — `assistantChatPath` public/admin routing and the
+- `src/features/assistant/api.test.ts` — `assistantChatPath` public/admin routing, the
+  `assistantChatBody` shape (provider/model/`api_key` in, **never `user_provider`**) and the
   `postAssistantChat` transport.
 - `src/features/settings/api.test.ts` — the `/admin/ai-providers` catalog transports (list, PUT,
   activate, test).

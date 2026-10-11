@@ -344,13 +344,13 @@ export type RefreshModels = z.infer<typeof RefreshModelsSchema>
  * Empty strings mean "no override — keep the server default", and the response
  * echoes what was asked for as `requested_provider` / `requested_model`.
  *
- * `user_provider` is an optional per-request provider override for
- * user-provided keys (OpenAI, OpenRouter, Gemini, custom).
+ * There is deliberately **no `user_provider`**: the client never names a
+ * vendor. A pasted key travels as `api_key` and is applied by the server to
+ * the catalog row named by `provider`.
  */
 export const ProviderSelectionSchema = z.object({
   provider: str,
   model: str,
-  user_provider: str.optional(),
 })
 export type ProviderSelection = z.infer<typeof ProviderSelectionSchema>
 

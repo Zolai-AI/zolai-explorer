@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ASSISTANT_TIMEOUT_MS, assistantChatPath, postAssistantChat } from './api'
+import {
+  ASSISTANT_TIMEOUT_MS,
+  assistantChatBody,
+  assistantChatPath,
+  postAssistantChat,
+} from './api'
 import { ApiError } from '../../lib/api'
+import type { ProviderSelection } from '../../lib/schemas'
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -49,6 +55,65 @@ describe('assistantChatPath', () => {
 
   it('routes admin chat to the strict path', () => {
     expect(assistantChatPath('admin')).toBe('/admin/assistant/chat')
+  })
+})
+
+describe('assistantChatBody', () => {
+  it('carries the message alone when nothing was chosen or pasted', () => {
+    expect(assistantChatBody('what is pasian?')).toEqual({ message: 'what is pasian?' })
+  })
+
+  it('includes provider, model and api_key when a target is chosen and a key pasted', () => {
+    const body = assistantChatBody('hi', { provider: 'row-a', model: 'model-1' }, 'test-key-placeholder')
+
+    expect(body).toEqual({
+      message: 'hi',
+      provider: 'row-a',
+      model: 'model-1',
+      api_key: 'test-key-placeholder',
+    })
+  })
+
+  it('omits empty provider/model/api_key fields instead of sending blanks', () => {
+    expect(assistantChatBody('hi', { provider: '', model: '' })).toEqual({ message: 'hi' })
+    expect(assistantChatBody('hi', undefined, '')).toEqual({ message: 'hi' })
+  })
+
+  it('never sends user_provider — the client never names a vendor', () => {
+    // A legacy caller that still holds a `user_provider` value must not be able
+    // to smuggle it into the body: the target is always the catalog selection.
+    const legacy = {
+      provider: 'row-a',
+      model: 'model-1',
+      user_provider: 'a-vendor',
+    } as unknown as ProviderSelection
+
+    const body = assistantChatBody('hi', legacy, 'test-key-placeholder')
+
+    expect(body).toEqual({
+      message: 'hi',
+      provider: 'row-a',
+      model: 'model-1',
+      api_key: 'test-key-placeholder',
+    })
+    expect(Object.keys(body)).not.toContain('user_provider')
+    expect(JSON.stringify(body)).not.toContain('user_provider')
+  })
+
+  it('sends that same shape over the wire, and still no user_provider', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(RETRIEVAL_ONLY))
+
+    await postAssistantChat('hi', 'public', { provider: 'row-a', model: 'model-1' }, 'test-key-placeholder')
+
+    const [url, init] = lastCall()
+    expect(url).toBe('/api/v1/assistant/chat')
+    expect(JSON.parse(String(init.body))).toEqual({
+      message: 'hi',
+      provider: 'row-a',
+      model: 'model-1',
+      api_key: 'test-key-placeholder',
+    })
+    expect(String(init.body)).not.toContain('user_provider')
   })
 })
 

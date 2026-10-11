@@ -1,7 +1,8 @@
-import { useCallback, useState, type FormEvent } from 'react'
-import { MessageSquareQuote, Send, ShieldCheck, Wrench, Key, Lock } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { MessageSquareQuote, Send, ShieldCheck, Wrench, Key, Lock, Copy, ThumbsUp, ThumbsDown } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAssistantChat, type AssistantMode } from '../features/assistant/api'
+import { useProviderCatalog } from '../features/providers/api'
 import { Card } from '../components/Card'
 import { Empty } from '../components/Empty'
 import { ErrorState } from '../components/ErrorState'
@@ -13,13 +14,7 @@ import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Switch } from '../components/ui/switch'
 import { Textarea } from '../components/ui/textarea'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../components/ui/select'
+import { Field, FieldDescription, FieldLabel } from '../components/ui/field'
 import { can, useRole } from '../lib/auth'
 import { formatCount, formatScore } from '../lib/format'
 import type { ChatResponse, ProviderSelection } from '../lib/schemas'
@@ -41,8 +36,10 @@ type Exchange = {
  *   route is strict role + scope gated server-side;
  * - admin mode shows `provider`/`model` and the tool trace; public mode shows
  *   citations only.
- * - users can provide their own API key for the public assistant to use their
- *   own provider (OpenAI, OpenRouter, etc.) without server-side storage.
+ * - a caller can paste their own API key for **this request only**: it travels
+ *   as `api_key` against the selected catalog row, is never stored server-side,
+ *   and the client never sends a provider of its own — the target is always the
+ *   server's catalog selection.
  */
 export function Assistant() {
   const role = useRole()
@@ -52,12 +49,23 @@ export function Assistant() {
   // Per-request target chosen in the selector — sent as `provider`/`model`,
   // echoed back by the server as `requested_*` plus the `provider · model` used.
   const [selection, setSelection] = useState<ProviderSelection>({ provider: '', model: '' })
-  // User-provided API key for the public assistant (not stored server-side)
+  // User-provided API key for the public assistant (not stored server-side).
   const [userApiKey, setUserApiKey] = useState('')
-  const [userProvider, setUserProvider] = useState('openai')
   const [showApiKeyInput, setShowApiKeyInput] = useState(false)
   const [history, setHistory] = useState<Exchange[]>([])
   const chat = useAssistantChat()
+  // Catalog rows, for the honest key label — names come from the payload.
+  const catalogItems = useProviderCatalog().data?.items ?? []
+  // Single-flight guard: `chat.isPending` only flips on the next render, so a
+  // second submit in the same tick would otherwise fire a second POST.
+  const submitting = useRef(false)
+
+  // A key pasted for one catalog row is not valid for another (different
+  // base_url/adapter), so switching the target drops it rather than sending it
+  // somewhere it does not belong.
+  useEffect(() => {
+    setUserApiKey('')
+  }, [selection.provider])
 
   // The admin switch must not outlive the role it was enabled by (key cleared).
   const activeMode: AssistantMode = isAdmin ? mode : 'public'
@@ -66,9 +74,10 @@ export function Assistant() {
     (event: FormEvent) => {
       event.preventDefault()
       const clean = message.trim()
-      if (!clean || chat.isPending) return
+      if (!clean || submitting.current || chat.isPending) return
+      submitting.current = true
       chat.mutate(
-        { message: clean, mode: activeMode, selection, userApiKey: userApiKey || undefined, userProvider: userProvider || undefined },
+        { message: clean, mode: activeMode, selection, userApiKey: userApiKey || undefined },
         {
           onSuccess: (response) => {
             setHistory((previous) => [
@@ -82,18 +91,39 @@ export function Assistant() {
             toast.error('Chat failed', {
               description: error instanceof Error ? error.message : String(error),
             }),
+          onSettled: () => {
+            submitting.current = false
+          },
         },
       )
     },
-    [activeMode, chat, message, selection, userApiKey, userProvider],
+    [activeMode, chat, message, selection, userApiKey],
   )
 
   // Label the latest answer with the mode it was actually produced under —
   // the toggle only describes what the *next* send will use.
   const last = [...history].reverse().find((entry) => entry.role === 'assistant')
 
+  // The pasted key is only ever used by the catalog row the selector is on, so
+  // the label names that row — never a vendor chosen by the client.
+  const selectedRow = catalogItems.find((item) => item.catalog_id === selection.provider)
+  const apiKeyLabel = `API key for ${selectedRow?.name || selectedRow?.catalog_id || 'the selected provider'}`
+
+  const handleCopy = useCallback((text: string) => {
+    navigator.clipboard.writeText(text)
+    toast.success('Copied to clipboard')
+  }, [])
+
+  const handleFeedback = useCallback((_response: ChatResponse, score: 1 | -1) => {
+    // No feedback endpoint exists yet — say so instead of thanking the user
+    // for a send that never happened.
+    toast.info(score === 1 ? 'Marked helpful — noted locally' : 'Marked not helpful — noted locally', {
+      description: 'Feedback is not sent to the server yet — nothing was recorded.',
+    })
+  }, [])
+
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-5 h-full max-h-[calc(100vh-8rem)]">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
@@ -101,8 +131,10 @@ export function Assistant() {
             Assistant
           </h1>
           <p className="mt-1 max-w-prose text-sm text-muted-foreground">
-            Retrieval-grounded chat over the knowledge base. With no active provider the server
-            answers honestly from retrieval — no model is called. Add your own API key to use a model.
+            Retrieval-grounded chat over the knowledge base. A catalog provider only answers with a
+            model when an API key is in play — one configured for that catalog row on the server, or
+            one you paste below. With no key the server answers honestly from retrieval: no model is
+            called.
           </p>
         </div>
 
@@ -126,7 +158,9 @@ export function Assistant() {
           <AlertDescription>
             Posting to <span className="font-mono">/assistant/chat</span> — anonymous-safe in every
             auth mode, retrieval tools only. An admin key unlocks the admin route with the full
-            tool set and trace. Provide your own API key below to enable model generation.
+            tool set and trace. The selected catalog provider needs an API key to answer with a
+            model — one configured server-side for that row, or one you paste below for this
+            request only. With no key, the server answers from retrieval and says so.
           </AlertDescription>
         </Alert>
       )}
@@ -157,59 +191,40 @@ export function Assistant() {
               </Button>
 
               {showApiKeyInput && (
-                <div className="flex flex-col gap-2">
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Provider (for your key)</label>
-                      <Select value={userProvider} onValueChange={setUserProvider}>
-                        <SelectTrigger className="h-10 w-full">
-                          <SelectValue placeholder="Select provider…" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="openai">OpenAI</SelectItem>
-                          <SelectItem value="openrouter">OpenRouter</SelectItem>
-                          <SelectItem value="gemini">Gemini</SelectItem>
-                          <SelectItem value="custom">Custom (OpenAI-compatible)</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Model</label>
-                      <Input
-                        type="text"
-                        placeholder="your model id (e.g. from the provider's model list)"
-                        className="h-10 font-mono text-sm"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1">API Key</label>
-                    <Input
-                      type="password"
-                      autoComplete="off"
-                      spellCheck={false}
-                      value={userApiKey}
-                      onChange={(e) => setUserApiKey(e.target.value)}
-                      placeholder="Paste your API key (sk-..., or your provider's key format)"
-                      className="h-10 font-mono text-sm"
-                    />
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Your key is sent only with this request over HTTPS. It is not stored on the server.
-                    </p>
-                  </div>
-                </div>
+                <Field>
+                  <FieldLabel htmlFor="assistant-api-key">{apiKeyLabel}</FieldLabel>
+                  <Input
+                    id="assistant-api-key"
+                    type="password"
+                    autoComplete="off"
+                    spellCheck={false}
+                    value={userApiKey}
+                    onChange={(event) => setUserApiKey(event.target.value)}
+                    placeholder="Paste your API key"
+                    className="h-10 font-mono text-sm"
+                  />
+                  <FieldDescription>
+                    Sent only with this request over HTTPS and never stored on the server. The
+                    server calls the <strong>selected catalog provider</strong> with it — switching
+                    the provider above clears the field, because a key for one vendor is not valid
+                    for another.
+                  </FieldDescription>
+                </Field>
               )}
             </div>
           )}
 
-          <Textarea
-            value={message}
-            onChange={(event) => setMessage(event.target.value)}
-            placeholder="Ask about a Zolai word, verse or grammar rule…"
-            rows={3}
-            className="min-h-20 resize-y"
-            aria-label="Message for the assistant"
-          />
+          <Field>
+            <FieldLabel htmlFor="assistant-message">Message</FieldLabel>
+            <Textarea
+              id="assistant-message"
+              value={message}
+              onChange={(event) => setMessage(event.target.value)}
+              placeholder="Ask about a Zolai word, verse or grammar rule…"
+              rows={3}
+              className="min-h-20 resize-y"
+            />
+          </Field>
           <div className="flex justify-end">
             <Button type="submit" disabled={!message.trim() || chat.isPending} className="h-10">
               <Send aria-hidden />
@@ -236,12 +251,12 @@ export function Assistant() {
           hint="Ask a question. Answers carry citations back to the corpus; without an active provider the server says so instead of inventing text."
         />
       ) : (
-        <AnswerPanel response={last.response} mode={last.mode} />
+        <AnswerPanel response={last.response} mode={last.mode} onCopy={handleCopy} onFeedback={handleFeedback} />
       )}
 
       {history.length > 0 && (
         <Card title="Transcript" subtitle={`${history.length} messages`} tone="muted">
-          <ol className="flex flex-col gap-3">
+          <ol className="flex flex-col gap-3 max-h-96 overflow-y-auto">
             {history.map((entry, index) => (
               <li
                 key={index}
@@ -268,7 +283,7 @@ export function Assistant() {
   )
 }
 
-function AnswerPanel({ response, mode }: { response: ChatResponse; mode: AssistantMode }) {
+function AnswerPanel({ response, mode, onCopy, onFeedback }: { response: ChatResponse; mode: AssistantMode; onCopy: (text: string) => void; onFeedback: (response: ChatResponse, score: 1 | -1) => void }) {
   const retrievalOnly = response.retrieval_only
   const citations = response.citations ?? []
 
@@ -283,14 +298,47 @@ function AnswerPanel({ response, mode }: { response: ChatResponse; mode: Assista
         }
         tone={retrievalOnly ? 'muted' : 'accent'}
         actions={
-          retrievalOnly ? (
-            <Badge variant="outline">retrieval_only</Badge>
-          ) : (
-            <Badge>generated</Badge>
-          )
+          <>
+            {retrievalOnly ? (
+              <Badge variant="outline">retrieval_only</Badge>
+            ) : (
+              <Badge>generated</Badge>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="max-lg:h-10"
+              onClick={() => onCopy(response.answer)}
+              aria-label="Copy answer"
+            >
+              <Copy className="size-4" aria-hidden />
+            </Button>
+          </>
         }
       >
         <p className="text-sm leading-relaxed whitespace-pre-wrap">{response.answer}</p>
+        <div className="flex flex-wrap gap-2 mt-3">
+          <Button
+            variant="outline"
+            size="sm"
+            className="max-lg:h-10"
+            onClick={() => onFeedback(response, 1)}
+            aria-label="Helpful"
+          >
+            <ThumbsUp className="size-4" aria-hidden />
+            Helpful
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="max-lg:h-10"
+            onClick={() => onFeedback(response, -1)}
+            aria-label="Not helpful"
+          >
+            <ThumbsDown className="size-4" aria-hidden />
+            Not helpful
+          </Button>
+        </div>
         <dl className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
           <div>
             <dt className="inline">Latency </dt>
