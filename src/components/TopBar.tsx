@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { LogIn, ShieldCheck, KeyRound } from 'lucide-react'
+import { LogIn, LogOut, ShieldCheck, KeyRound } from 'lucide-react'
+import { toast } from 'sonner'
 import { HealthPill } from './HealthPill'
 import { useApiKey } from './KeyDialog'
 import { ThemeToggle } from './ThemeToggle'
@@ -9,7 +10,8 @@ import { Badge } from './ui/badge'
 import { Button } from './ui/button'
 import { roleBadge, useAuthMe } from '../lib/auth'
 import { signInPath } from '../lib/routes'
-import { signInEntry } from '../lib/signIn'
+import { signInEntry, signInFooterEntry } from '../lib/signIn'
+import { signOut } from '../lib/session'
 import { cn } from '../lib/utils'
 
 /**
@@ -29,6 +31,14 @@ import { cn } from '../lib/utils'
  * to icon-only width below `lg` for the two key controls), the icons keep a 40px
  * touch target at every width. The palette trigger is visible at all widths
  * (icon-only below `sm`) so ⌘K is never the only way in.
+ *
+ * **Sign-out below `lg`**: the persistent `<aside>` is `hidden … lg:block`, so
+ * under that breakpoint the sidebar footer — where sign-out had always lived —
+ * is inside the hamburger `<Sheet>` and cost two taps to reach. The control is
+ * mirrored here, icon-only and only while a credential is active, so an
+ * identified user can end their session from any screen in one tap. It is
+ * hidden from `lg` up, where the sidebar footer already shows the labelled
+ * button, so there is never a duplicate.
  */
 export function TopBar({
   nav,
@@ -43,6 +53,9 @@ export function TopBar({
   const me = useAuthMe()
   const location = useLocation()
   const entry = signInEntry({ role: me.role, keyPrefix: me.key_prefix })
+  // Same derivation as the sidebar footer: `action: 'sign-out'` only when the
+  // server reports an identified role.
+  const footer = signInFooterEntry({ role: me.role, keyPrefix: me.key_prefix })
   const badge = roleBadge(me.role)
 
   return (
@@ -124,6 +137,30 @@ export function TopBar({
             <span className="sr-only sm:hidden">{entry.label}</span>
           </Link>
         </Button>
+
+        {/* Sign-out, below `lg` only, and only when there is something to end.
+            Mirrors the sidebar footer so the drawer is not the sole route to
+            dropping a session. `signInFooterEntry` is the same source of truth
+            the sidebar uses, so label/title/behaviour cannot drift apart. */}
+        {!entry.anonymous && (
+          <Button
+            variant="ghost"
+            className="max-lg:h-10 max-lg:w-10 max-lg:justify-center max-lg:px-0 shrink-0 lg:hidden"
+            title={footer.title}
+            aria-label={footer.label}
+            onClick={() => {
+              void signOut().then((result) => {
+                toast.info(
+                  result.kind === 'session'
+                    ? `Signed out — the session for ${result.username ?? 'this account'} is gone.`
+                    : 'Signed out — the stored API key is gone.',
+                )
+              })
+            }}
+          >
+            <LogOut aria-hidden />
+          </Button>
+        )}
       </div>
     </header>
   )
