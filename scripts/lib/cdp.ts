@@ -76,6 +76,13 @@ export class Session {
 
     await this.send('Page.enable')
     await this.send('Runtime.enable')
+    // A headless tab is not the OS-focused window, so `document.hasFocus()` is
+    // false until something asks otherwise; `Input.*` is then routed to
+    // whichever tab the browser considers focused. `bringToFront` names this tab
+    // and focus emulation makes the renderer treat it as focused — together they
+    // are what makes a dispatched click land here rather than nowhere.
+    await this.send('Emulation.setFocusEmulationEnabled', { enabled: true })
+    await this.send('Page.bringToFront')
   }
 
   send(method: string, params: Record<string, unknown> = {}): Promise<any> {
@@ -133,28 +140,38 @@ export class Session {
   }
 
   /**
-   * Click an element with a **real** mouse event.
+   * Click an element the way a user does, and **verify that it landed**.
    *
-   * `element.click()` is not equivalent: a control that reacts to the pointer
-   * sequence ignores a synthetic click, so a test written with it reports a
-   * working button as dead — which is exactly what happened to the sign-out
-   * check. Always use this for anything a user clicks.
+   * A bare `element.click()` is not equivalent: a control that reacts to the
+   * pointer sequence ignores a synthetic click, so a test written with it reports
+   * a working button as dead. So the browser-level `Input.*` sequence is always
+   * tried first. But that sequence is not dependable either — in this headless
+   * Chrome it is sometimes accepted and then dropped, with no error and no DOM
+   * event, which reports a working control as clicked while nothing happened.
+   * The click is therefore confirmed against a listener in the page and, when
+   * the browser dropped it, replayed as the same pointer sequence from inside
+   * the page (which is what the Radix controls here listen for).
    *
-   * The selector is resolved in the page, and a `find` expression may be passed
+   * The selector is resolved in the page, and a `text=` prefix may be passed
    * instead of a selector to target by visible text.
    */
   async click(target: string): Promise<boolean> {
-    const find = (scroll: boolean) => `(() => {
+    // Resolve the target the same way for measuring and for the fallback below:
+    // a `text=` prefix matches visible text case-insensitively as a plain
+    // substring (deliberately not a RegExp — building one inside this template
+    // literal means two layers of slash-escaping, which silently produced a
+    // pattern that matched nothing), otherwise it is a CSS selector.
+    const pick = `(() => {
       const sel = ${JSON.stringify(target)};
-      // A "text=" prefix matches by visible text, case-insensitively, as a plain
-      // substring. Deliberately not a RegExp: building one inside this template
-      // literal means two layers of slash-escaping, which silently produced a
-      // pattern that matched nothing.
       const needle = sel.startsWith('text=') ? sel.slice(5).toLowerCase() : '';
-      const el = needle
+      return needle
         ? [...document.querySelectorAll('button, a[href], [role="button"], [role="switch"]')]
-            .find(x => (x.innerText || x.textContent || '').toLowerCase().includes(needle))
+            .find(x => (x.innerText || x.textContent || '').toLowerCase().includes(needle)) ?? null
         : document.querySelector(sel);
+    })()`
+
+    const measure = (scroll: boolean) => `(() => {
+      const el = ${pick};
       if (!el) return null;
       ${scroll ? `el.scrollIntoView({ block: 'center', inline: 'center' });` : ''}
       const r = el.getBoundingClientRect();
@@ -164,22 +181,73 @@ export class Session {
       };
     })()`
 
-    let box = await this.eval<{ x: number; y: number; inView: boolean } | null>(find(false))
+    let box = await this.eval<{ x: number; y: number; inView: boolean } | null>(measure(false))
     if (!box) return false
     // Scroll only when the control is actually off screen, then **re-measure**.
     // The app shell's sidebar is `position: sticky`, so scrolling it moves the
     // element again after the first measurement — clicking the stale coordinates
     // landed on empty space and the handler never ran.
     if (!box.inView) {
-      await this.eval(find(true))
+      await this.eval(measure(true))
       await sleep(250)
-      box = (await this.eval<typeof box>(find(false))) ?? box
+      box = (await this.eval<typeof box>(measure(false))) ?? box
     }
-    for (const type of ['mousePressed', 'mouseReleased']) {
-      await this.send('Input.dispatchMouseEvent', { type, x: box.x, y: box.y, button: 'left', clickCount: 1 })
+
+    await this.send('Page.bringToFront')
+    try {
+      await this.waitFor('document.hasFocus()', 2_000)
+    } catch {
+      // Best-effort: dispatch anyway rather than hang the suite.
     }
-    await sleep(120)
-    return true
+
+    // Record whether the input actually reaches the page. In this headless
+    // Chrome the `Input.*` sequence is sometimes accepted and then **dropped**:
+    // `dispatchMouseEvent` returns an empty result with no error, the page
+    // receives no event at all (traced: zero pointerdown/mouseup/click), and a
+    // check on top of it reports a working control as clicked while nothing
+    // happened. That is what made the sign-out assertions fail intermittently.
+    await this.eval(`(() => {
+      window.__zolaiClick = 0;
+      document.addEventListener('click', () => { window.__zolaiClick++ }, { capture: true, once: true });
+    })()`)
+
+    // Move first, then press, then release, with the right `buttons` mask.
+    // Press+release alone is accepted by CDP but produces no DOM click at all,
+    // so positioning the pointer first gives Chrome a hover target to press on.
+    await this.send('Input.dispatchMouseEvent', {
+      type: 'mouseMoved', x: box.x, y: box.y, buttons: 0,
+    })
+    await this.send('Input.dispatchMouseEvent', {
+      type: 'mousePressed', x: box.x, y: box.y, button: 'left', buttons: 1, clickCount: 1,
+    })
+    await this.send('Input.dispatchMouseEvent', {
+      type: 'mouseReleased', x: box.x, y: box.y, button: 'left', buttons: 0, clickCount: 1,
+    })
+    await sleep(150)
+    if (await this.eval<number>('window.__zolaiClick || 0')) return true
+
+    // The browser-level input was dropped. Drive the same pointer sequence from
+    // inside the page instead: pointerover → pointerdown → mousedown →
+    // pointerup → mouseup → click. That is the sequence controls which react to
+    // the pointer — the Radix primitives in this UI among them — actually listen
+    // for; only Chrome's own input layer, the part that is failing, is skipped.
+    console.log(`    [click] browser input was dropped; used the in-page pointer sequence for ${target}`)
+    return await this.eval<boolean>(`(() => {
+      const el = ${pick};
+      if (!el) return false;
+      const r = el.getBoundingClientRect();
+      const init = {
+        bubbles: true, cancelable: true, composed: true, button: 0, buttons: 1,
+        clientX: r.x + r.width / 2, clientY: r.y + r.height / 2,
+      };
+      el.dispatchEvent(new PointerEvent('pointerover', { ...init, buttons: 0 }));
+      el.dispatchEvent(new PointerEvent('pointerdown', init));
+      el.dispatchEvent(new MouseEvent('mousedown', init));
+      el.dispatchEvent(new PointerEvent('pointerup', { ...init, buttons: 0 }));
+      el.dispatchEvent(new MouseEvent('mouseup', { ...init, buttons: 0 }));
+      el.click();
+      return true;
+    })()`)
   }
 
   async screenshot(): Promise<string> {

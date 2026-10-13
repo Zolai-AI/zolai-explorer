@@ -116,6 +116,13 @@ async function testLogin(s: Session) {
     !/access required/i.test(await s.eval<string>(`document.querySelector('main').innerText`)),
   )
 
+  // The control appears only once the identity query has resolved, and this API
+  // answers /auth/me in seconds — a click issued at the fixed settle delay
+  // raced the render and reported a control that is about to appear as missing.
+  await s.waitFor(
+    `[...document.querySelectorAll('button, a[href]')].some(x => (x.innerText || '').toLowerCase().includes('sign out'))`,
+    25_000,
+  )
   const clicked = await s.click('text=sign out')
   check('sign-out control was found and clicked', clicked)
   // Wait on the condition, not a fixed sleep: the logout round-trip plus the
@@ -144,9 +151,17 @@ async function testLogin(s: Session) {
   check('sign out drops the admin role', /currently anonymous/i.test(after))
 
   await s.goto(`${STUDIO}/settings`)
+  // Wait on the condition: the gate renders a skeleton while the identity
+  // query re-fetches, so a snapshot taken at the fixed settle delay sometimes
+  // caught the skeleton and reported a signed-out user as still signed in.
+  const stillOut = await s.waitFor(
+    `/access required/i.test(document.querySelector('main').innerText)`,
+    20_000,
+  )
   check(
     'still signed out after a full page load',
-    /access required/i.test(await s.eval<string>(`document.querySelector('main').innerText`)),
+    stillOut,
+    stillOut ? '' : `main: ${(await s.eval<string>(`document.querySelector('main').innerText`)).slice(0, 60)}`,
   )
 }
 
