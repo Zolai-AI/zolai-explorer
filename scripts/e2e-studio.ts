@@ -163,15 +163,36 @@ async function testLogin(s: Session) {
     stillOut,
     stillOut ? '' : `main: ${(await s.eval<string>(`document.querySelector('main').innerText`)).slice(0, 60)}`,
   )
+
+  // --- the mobile half of sign-out ---------------------------------------
+  // Below `lg` the sidebar is a closed drawer, so the TopBar's icon-only control
+  // is the only way out. It has render guards in `TopBar.test.tsx` but no
+  // browser proof until this ran. The sidebar's own "Sign out" is `display:none`
+  // at this width, so the control is targeted by its accessible name rather than
+  // by text — a text match would resolve the hidden sidebar button at a 0x0 rect.
+  await s.setViewport(390, 844)
+  await s.goto(`${STUDIO}/login`)
+  await s.eval(setReactValue('#login-username', USER!))
+  await s.eval(setReactValue('#login-password', PASS!))
+  await s.eval(`[...document.querySelectorAll('button[type=submit]')].find(b => /Sign in/.test(b.innerText)).click()`)
+  await s.waitFor(`!!sessionStorage.getItem('zolai.session')`, 30_000)
+  await s.goto(`${STUDIO}/settings`)
+
+  const MOBILE_OUT = 'header [aria-label="Sign out"]'
+  check('mobile: the icon-only sign-out is reachable below lg', await s.waitFor(`!!document.querySelector('${MOBILE_OUT}')`, 25_000))
+  check('mobile: sign-out control was found and clicked', await s.click(MOBILE_OUT))
+  const mobileCleared = await s.waitFor(`!sessionStorage.getItem('zolai.session')`, 15_000)
+  check('mobile: sign-out cleared the session', mobileCleared, mobileCleared ? '' : 'session survived the click')
+  await s.setViewport(1280, 900)
 }
 
 const tab = await newTab('about:blank')
 const s = new Session(tab)
 await s.open()
-// Pin the viewport. The default headless window is ~780x493, which is below the
-// `lg` breakpoint where the sidebar is persistent — the sign-out control then
-// lives in a closed mobile drawer with a 0x0 rect, and the click silently did
-// nothing. 1280x900 matches the persistent-sidebar layout.
+// Pin the viewport to the persistent-sidebar layout. The default headless
+// window is ~780x493, which is below the `lg` breakpoint; the desktop checks
+// (and the sidebar sign-out they used to depend on) assume the sidebar is on
+// screen. The mobile half of the sign-out check re-pins to 390x844 itself.
 await s.setViewport(1280, 900)
 try {
   await testChat(s)
