@@ -6,7 +6,8 @@ React + Vite + TypeScript + shadcn/ui + TanStack Query app served on its own hos
 (`/explorer*` on that host 301-redirects here).
 
 It is a workbench, not a set of bare JSON forms: every panel renders semantic cards, tables and
-grids, collapses the sections the API has not populated yet, and labels the RAG placeholder answer
+grids, collapses the sections the API has not populated yet, and labels whether a RAG answer was
+model-written or served as evidence
 for what it is. The exact payload stays one click away in a collapsible **raw JSON** disclosure.
 
 ---
@@ -75,7 +76,7 @@ storage backend so the round-trip is unit tested without jsdom.
 | `/word`, `/word/:word` | Word entry + 5 sub-resource tabs, each with a server-side `limit` | `/api/v1/word/{word}` and `/api/v1/word/{word}/{forms,contexts,collocations,patterns,evidence}` |
 | `/analyze` | Sentence tokenisation + paragraph segmentation | `/api/v1/analyze/sentence`, `/api/v1/analyze/paragraph` |
 | `/search` | Lexical corpus search with per-source grouping | `/api/v1/search` |
-| `/rag` | Retrieval with honest placeholder labelling | `/api/v1/rag` |
+| `/rag` | Retrieval, citations, and a model-written answer labelled with its provenance | `/api/v1/rag` |
 | `/assistant` | Assistant chat — public route is honest `retrieval_only` when no provider is active; admin mode adds provider/model and the tool trace. Both modes carry a **provider/model selector** fed by `GET /api/v1/providers` (no hardcoded provider or model anywhere in `src/`) and **no override is sent unless you choose one** — an empty selection leaves the server to pick its own target (`Use server default` clears it again); the answer shows the `provider · model` the server actually used, plus what was requested. A pasted own key travels as **`api_key` only** against the **selected** catalog row — the client never sends `user_provider` and never names a vendor, so the key control stays disabled until a provider is chosen | `GET /api/v1/providers`, `POST /api/v1/assistant/chat`, `POST /api/v1/admin/assistant/chat`, `POST /api/v1/assistant/feedback` |
 | `/contribute` | Public contribution form for submitting dictionary additions, corrections, usage examples, and grammar notes. Submissions are queued for editorial review. | `POST /api/v1/contributions` |
 | `/agent` | Goal-driven research runs with phase trace and feedback (member+); the same provider/model selector sits above the goal input and travels in the run body | `GET /api/v1/providers`, `POST /api/v1/agent/runs`, `GET /api/v1/agent/runs/{run_id}`, `POST /api/v1/agent/runs/{run_id}/feedback` |
@@ -338,18 +339,24 @@ Authored mobile-first — base classes are the small-screen layout and `sm:` / `
 
 The app is explicit about the deployment's real capabilities, so a panel is never mistaken for a bug:
 
-- **`/rag` does not call a model.** Retrieval is real — `context` and `citations` come from the
-  corpus — but `answer` is a template echo, because the server holds a placeholder
-  `GEMINI_API_KEY`. The RAG panel carries a permanent amber notice and the answer is rendered in a
-  panel titled *"Placeholder answer — not LLM-generated"*.
-- **`/analyze/sentence` returns empty `pos`, `grammar` and `entities`.** Only tokens are rendered;
-  the rest is a labelled placeholder with the server's own note.
+- **`/rag` writes its answer with the resolved provider, and says which.** Retrieval is real —
+  `context` and `citations` come from the corpus — and `answer` is now written by the provider the
+  request resolves, the same path the assistant uses. The response states which: `generated`,
+  `retrieval_only`, `provider`, `model` and `provider_error`. The panel titles the result
+  *"Answer"* or *"Evidence only — no model wrote this answer"* on those flags, never by
+  pattern-matching the prose. A request may also override `provider` / `model` per call.
+  **On the current deployment no provider key resolves, so every answer is honest retrieved
+  evidence** — see the S1 provider entry in `docs/OPEN-ISSUES.md`.
+- **`/analyze/sentence` returns empty `pos`, `grammar` and `entities`.** Re-verified against the
+  deployment: 6 tokens, 0 pos, 0 grammar, 0 entities. Only tokens are rendered; the rest is
+  labelled with the server's own note.
 - **`sentence_frequency` is always 0** → shown as `—`.
 - **`morphology` and `forms` are usually empty** → collapsed with a pointer to the Forms tab.
-- **`/review/stats` is not available on the versioned API.** `/api/v1/review/stats` answers
-  `200 {"error":"Not found"}`, and the unversioned `/review/stats` 422s because `/review/{item_id}`
-  swallows `stats`. No review count is rendered anywhere as if it were real; `/links` links to the
-  server-rendered `/review/` queue instead and labels it.
+- **`/review/stats` is not available on the versioned API.** Re-verified: authenticated,
+  `/api/v1/review/stats` answers `404 {"detail":"Not found"}` (and `401` unauthenticated, since
+  the path is not public), while the unversioned `/review/stats` 422s because `/review/{item_id}`
+  swallows `stats` and parses it as an integer. No review count is rendered anywhere as if it were
+  real; `/links` links to the server-rendered `/review/` queue instead and labels it.
 - **`/word/{w}/forms` and `morphology` are usually empty** → the panels collapse to a *Not
   populated* note that names the endpoint, so an empty list is never read as a failed request.
 - **Auth is in `warn` mode** → unauthenticated requests are accepted today; the API may flip to

@@ -682,7 +682,7 @@ export const API_GAPS: readonly ApiGap[] = [
   {
     id: 'sentence-frequency-zero',
     title: 'sentence_frequency is always 0',
-    body: 'The word explorer shows "—" for sentence counts rather than a misleading zero.',
+    body: 'Re-verified: /word/pasian reports frequency 5223 and document_frequency 64 but sentence_frequency 0. The word explorer shows "—" for sentence counts rather than a misleading zero.',
   },
   {
     id: 'morphology-not-populated',

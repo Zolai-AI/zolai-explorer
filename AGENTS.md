@@ -57,9 +57,17 @@ verbatim captures from the live API).
 
 ## Honesty rules (this is the whole point of the app)
 
-- `/rag` **does not call a model**. `context` and `citations` are real; `answer` is a template echo
-  (the server holds a placeholder `GEMINI_API_KEY`). Never describe the answer as generated, and keep
-  the amber notice in `src/routes/Rag.tsx` permanent — not dismissible.
+- `/rag` **writes its answer with the resolved provider, and says which**. `context` and
+  `citations` are real corpus rows; `answer` is now written by the provider the request resolves —
+  the same path the assistant uses — and the response states `generated`, `retrieval_only`,
+  `provider`, `model` and `provider_error`. **Never infer provenance by pattern-matching the
+  prose**: title the panel from those flags alone, so an answer is either *"Answer"* (with the
+  `provider · model` that wrote it) or *"Evidence only — no model wrote this answer"*. A request may
+  override `provider` / `model`, but never send a `user_provider` — the client does not name a
+  vendor. On a deployment where no key resolves (see `docs/OPEN-ISSUES.md`) every answer is honest
+  retrieved evidence, and the UI must say so rather than fail silently.
+- `/rag` **ignores `limit`**: verified live, `limit` 3 and `limit` 5 both return `retrieved_count:
+  10`. Do not offer a limit control that changes nothing — state the fixed size.
 - `/analyze/sentence` returns empty `pos`, `grammar`, `entities`. Render tokens; label the rest.
 - `sentence_frequency` is always `0` → render `—`.
 - Empty `forms` / `morphology` / `grammar_usage` → collapse to a *Not populated* `Empty` that names
