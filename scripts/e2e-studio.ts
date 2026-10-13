@@ -195,6 +195,62 @@ async function testLogin(s: Session) {
   await s.setViewport(1280, 900)
 }
 
+/**
+ * `/contribute` — the public contribution form.
+ *
+ * The form shipped unable to submit at all: it rendered inputs for invented
+ * columns (`zolai`, `english`, `myanmar`, …) that were never transmitted, and
+ * the two columns `ContributionIn` marks required on **every** type — `word`
+ * and `suggested_value` — had no input bound to them, so every attempt stopped
+ * on "Please enter the word" before a request was made.
+ *
+ * These checks are deliberately **non-writing**: `POST /contributions` stores a
+ * real row in the editorial queue, so an automated run must not create one on
+ * every pass. They assert the mapping and the inline validation instead, which
+ * is exactly the part that used to be wrong; the real POST was verified once by
+ * hand and the resulting row was deleted.
+ */
+async function testContribute(s: Session) {
+  console.log('\n=== /contribute — public contribution form (anonymous) ===')
+  await s.goto(`${STUDIO}/contribute`)
+
+  check(
+    'the form is reachable with no credential',
+    await s.eval(`!!document.querySelector('form')`),
+  )
+  // The two columns the server requires, by id. If either disappears the form
+  // goes back to being unable to submit.
+  check(
+    'it binds the two columns the server marks required',
+    await s.eval(
+      `!!document.querySelector('#contrib-word') && !!document.querySelector('#contrib-suggested')`,
+    ),
+  )
+  check(
+    'no API-key field is demanded of a contributor',
+    await s.eval(`!document.querySelector('#contrib-api-key')`),
+  )
+
+  // Submitting empty must surface **inline** errors attached to those two inputs,
+  // not a toast that leaves the form looking fine.
+  await s.eval(`document.querySelector('form button[type=submit]').click()`)
+  const errors = await s.waitFor(
+    `document.querySelectorAll('[data-slot=field-error]').length >= 2`,
+    10_000,
+  )
+  check('an empty submit reports the required fields inline', errors)
+  check(
+    'the required fields are marked invalid for assistive tech',
+    await s.eval(
+      `!!document.querySelector('#contrib-word[aria-invalid="true"]') && !!document.querySelector('#contrib-suggested[aria-invalid="true"]')`,
+    ),
+  )
+  check(
+    'nothing was sent — the form still holds its fields',
+    await s.eval(`!document.querySelector('#contrib-word').value`),
+  )
+}
+
 const tab = await newTab('about:blank')
 const s = new Session(tab)
 await s.open()
@@ -205,6 +261,7 @@ await s.open()
 await s.setViewport(1280, 900)
 try {
   await testChat(s)
+  await testContribute(s)
   await testLogin(s)
 } finally {
   s.close()
