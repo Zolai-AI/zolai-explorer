@@ -3,6 +3,7 @@ import { AlertTriangle, BookOpen, MessageSquareQuote, Quote, ScrollText, Sparkle
 import { toast } from 'sonner'
 import { RAG_LIMITS, useRag } from '../features/rag/api'
 import { Card } from '../components/Card'
+import { ProviderModelSelect } from '../components/ProviderModelSelect'
 import { Empty } from '../components/Empty'
 import { ErrorState } from '../components/ErrorState'
 import { RawJson } from '../components/RawJson'
@@ -20,6 +21,7 @@ import {
   SelectValue,
 } from '../components/ui/select'
 import { formatCount } from '../lib/format'
+import type { ProviderSelection } from '../lib/schemas'
 import type { RagResult } from '../lib/schemas'
 
 const SAMPLES = ['Pasian', 'gam', 'thupha', 'kei ding', 'bang hang pai na hiam']
@@ -86,6 +88,10 @@ function EvidenceNotice({ providerError }: { providerError: string }) {
 export function Rag() {
   const [question, setQuestion] = useState(SAMPLES[0])
   const [limit, setLimit] = useState<string>(String(RAG_LIMITS[1]))
+  // Optional per-request override. Empty means "keep the server's configured
+  // provider" — the endpoint already accepted `provider`/`model`, so this is the
+  // control the request shape was always missing.
+  const [selection, setSelection] = useState<ProviderSelection>({ provider: '', model: '' })
   const rag = useRag()
 
   const submit = (event: FormEvent) => {
@@ -93,7 +99,7 @@ export function Rag() {
     const clean = question.trim()
     if (!clean) return
     rag.mutate(
-      { question: clean, limit: Number(limit) },
+      { question: clean, limit: Number(limit), selection },
       {
         onError: (error: unknown) =>
           toast.error('Retrieval failed', {
@@ -175,6 +181,18 @@ export function Rag() {
             <Button type="submit" disabled={!question.trim() || rag.isPending} className="h-10">
               {rag.isPending ? 'Retrieving…' : 'Retrieve'}
             </Button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <ProviderModelSelect
+              value={selection}
+              onChange={setSelection}
+              idPrefix="rag-target"
+              disabled={rag.isPending}
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Leave both unset and the server keeps using the provider configured on it.
+            </p>
           </div>
 
           <div className="flex flex-wrap gap-1.5">
