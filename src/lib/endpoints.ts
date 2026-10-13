@@ -239,7 +239,11 @@ export const ENDPOINTS: readonly EndpointSpec[] = [
     limitDefault: 5,
     limitMax: 100,
     limit: 'body',
-    note: 'Retrieval + citations are real; `answer` is a placeholder template echo. The server hardcodes 10 snippets, so the label stays honest about what it asked for.',
+    note:
+      'Retrieval + citations are real, and `answer` is written by the provider resolved for ' +
+      'the request (the same path the assistant uses), or returned as evidence with ' +
+      '`retrieval_only: true`. `limit` is accepted but **ignored** — the response always ' +
+      'carries 10 snippets — so the limit here is a client-side clamp, not a server bound.',
   },
   {
     id: 'assistant.chat.public',
@@ -660,6 +664,11 @@ export function clampLimit(id: EndpointId, limit: number): number {
 export type ApiGap = { readonly id: string; readonly title: string; readonly body: string }
 
 export const API_GAPS: readonly ApiGap[] = [
+  {
+    id: 'rag-limit-ignored',
+    title: '/rag ignores `limit` — every response carries 10 snippets',
+    body: 'Verified live: `limit` 3 and `limit` 5 both return `retrieved_count: 10` with 10 citations. The Rag panel therefore states the fixed size instead of offering a control that changes nothing.',
+  },
   {
     id: 'rag-source-attribution',
     title: '/rag citations carry the headword, not the gloss',

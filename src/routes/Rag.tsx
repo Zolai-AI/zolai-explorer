@@ -13,13 +13,6 @@ import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../components/ui/select'
 import { formatCount } from '../lib/format'
 import type { ProviderSelection } from '../lib/schemas'
 import type { RagResult } from '../lib/schemas'
@@ -87,7 +80,6 @@ function EvidenceNotice({ providerError }: { providerError: string }) {
 
 export function Rag() {
   const [question, setQuestion] = useState(SAMPLES[0])
-  const [limit, setLimit] = useState<string>(String(RAG_LIMITS[1]))
   // Optional per-request override. Empty means "keep the server's configured
   // provider" — the endpoint already accepted `provider`/`model`, so this is the
   // control the request shape was always missing.
@@ -99,7 +91,7 @@ export function Rag() {
     const clean = question.trim()
     if (!clean) return
     rag.mutate(
-      { question: clean, limit: Number(limit), selection },
+      { question: clean, limit: RAG_LIMITS[1], selection },
       {
         onError: (error: unknown) =>
           toast.error('Retrieval failed', {
@@ -163,20 +155,19 @@ export function Rag() {
                 className="mt-1.5 h-10"
               />
             </div>
-            <div className="sm:w-28">
-              <Label htmlFor="rag-limit">Limit</Label>
-              <Select value={limit} onValueChange={setLimit}>
-                <SelectTrigger id="rag-limit" className="mt-1.5 h-10 w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {RAG_LIMITS.map((choice) => (
-                    <SelectItem key={choice} value={String(choice)}>
-                      {choice}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            {/* The limit control was removed rather than disabled. `limit` is
+                accepted by `RAGRequest` but ignored server-side — `limit: 3` and
+                `limit: 5` both return `retrieved_count: 10` with 10 citations —
+                so a dropdown here changed nothing while implying it did. The
+                fixed size is stated instead. */}
+            <div className="sm:w-44">
+              <span className="text-sm font-medium">Snippets</span>
+              <p
+                className="mt-1.5 flex h-10 items-center rounded-lg border border-dashed px-2.5 text-xs text-muted-foreground"
+                title="The server returns 10 snippets regardless of the `limit` sent"
+              >
+                10 — fixed by the server
+              </p>
             </div>
             <Button type="submit" disabled={!question.trim() || rag.isPending} className="h-10">
               {rag.isPending ? 'Retrieving…' : 'Retrieve'}

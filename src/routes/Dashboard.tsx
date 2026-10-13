@@ -78,7 +78,7 @@ const QUICK_JUMPS = [
   {
     to: pathOf('rag'),
     title: 'RAG retrieval',
-    body: 'Lexical retrieval with citations — placeholder answers, clearly labelled.',
+    body: 'Lexical retrieval with citations; the answer is model-written from those rows and labelled when it is not.',
     icon: MessageSquareQuote,
   },
   {
