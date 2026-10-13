@@ -288,10 +288,20 @@ async function signIn(s: Session) {
   await s.eval(setReactValue('#login-username', USER))
   await s.eval(setReactValue('#login-password', PASS))
   await s.eval(`[...document.querySelectorAll('button[type=submit]')].find(b => /Sign in/.test(b.innerText)).click()`)
-  const ok = await s.waitFor(`location.pathname !== '/login'`, 30_000)
-  if (!ok) notes.push('sign-in did not complete — role-gated pages were checked signed-out')
-  else console.log('  signed in.')
-  return ok
+  // Wait on the **token**, not the pathname. A successful login writes
+  // `zolai.session` immediately, while the redirect off `/login` waits on
+  // `/auth/me`; this deployment answers that in seconds, so a 30s pathname wait
+  // reported every role-gated page as "checked signed-out" — including /review,
+  // which is exactly the page that most needs checking signed in.
+  const ok = await s.waitFor(`!!sessionStorage.getItem('zolai.session')`, 60_000)
+  if (!ok) {
+    notes.push('sign-in did not complete — role-gated pages were checked signed-out')
+    return false
+  }
+  // Still let the app finish its own redirect, but do not fail the run on it.
+  await s.waitFor(`location.pathname !== '/login'`, 20_000)
+  console.log('  signed in.')
+  return true
 }
 
 const tab = await newTab()

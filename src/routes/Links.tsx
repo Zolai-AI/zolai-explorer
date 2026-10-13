@@ -14,7 +14,7 @@ import {
   TableRow,
 } from '../components/ui/table'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip'
-import { DOCS_URL, HEALTH_URL, METRICS_URL, REVIEW_URL } from '../lib/api'
+import { DOCS_URL, HEALTH_URL, METRICS_URL, REVIEW_URL, resolveUrl } from '../lib/api'
 import {
   API_GAPS,
   AREA_LABELS,
@@ -164,6 +164,10 @@ export function Links() {
 function EndpointRow({ spec }: { spec: EndpointSpec }) {
   const [copied, setCopied] = useState(false)
   const path = publicPath(spec)
+  // `publicPath` is the documented path; `resolveUrl` joins it onto `API_BASE`
+  // (an absolute origin in production, same-origin behind the test origin).
+  const linkable = spec.method === 'GET'
+  const href = linkable ? resolveUrl(path) : ''
 
   const copy = async () => {
     try {
@@ -204,7 +208,27 @@ function EndpointRow({ spec }: { spec: EndpointSpec }) {
         </Badge>
       </TableCell>
       <TableCell className="max-w-0">
-        <code className="min-w-0 truncate font-mono text-xs">{path}</code>
+        {/* Only GET routes become links. A write method in an `href` would be a
+            dead link at best and an invitation to fire a state-changing request
+            from a browser GET at worst, so those stay plain text and carry the
+            copy button instead. The href is `API_BASE` + the registry template —
+            never a query string, never a key: `X-API-Key` travels in a header and
+            `credentials: 'omit'` on every request, so nothing secret can reach a
+            URL that ends up in history, a referrer or a copy buffer. */}
+        {linkable ? (
+          <a
+            href={href}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="inline-flex min-w-0 items-center gap-1 font-mono text-xs hover:underline focus-visible:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          >
+            <span className="min-w-0 truncate">{path}</span>
+            <ExternalLink className="size-3 shrink-0 opacity-60" aria-hidden />
+            <span className="sr-only">(opens in a new tab)</span>
+          </a>
+        ) : (
+          <code className="min-w-0 truncate font-mono text-xs">{path}</code>
+        )}
       </TableCell>
       <TableCell className="hidden lg:table-cell">
         {spec.scope ? (

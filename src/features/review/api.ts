@@ -63,25 +63,42 @@ function reviewPath(table: string, rowId: number): string {
   return endpointPath('review.correct', { table, row_id: rowId })
 }
 
-/**
- * GET /api/v1/records — read rows from a whitelisted table.
- */
-export function useListRecords(params: {
+export type RecordsParams = {
   table: TableName
   q?: string
   limit?: number
+  /**
+   * The server's opaque "id of the last item seen", applied as `WHERE id > ?`.
+   * It was accepted by this hook and folded into the query key but never put on
+   * the wire, so paging forward re-fetched page 1 on every click.
+   */
   cursor?: number
-}) {
+}
+
+/**
+ * Build the `/records` URL. Pure and exported so the query it builds is
+ * unit-testable without a browser — the omission of `cursor` is invisible in a
+ * happy-path render and only shows up as "Next does nothing".
+ */
+export function recordsPath({ table, q, limit = 50, cursor }: RecordsParams): string {
+  const base = queryLimitPath('records.list', { table }, limit)
+  const search = new URLSearchParams()
+  if (cursor !== undefined && cursor !== null) search.set('cursor', String(cursor))
+  // An empty box is "no filter", not "match the empty string" — the server
+  // 400s on `min_length=1`.
+  if (q && q.trim() !== '') search.set('q', q.trim())
+  const query = search.toString()
+  return query ? `${base}&${query}` : base
+}
+
+/**
+ * GET /api/v1/records — read rows from a whitelisted table.
+ */
+export function useListRecords(params: RecordsParams) {
   return useQuery({
     queryKey: ['records', params],
     queryFn: async () => {
-      const url = queryLimitPath(
-        'records.list',
-        { table: params.table },
-        params.limit ?? 50,
-      )
-      const fullUrl = params.q ? `${url}&q=${encodeURIComponent(params.q)}` : url
-      const data = await apiGet<RecordListResponse>(fullUrl, { timeoutMs: 15_000 })
+      const data = await apiGet<RecordListResponse>(recordsPath(params), { timeoutMs: 15_000 })
       return data as RecordListResponse
     },
     enabled: !!params.table,
@@ -131,41 +148,4 @@ export function useCorrectRecord() {
       return parseOrThrow(CorrectionResponseSchema, resp, 'record correction') as CorrectionResponse
     },
   })
-}
-
-export interface AuditItem {
-  id: number
-  table_name: string
-  row_id: number
-  field: string
-  old_value: string | null
-  new_value: string | null
-  changed_at: string
-  reason: string
-}
-
-export interface RecordListResponse {
-  table: string
-  items: Record<string, unknown>[]
-  next_cursor: string | null
-  has_more: boolean
-}
-
-export interface AuditListResponse {
-  items: AuditItem[]
-  next_cursor: string | null
-  has_more: boolean
-}
-
-export interface CorrectionBody {
-  corrected_fields: Record<string, string | number | null>
-  reason: string
-}
-
-export interface CorrectionResponse {
-  table: string
-  id: number
-  updated_fields: string[]
-  review_status: string | null
-  audit_rows: number
 }

@@ -175,11 +175,20 @@ async function testLogin(s: Session) {
   await s.eval(setReactValue('#login-username', USER!))
   await s.eval(setReactValue('#login-password', PASS!))
   await s.eval(`[...document.querySelectorAll('button[type=submit]')].find(b => /Sign in/.test(b.innerText)).click()`)
-  await s.waitFor(`!!sessionStorage.getItem('zolai.session')`, 30_000)
+  // Sign-in is awaited as its own check. This deployment answers `/auth/login`
+  // in 4-12s, so a slow login used to spend the control's whole budget and was
+  // then reported as "the sign-out control is missing" — a different bug wearing
+  // this test's name.
+  const mobileSignedIn = await s.waitFor(`!!sessionStorage.getItem('zolai.session')`, 60_000)
+  check('mobile: signed in at 390px', mobileSignedIn)
+  if (!mobileSignedIn) return
   await s.goto(`${STUDIO}/settings`)
 
   const MOBILE_OUT = 'header [aria-label="Sign out"]'
-  check('mobile: the icon-only sign-out is reachable below lg', await s.waitFor(`!!document.querySelector('${MOBILE_OUT}')`, 25_000))
+  check(
+    'mobile: the icon-only sign-out is reachable below lg',
+    await s.waitFor(`!!document.querySelector('${MOBILE_OUT}')`, 40_000),
+  )
   check('mobile: sign-out control was found and clicked', await s.click(MOBILE_OUT))
   const mobileCleared = await s.waitFor(`!sessionStorage.getItem('zolai.session')`, 15_000)
   check('mobile: sign-out cleared the session', mobileCleared, mobileCleared ? '' : 'session survived the click')
