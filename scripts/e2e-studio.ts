@@ -119,9 +119,12 @@ async function testLogin(s: Session) {
   // The control appears only once the identity query has resolved, and this API
   // answers /auth/me in seconds — a click issued at the fixed settle delay
   // raced the render and reported a control that is about to appear as missing.
+  // 40s, matching the mobile half. `/auth/login` on this deployment measures
+  // anywhere between 2.5s and 11.5s, so a 25s budget intermittently expired on
+  // a slow response and reported a working control as missing.
   await s.waitFor(
     `[...document.querySelectorAll('button, a[href]')].some(x => (x.innerText || '').toLowerCase().includes('sign out'))`,
-    25_000,
+    40_000,
   )
   const clicked = await s.click('text=sign out')
   check('sign-out control was found and clicked', clicked)
