@@ -151,7 +151,10 @@ export const ENDPOINTS: readonly EndpointSpec[] = [
     limitDefault: 20,
     limitMax: 100,
     limit: 'query',
-    note: 'Observed surface forms — usually empty; the morphology table is thin.',
+    note:
+      'Observed surface forms, populated (e.g. /word/pasian/forms returns 9 and ' +
+      '/word/thei/forms returns 20 at limit=20). The `forms` field on the /word/{w} entry is a ' +
+      '*different*, usually-empty array — do not conflate the two.',
   },
   {
     id: 'word.contexts',
@@ -686,8 +689,8 @@ export const API_GAPS: readonly ApiGap[] = [
   },
   {
     id: 'morphology-not-populated',
-    title: 'morphology and forms are usually empty',
-    body: 'Most entries have no morphology rows; those sections collapse to a "not populated" note rather than a broken panel.',
+    title: 'The morphology / forms fields **on an entry** are empty',
+    body: 'Re-verified: /word/pasian, /word/bang and /word/thei each return entry `forms` 0, `morphology` 0, `grammar_usage` 0, `pos` 1-2 — so those entry fields collapse to a "not populated" note rather than a broken panel. This is *not* the /word/{w}/forms sub-resource, which is populated (9-20 rows at limit=20) and renders normally; the two are separate fields and must not be reported as one.',
   },
   {
     id: 'review-stats-missing',
@@ -695,8 +698,8 @@ export const API_GAPS: readonly ApiGap[] = [
     body: '/api/v1/review/stats answers 200 {"error":"Not found"}, and the unversioned /review/stats 422s because /review/{item_id} swallows "stats". No review count is rendered anywhere in this app as if it were real; only the server-rendered /review/ page is linked.',
   },
   {
-    id: 'auth-warn-mode',
-    title: 'Authentication is in warn mode',
-    body: 'The API currently accepts unauthenticated requests and may flip to enforce mode. Add a key now so nothing breaks when it does.',
+    id: 'auth-enforce-mode',
+    title: 'Authentication is in enforce mode',
+    body: 'This deployment sets ZOLAI_API_AUTH=enforce (verified in .env.production and the container environment). Privileged routes already answer 401 without a credential — /admin/ai-providers and POST /agent/runs both do — while public reads such as /word/{w} stay open by design. Sign in for anything role-gated; this is no longer a "before it flips" warning.',
   },
 ] as const

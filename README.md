@@ -357,12 +357,17 @@ The app is explicit about the deployment's real capabilities, so a panel is neve
   the path is not public), while the unversioned `/review/stats` 422s because `/review/{item_id}`
   swallows `stats` and parses it as an integer. No review count is rendered anywhere as if it were
   real; `/links` links to the server-rendered `/review/` queue instead and labels it.
-- **`/word/{w}/forms` and `morphology` are usually empty** → the panels collapse to a *Not
-  populated* note that names the endpoint, so an empty list is never read as a failed request.
-- **Auth is in `warn` mode** → unauthenticated requests are accepted today; the API may flip to
-  `enforce`. The shell therefore renders a persistent banner (sourced from `GET /auth/me`'s `mode`)
-  reading *"Authentication: warn mode"* with a **Sign in…** CTA. It never claims a key is required
-  today — that would be a false warning — and it disappears once the mode changes.
+- **The `forms` / `morphology` / `grammar_usage` fields *on a `/word/{w}` entry* are empty** →
+  those panels collapse to a *Not populated* note that names the endpoint, so an empty list is never
+  read as a failed request. Verified: `pasian`, `bang` and `thei` each return 0 for all three while
+  `pos` is 1–2. This is **not** the `/word/{w}/forms` sub-resource, which is populated (9–20 rows
+  at `limit=20`) and renders normally — two separate fields that must not be reported as one.
+- **Auth is in `enforce` mode** → verified on the deployment (`ZOLAI_API_AUTH=enforce` in
+  `.env.production` and in the container environment). Privileged routes already answer `401`
+  without a credential: `/admin/ai-providers` and `POST /agent/runs` both do, while public reads
+  such as `/word/{w}` stay open by design. The shell banner is still sourced from `GET /auth/me`'s
+  `mode` rather than hardcoded, so it reflects whatever the deployment reports and never asserts a
+  mode the server did not.
 
 The same list is rendered as cards on `/links` under "Known API gaps".
 
