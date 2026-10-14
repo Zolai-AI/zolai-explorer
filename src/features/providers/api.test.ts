@@ -102,6 +102,39 @@ describe('modelsFor', () => {
   it('returns [] for a provider that is not in the catalog', () => {
     expect(modelsFor([row()], 'missing')).toEqual([])
   })
+
+  it('offers every model the Brain publishes, not a truncated or seeded subset', () => {
+    // Captured from `GET /api/v1/providers` on the live deployment. The Brain
+    // serves nine; the picker used to offer four because discovery was disabled
+    // for that row and only the hardcoded seed was reachable.
+    const brain = row({
+      catalog_id: 'pcore-brain',
+      name: 'P-Core Brain',
+      models: [
+        'opencode/space-bunny-free',
+        'opencode/nemotron-3-ultra-free',
+        'opencode/nemotron-3.5-lightning-free',
+        'opencode/mimo-v2.6-flash-free',
+        'opencode/muse-spark-1.3-contributor-free',
+        'opencode/ling-3.0-flash-fin-free',
+        'opencode/longcat-2.5-preview-free',
+        'opencode/big-pickle',
+        'auto',
+      ],
+    })
+    const models = modelsFor([brain], 'pcore-brain')
+    expect(models).toHaveLength(9)
+    expect(models).toContain('opencode/space-bunny-free')
+    expect(models).toContain('auto')
+  })
+
+  it('preserves the server ordering so the fast default stays first', () => {
+    // `resolve_model` falls back to `models[0]`; the Brain's `auto` router takes
+    // ~35s against ~2s for a named model, so it must not lead the list.
+    const brain = row({ catalog_id: 'pcore-brain', models: ['opencode/space-bunny-free', 'auto'] })
+    const models = modelsFor([brain], 'pcore-brain')
+    expect(models[0]).toBe('opencode/space-bunny-free')
+  })
 })
 
 describe('modelPlaceholder (honest model picker hint)', () => {
