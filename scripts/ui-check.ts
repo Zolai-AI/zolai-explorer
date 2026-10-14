@@ -174,6 +174,11 @@ type Probe = {
 }
 
 const results: Defect[] = []
+/** Checks that could not run at all (e.g. sign-in failed, so gated pages were
+ *  never seen signed-in). Tracked apart from layout defects because the page
+ *  renders either way — without this the run reports "no layout defects" while
+ *  having skipped the coverage that matters most. */
+const failures: string[] = []
 const notes: string[] = []
 
 function record(route: string, viewport: string, problems: Probe['problems']): void {
@@ -295,7 +300,15 @@ async function signIn(s: Session) {
   // which is exactly the page that most needs checking signed in.
   const ok = await s.waitFor(`!!sessionStorage.getItem('zolai.session')`, 60_000)
   if (!ok) {
-    notes.push('sign-in did not complete — role-gated pages were checked signed-out')
+    // A **failure**, not a note. The role-gated pages below still render (the
+    // shell draws them), so the run can report "no layout defects" while having
+    // checked /review, /settings and /agent signed-out — exactly the surfaces
+    // that need the most checking. That is false confidence, so it fails the
+    // run and says which pages lost their coverage.
+    failures.push(
+      'sign-in did not complete — role-gated pages were NOT covered (checked signed-out)',
+    )
+    console.log('  ERROR  sign-in did not complete.')
     return false
   }
   // Still let the app finish its own redirect, but do not fail the run on it.
@@ -335,7 +348,11 @@ try {
 console.log(`\n${'='.repeat(64)}`)
 const functional = results.filter((r) => r.check === 'still-walled' || r.check === 'empty-panel')
 if (results.length === 0) {
-  console.log(`UI CHECK PASSED — no layout defects across ${VIEWPORTS.length} viewports.`)
+  console.log(
+    failures.length === 0
+      ? `UI CHECK PASSED — no layout defects across ${VIEWPORTS.length} viewports.`
+      : `UI CHECK PASSED layout, but ${failures.length} check(s) did not run: ${failures.join('; ')}`,
+  )
 } else {
   const byCheck = new Map<string, Defect[]>()
   for (const r of results) {
@@ -364,4 +381,4 @@ for (const note of notes) console.log(`note: ${note}`)
 if (functional.length > 0) {
   console.log(`\n${functional.length} page(s) rendered an access wall or an empty panel while signed in.`)
 }
-process.exit(results.length === 0 ? 0 : 1)
+process.exit(results.length === 0 && failures.length === 0 ? 0 : 1)
