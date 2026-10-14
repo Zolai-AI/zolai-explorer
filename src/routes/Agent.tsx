@@ -11,6 +11,7 @@ import { Skeleton } from '../components/Skeleton'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Textarea } from '../components/ui/textarea'
+import { failedDetail, failedTitle } from '../lib/agentErrors'
 import { can, useRole } from '../lib/auth'
 import { isApiError } from '../lib/api'
 import { formatCount } from '../lib/format'
@@ -58,7 +59,7 @@ export function Agent() {
     run.mutate({ goal: clean, selection }, {
       onSuccess: (created) => setRunId(created.id > 0 ? created.id : null),
       onError: (error: unknown) =>
-        toast.error(failedTitle(error), { description: failedDetail(error) }),
+        toast.error(failedTitle(error), { description: failedDetail(error, Math.round(RUN_TIMEOUT_MS / 1000)) }),
     })
   }
 
@@ -402,24 +403,3 @@ function RunPanel({ run }: { run: AgentRun }) {
   )
 }
 
-function failedTitle(error: unknown): string {
-  if (isApiError(error)) {
-    if (error.status === 403) return 'Not allowed for this key'
-    if (error.status === 429) return 'Run budget reached'
-    if (error.kind === 'timeout') return 'The run exceeded the time budget'
-    if (error.status === 401) return 'API key required'
-  }
-  return 'Run failed'
-}
-
-function failedDetail(error: unknown): string {
-  if (isApiError(error)) {
-    if (error.status === 403) return 'This key lacks a member+ role on the server.'
-    if (error.status === 429)
-      return 'Five runs per minute per key — wait a moment and try again.'
-    if (error.kind === 'timeout')
-      return `No answer within ${Math.round(RUN_TIMEOUT_MS / 1000)}s; the server budget is 60s.`
-    return error.message
-  }
-  return error instanceof Error ? error.message : String(error)
-}
