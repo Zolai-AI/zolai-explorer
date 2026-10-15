@@ -172,8 +172,9 @@ export function TopBar({
         </span>
 
         {/* Secondary: manage the stored key without leaving the page. Icon-only
-            below `md`; the label returns there, with `title` covering the
-            accessible name at every width. */}
+            below `md`, where an `sr-only` companion carries the accessible
+            name (the same pattern as sign-in); `title` adds the state detail
+            at every width. */}
         <Button
           variant="outline"
           onClick={() => onOpenApiKey()}
@@ -182,6 +183,8 @@ export function TopBar({
         >
           <KeyRound aria-hidden />
           <span className="hidden md:inline">{hasKey ? 'API key' : 'Set API key'}</span>
+          {/* Accessible name below `md`, where the label itself is hidden. */}
+          <span className="sr-only md:hidden">{hasKey ? 'API key' : 'Set API key'}</span>
         </Button>
 
         {/* Primary: sign in (anonymous) or show the identity the server reports.

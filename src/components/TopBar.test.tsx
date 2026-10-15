@@ -153,9 +153,11 @@ describe('TopBar responsive tiers — logo-only brand, extras in an overflow men
     expect(html).toMatch(/<a[^>]*title="No API key recognised/)
     // Still a real button — not buried in the overflow menu.
     expect(html).toMatch(/<button[^>]*title="No API key — public endpoints only"/)
-    // Labels return at md; the sr-only companion covers the accessible name
-    // at every narrower width.
-    expect(html).toContain('sr-only md:hidden')
+    // Labels return at md; the API-key button keeps its own sr-only companion
+    // for the accessible name at every narrower width — not `title` alone.
+    expect(html).toMatch(
+      /<button[^>]*title="No API key — public endpoints only"[^>]*>.*?<span class="sr-only md:hidden">Set API key<\/span>/,
+    )
     expect(html).toMatch(/<span class="hidden md:inline">Set API key<\/span>/)
   })
 })
