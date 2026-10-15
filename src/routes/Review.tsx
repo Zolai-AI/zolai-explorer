@@ -303,7 +303,7 @@ function RecordBrowser({
           cursor stack, so a search starts at page one of the new result set. */}
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <Select value={selectedTable} onValueChange={(value) => setSelectedTable(value as TableName)}>
-          <SelectTrigger className="h-10 w-[220px]" aria-label="Table to browse">
+          <SelectTrigger className="h-10 w-full sm:w-[220px]" aria-label="Table to browse">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
