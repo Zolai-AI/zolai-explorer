@@ -289,7 +289,7 @@ export function CommandPaletteTrigger({ onOpen }: { onOpen: () => void }) {
       onClick={onOpen}
       // 40px minimum touch target on phones; the hint is decoration, the
       // button and its icon are what a phone user actually taps.
-      className="max-lg:h-10 max-lg:w-10 max-lg:justify-center max-lg:px-0 sm:w-56"
+      className="max-lg:h-10 max-lg:w-10 max-lg:justify-center max-lg:px-0 sm:w-44 lg:w-56"
       title="Command palette (⌘K)"
     >
       <Search aria-hidden />

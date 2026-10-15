@@ -5,6 +5,10 @@
  * The regression these pin: below `lg` the persistent `<aside>` is hidden and
  * the sidebar footer lives inside the hamburger `<Sheet>`, so sign-out cost two
  * taps to reach on a phone. It had to be reachable from the bar itself.
+ *
+ * A second family pins the responsive tiering: the bar is logo-only below `sm`
+ * (no `>Z<` glyph), extras collapse into the ⋯ overflow menu, and hiding
+ * happens on wrapper spans so component internals stay breakpoint-free.
  */
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
@@ -87,5 +91,69 @@ describe('TopBar sign-out — the drawer must not be the only route to it', () =
 
     // Signing out must not remove the route to replace or clear a key.
     expect(html).toContain('Signed in')
+  })
+})
+
+describe('TopBar responsive tiers — logo-only brand, extras in an overflow menu', () => {
+  it('shows the logo image as the brand and no "Z" glyph', () => {
+    useAuthMeMock.mockReturnValue(ANON)
+    const html = render()
+
+    expect(html).toContain('src="/logo.png"')
+    expect(html).toContain('alt="Zolai Explorer"')
+    // The letter-in-a-box placeholder is gone; the logo carries the brand.
+    expect(html).not.toMatch(/>Z</)
+  })
+
+  it('collapses the wordmark below sm', () => {
+    useAuthMeMock.mockReturnValue(ANON)
+    const html = render()
+
+    expect(html).toMatch(
+      /<span class="hidden[^"]*sm:inline[^"]*">Zolai Explorer<\/span>/,
+    )
+  })
+
+  it('renders the ⋯ overflow trigger, hidden from sm up', () => {
+    useAuthMeMock.mockReturnValue(ANON)
+    const html = render()
+
+    // Present and labelled rather than a bare glyph.
+    expect(html).toContain('aria-label="More options"')
+    // Hiding is on the wrapper span, never on the button's internals.
+    expect(html).toContain('<span class="sm:hidden">')
+  })
+
+  it('wraps the health pill so it is hidden below md', () => {
+    useAuthMeMock.mockReturnValue(ANON)
+    const html = render()
+
+    // The pill itself (its tooltip-wrapped badge) must sit inside a
+    // `hidden md:block` wrapper — the wrapper carries the breakpoint, not
+    // the pill. `data-slot="tooltip-trigger"` is the pill's outermost node.
+    expect(html).toMatch(/<span class="hidden md:block"><span data-slot="tooltip-trigger"/)
+  })
+
+  it('wraps the palette trigger so it is hidden below sm', () => {
+    useAuthMeMock.mockReturnValue(ANON)
+    const html = render()
+
+    expect(html).toMatch(
+      /<span class="hidden sm:block"><button[^>]*title="Command palette/,
+    )
+  })
+
+  it('keeps the sign-in link and API-key button as direct controls', () => {
+    useAuthMeMock.mockReturnValue(ANON)
+    const html = render()
+
+    // Still a real link to the sign-in route — not a menu-only entry.
+    expect(html).toMatch(/<a[^>]*title="No API key recognised/)
+    // Still a real button — not buried in the overflow menu.
+    expect(html).toMatch(/<button[^>]*title="No API key — public endpoints only"/)
+    // Labels return at md; the sr-only companion covers the accessible name
+    // at every narrower width.
+    expect(html).toContain('sr-only md:hidden')
+    expect(html).toMatch(/<span class="hidden md:inline">Set API key<\/span>/)
   })
 })

@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { LogIn, LogOut, ShieldCheck, KeyRound } from 'lucide-react'
+import { Ellipsis, KeyRound, LogIn, LogOut, Monitor, Moon, Search, ShieldCheck, Sun } from 'lucide-react'
 import { toast } from 'sonner'
 import { HealthPill } from './HealthPill'
 import { useApiKey } from './KeyDialog'
@@ -8,11 +8,30 @@ import { ThemeToggle } from './ThemeToggle'
 import { CommandPaletteTrigger } from './CommandPalette'
 import { Badge } from './ui/badge'
 import { Button } from './ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu'
 import { roleBadge, useAuthMe } from '../lib/auth'
 import { signInPath } from '../lib/routes'
 import { signInEntry, signInFooterEntry } from '../lib/signIn'
 import { signOut } from '../lib/session'
+import { useThemePreference } from '../lib/useTheme'
+import type { Theme } from '../lib/theme'
 import { cn } from '../lib/utils'
+
+/** The same three choices `ThemeToggle` names — never a bare light/dark toggle. */
+const THEME_OPTIONS: { value: Theme; label: string; icon: typeof Sun }[] = [
+  { value: 'system', label: 'System', icon: Monitor },
+  { value: 'light', label: 'Light', icon: Sun },
+  { value: 'dark', label: 'Dark', icon: Moon },
+]
 
 /**
  * Sticky top bar: brand, live health, theme switch, command palette, the
@@ -27,10 +46,16 @@ import { cn } from '../lib/utils'
  * and the label/tone from the identity the server reported — never from a
  * guessed role.
  *
- * Mobile-first — the wordmark label and button labels collapse below `sm` (and
- * to icon-only width below `lg` for the two key controls), the icons keep a 40px
- * touch target at every width. The palette trigger is visible at all widths
- * (icon-only below `sm`) so ⌘K is never the only way in.
+ * Mobile-first, in **tiers** — and hiding happens on wrapper spans, never with
+ * a display class on a component's internals:
+ * - below `sm` the brand is the logo alone (the wordmark collapses) and the
+ *   palette/theme/health controls move into the ⋯ overflow menu, leaving only
+ *   the icon-only key and sign-in controls inline;
+ * - from `sm` the palette trigger and theme toggle come back inline;
+ * - from `md` the health pill and the key/sign-in labels join them.
+ * Every icon-only control keeps a 40px touch target, and every label that
+ * hides keeps an `sr-only` or `title` companion so the accessible name exists
+ * at every width.
  *
  * **Sign-out below `lg`**: the persistent `<aside>` is `hidden … lg:block`, so
  * under that breakpoint the sidebar footer — where sign-out had always lived —
@@ -57,18 +82,22 @@ export function TopBar({
   // server reports an identified role.
   const footer = signInFooterEntry({ role: me.role, keyPrefix: me.key_prefix })
   const badge = roleBadge(me.role)
+  const { theme, setTheme } = useThemePreference()
 
   return (
     <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between gap-2 border-b bg-background/85 px-3 backdrop-blur sm:gap-3 sm:px-5">
       <div className="flex min-w-0 items-center gap-2">
         {nav}
-        <span
-          aria-hidden
-          className="grid size-7 shrink-0 place-items-center rounded-lg bg-primary/15 text-sm font-bold text-primary ring-1 ring-primary/30"
-        >
-          Z
+        <img
+          src="/logo.png"
+          alt="Zolai Explorer"
+          className="size-7 shrink-0 rounded-lg object-contain"
+        />
+        {/* Below `sm` the logo's alt text is the brand — the wordmark would
+            squeeze the controls off a 375px bar. */}
+        <span className="hidden truncate text-sm font-semibold tracking-tight sm:inline">
+          Zolai Explorer
         </span>
-        <span className="truncate text-sm font-semibold tracking-tight">Zolai Explorer</span>
         <span className="hidden text-[10px] tracking-wider text-muted-foreground uppercase lg:inline">
           studio
         </span>
@@ -79,15 +108,69 @@ export function TopBar({
           `sm` breakpoint. The group now yields, the labels inside it ellipsize,
           and the controls that must not squash keep their own `shrink-0`. */}
       <div className="flex min-w-0 shrink items-center gap-1 sm:gap-2">
-        <HealthPill />
+        {/* Below `md` the pill lives in the ⋯ overflow menu — wrapper span, so
+            `HealthPill`'s own markup stays breakpoint-free. */}
+        <span className="hidden md:block">
+          <HealthPill />
+        </span>
 
-        {/* Hidden below `sm` — the logo and 7 nav items cover navigation there,
-            and the width is needed by the health pill and key button. */}
-        <CommandPaletteTrigger onOpen={onOpenPalette} />
+        {/* Below `sm` the palette opens from the ⋯ overflow menu; the trigger
+            must not be the only way in, and it must not be the only thing on a
+            phone bar either. */}
+        <span className="hidden sm:block">
+          <CommandPaletteTrigger onOpen={onOpenPalette} />
+        </span>
 
-        <ThemeToggle />
+        {/* Below `sm` the theme radio group is in the ⋯ overflow menu. */}
+        <span className="hidden sm:block">
+          <ThemeToggle />
+        </span>
 
-        {/* Secondary: manage the stored key without leaving the page. */}
+        {/* Below `sm`: one tap to the palette, the theme choices and the
+            health pill, so nothing the wider bar carries becomes unreachable. */}
+        <span className="sm:hidden">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                // 40px minimum touch target, like every other compact control.
+                className="max-lg:size-10"
+                aria-label="More options"
+                title="More options"
+              >
+                <Ellipsis aria-hidden />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem onSelect={onOpenPalette} className="max-lg:min-h-10">
+                <Search aria-hidden />
+                Search commands…
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>Theme</DropdownMenuLabel>
+              <DropdownMenuRadioGroup
+                value={theme}
+                onValueChange={(value) => setTheme(value as Theme)}
+              >
+                {THEME_OPTIONS.map(({ value, label, icon: Icon }) => (
+                  <DropdownMenuRadioItem key={value} value={value} className="max-lg:min-h-10">
+                    <Icon className="size-4" aria-hidden />
+                    {label}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+              <DropdownMenuSeparator />
+              <div className="flex items-center justify-between gap-2 px-2 py-1.5">
+                <HealthPill />
+              </div>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </span>
+
+        {/* Secondary: manage the stored key without leaving the page. Icon-only
+            below `md`; the label returns there, with `title` covering the
+            accessible name at every width. */}
         <Button
           variant="outline"
           onClick={() => onOpenApiKey()}
@@ -95,20 +178,20 @@ export function TopBar({
           title={hasKey ? `API key set (${masked})` : 'No API key — public endpoints only'}
         >
           <KeyRound aria-hidden />
-          <span className="hidden sm:inline">{hasKey ? 'API key' : 'Set API key'}</span>
+          <span className="hidden md:inline">{hasKey ? 'API key' : 'Set API key'}</span>
         </Button>
 
         {/* Primary: sign in (anonymous) or show the identity the server reports.
             Always rendered, for every role, so no state of this app is a dead
             end — and `?from=` returns the user to the panel they came from.
-            Labels collapse below `sm`; the role badge and the server's key
+            Labels collapse below `md`; the role badge and the server's key
             prefix only appear from `lg`, so the bar cannot overflow on a
             640px screen where ⌘K still shows its full-width hint. */}
         <Button
           asChild
           variant="outline"
           className={cn(
-            'max-lg:h-10 max-lg:w-10 max-lg:justify-center max-lg:px-0 min-w-0',
+            'max-lg:h-10 max-md:w-10 max-md:justify-center max-md:px-0 min-w-0',
             // Amber while anonymous — the same language the no-key state has
             // always used, so "there is no key here" reads at a glance.
             entry.anonymous &&
@@ -123,7 +206,7 @@ export function TopBar({
             ) : (
               <ShieldCheck aria-hidden className="text-primary" />
             )}
-            <span className="hidden truncate sm:inline">{entry.label}</span>
+            <span className="hidden truncate md:inline">{entry.label}</span>
             {!entry.anonymous && (
               <Badge variant={badge.variant} className="hidden lg:inline-flex">
                 {badge.label}
@@ -134,7 +217,8 @@ export function TopBar({
                 {entry.keyPrefix}
               </span>
             )}
-            <span className="sr-only sm:hidden">{entry.label}</span>
+            {/* Accessible name below `md`, where the label itself is hidden. */}
+            <span className="sr-only md:hidden">{entry.label}</span>
           </Link>
         </Button>
 
