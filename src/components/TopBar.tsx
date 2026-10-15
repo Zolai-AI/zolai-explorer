@@ -108,8 +108,9 @@ export function TopBar({
           `sm` breakpoint. The group now yields, the labels inside it ellipsize,
           and the controls that must not squash keep their own `shrink-0`. */}
       <div className="flex min-w-0 shrink items-center gap-1 sm:gap-2">
-        {/* Below `md` the pill lives in the ⋯ overflow menu — wrapper span, so
-            `HealthPill`'s own markup stays breakpoint-free. */}
+        {/* Below `md` the pill lives in the ⋯ overflow menu — the wrapper span
+            carries the display breakpoint, never `HealthPill` (only its status
+            icon's reveal from `sm` sits inside the component). */}
         <span className="hidden md:block">
           <HealthPill />
         </span>
@@ -126,9 +127,11 @@ export function TopBar({
           <ThemeToggle />
         </span>
 
-        {/* Below `sm`: one tap to the palette, the theme choices and the
-            health pill, so nothing the wider bar carries becomes unreachable. */}
-        <span className="sm:hidden">
+        {/* Below `md`: one tap to the palette, the theme choices and the
+            health pill, so nothing the wider bar carries becomes unreachable.
+            Between `sm` and `md` these mirror the inline palette/theme
+            triggers — a duplicate worth keeping for the pill. */}
+        <span className="md:hidden">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button

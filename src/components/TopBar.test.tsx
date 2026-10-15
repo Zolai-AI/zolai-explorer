@@ -114,14 +114,16 @@ describe('TopBar responsive tiers — logo-only brand, extras in an overflow men
     )
   })
 
-  it('renders the ⋯ overflow trigger, hidden from sm up', () => {
+  it('renders the ⋯ overflow trigger, hidden from md up', () => {
     useAuthMeMock.mockReturnValue(ANON)
     const html = render()
 
     // Present and labelled rather than a bare glyph.
     expect(html).toContain('aria-label="More options"')
-    // Hiding is on the wrapper span, never on the button's internals.
-    expect(html).toContain('<span class="sm:hidden">')
+    // Hiding is on the wrapper span, never on the button's internals — and it
+    // covers everything below `md`, so the health pill (inline only from `md`)
+    // stays reachable in the `sm`–`md` band.
+    expect(html).toContain('<span class="md:hidden">')
   })
 
   it('wraps the health pill so it is hidden below md', () => {
