@@ -68,6 +68,7 @@ const ICONS: RouteIconName[] = [
   'search',
   'message',
   'bot',
+  'network',
   'database',
   'link',
   'settings',

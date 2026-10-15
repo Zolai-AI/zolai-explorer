@@ -576,6 +576,139 @@ export const FeedbackSchema = z.object({
 })
 export type FeedbackResult = z.infer<typeof FeedbackSchema>
 
+/* --------------------------------------------------------- learning agents */
+
+/**
+ * `config` on a learning agent — the tuning block `PATCH /learning/agents/{id}`
+ * edits field-for-field. Every field is nullable: a deployment that seeds an
+ * agent without a threshold sends nothing, and "no threshold" must not read as
+ * `0` (which the UI would render as "confidence 0%").
+ */
+export const LearningAgentConfigSchema = z
+  .object({
+    confidence_threshold: nullableNum,
+    learning_rate: nullableNum,
+    bible_priority: z.boolean().nullish().catch(null),
+  })
+  .catch({ confidence_threshold: null, learning_rate: null, bible_priority: null })
+export type LearningAgentConfig = z.infer<typeof LearningAgentConfigSchema>
+
+/** One row of `GET /learning/agents` and `GET /learning/overview`. */
+export const LearningAgentSchema = z.object({
+  agent_id: str,
+  name: str,
+  role: str,
+  skills: strArray,
+  enabled: bool,
+  config: LearningAgentConfigSchema,
+  created_at: str,
+  updated_at: str,
+})
+export type LearningAgent = z.infer<typeof LearningAgentSchema>
+
+export const LearningAgentsSchema = z.object({
+  agents: z.array(LearningAgentSchema).catch([]),
+})
+export type LearningAgents = z.infer<typeof LearningAgentsSchema>
+
+/**
+ * `GET /learning/overview` — counts plus the role histogram.
+ *
+ * The response also inlines `agents` and `seeded_defaults`; both are read
+ * tolerantly because an older build may omit them, and the page treats the
+ * roster as "the agents route answered" rather than "the overview did".
+ */
+export const LearningOverviewSchema = z.object({
+  agents_total: num,
+  agents_enabled: num,
+  agents_disabled: num,
+  skills_total: num,
+  roles: z.record(z.string(), z.number()).catch({}),
+  seeded_defaults: strArray,
+  agents: z.array(LearningAgentSchema).catch([]),
+})
+export type LearningOverview = z.infer<typeof LearningOverviewSchema>
+
+/** One row of `GET /learning/skills`. */
+export const LearningSkillSchema = z.object({
+  skill_id: str,
+  name: str,
+  description: str,
+  category: str,
+  config_schema: record,
+  enabled: bool,
+  created_at: str,
+})
+export type LearningSkill = z.infer<typeof LearningSkillSchema>
+
+export const LearningSkillsSchema = z.object({
+  skills: z.array(LearningSkillSchema).catch([]),
+})
+export type LearningSkills = z.infer<typeof LearningSkillsSchema>
+
+/** The agent reference an assistant carries — id, role and enabled flag. */
+export const LearningAssistantAgentSchema = z.object({
+  agent_id: str,
+  role: str,
+  enabled: bool,
+})
+export type LearningAssistantAgent = z.infer<typeof LearningAssistantAgentSchema>
+
+/**
+ * One row of `GET /learning/assistants`.
+ *
+ * `enabled_agents` is a **count or a list** depending on the server build, so
+ * it is read as a union and normalised by `enabledAgentCount` in the feature
+ * module — the page needs the number, not the shape.
+ */
+export const LearningAssistantSchema = z.object({
+  assistant_id: str,
+  agents: z.array(LearningAssistantAgentSchema).catch([]),
+  enabled_agents: z.union([z.array(z.string()), z.number()]).catch(0),
+})
+export type LearningAssistant = z.infer<typeof LearningAssistantSchema>
+
+export const LearningAssistantsSchema = z.object({
+  assistants: z.array(LearningAssistantSchema).catch([]),
+})
+export type LearningAssistants = z.infer<typeof LearningAssistantsSchema>
+
+/** One row of `GET /learning/bindings` — the binding joined to its agent. */
+export const LearningBindingSchema = z.object({
+  assistant_id: str,
+  agent_id: str,
+  role: str,
+  enabled: bool,
+  agent_name: str,
+  agent_role: str,
+  agent_enabled: bool,
+  confidence_threshold: nullableNum,
+  skills: strArray,
+})
+export type LearningBinding = z.infer<typeof LearningBindingSchema>
+
+export const LearningBindingsSchema = z.object({
+  bindings: z.array(LearningBindingSchema).catch([]),
+})
+export type LearningBindings = z.infer<typeof LearningBindingsSchema>
+
+/**
+ * `POST /learning/run` — `{task, result, limit_applied, limit_clamped}`.
+ *
+ * `result` is deliberately a free record: the shape is **per task**
+ * (`{translation}` for translate, `{corrected}` for correct_grammar,
+ * `{patterns}` / `{entries}` for the corpus tasks), and a schema that pinned one
+ * of them would silently drop the other five. The panel renders the fields a
+ * task is known to carry and falls back to the raw record below it.
+ */
+export const LearningRunSchema = z.object({
+  task: str,
+  result: record,
+  limit_applied: num,
+  limit_clamped: bool,
+})
+export type LearningRun = z.infer<typeof LearningRunSchema>
+
 /* ------------------------------------------------------------------ helpers */
 
 /** Parse with a named schema, surfacing a readable error instead of a raw ZodError. */

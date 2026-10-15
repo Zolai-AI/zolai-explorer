@@ -80,6 +80,7 @@ storage backend so the round-trip is unit tested without jsdom.
 | `/assistant` | Assistant chat — public route is honest `retrieval_only` when no provider is active; admin mode adds provider/model and the tool trace. Both modes carry a **provider/model selector** fed by `GET /api/v1/providers` (no hardcoded provider or model anywhere in `src/`) and **no override is sent unless you choose one** — an empty selection leaves the server to pick its own target (`Use server default` clears it again); the answer shows the `provider · model` the server actually used, plus what was requested. A pasted own key travels as **`api_key` only** against the **selected** catalog row — the client never sends `user_provider` and never names a vendor, so the key control stays disabled until a provider is chosen | `GET /api/v1/providers`, `POST /api/v1/assistant/chat`, `POST /api/v1/admin/assistant/chat`, `POST /api/v1/assistant/feedback` |
 | `/contribute` | Public contribution form for submitting dictionary additions, corrections, usage examples, and grammar notes. Submissions are queued for editorial review. | `POST /api/v1/contributions` |
 | `/agent` | Goal-driven research runs with phase trace and feedback (member+); the same provider/model selector sits above the goal input and travels in the run body | `GET /api/v1/providers`, `POST /api/v1/agent/runs`, `GET /api/v1/agent/runs/{run_id}`, `POST /api/v1/agent/runs/{run_id}/feedback` |
+| `/orchestra` | Multi-agent learning system — registry counts and role histogram, one card per agent (skills, enabled state, confidence threshold), the skill catalog, a **run panel** for the six orchestrator tasks (translate, validate/correct grammar, learn Bible patterns, build vocabulary, extract collocations) that reports `limit_applied` / `limit_clamped` verbatim, and assistant assignments with admin bind/unbind. Reads are public; the enable/disable, threshold and assignment controls render only for a role the **server** reported, so a member sees a read-only roster instead of buttons that would 401 | `GET /api/v1/learning/overview`, `GET /api/v1/learning/agents`, `GET /api/v1/learning/skills`, `GET /api/v1/learning/assistants`, `GET /api/v1/learning/bindings`, `POST /api/v1/learning/run`, `PATCH /api/v1/learning/agents/{agent_id}`, `POST /api/v1/learning/agents/{agent_id}/enable`, `POST /api/v1/learning/agents/{agent_id}/disable`, `POST /api/v1/learning/bindings`, `DELETE /api/v1/learning/bindings/{assistant_id}/{agent_id}` |
 | `/data` | Collection table (zero-based `#`, bars from zero, `?collection=` filter), knowledge version, health | `/api/v1/knowledge/statistics`, `/api/v1/knowledge/version`, `/health` |
 | `/links` | Endpoint reference, server-rendered links, known gaps | — (renders `src/lib/endpoints.ts`) |
 | `/settings` | AI provider catalog, the admin API-keys panel **and** the admin users panel (all admin): providers — rename, model, enable, paste key, activate, test, refresh models; keys — list, issue, rotate, revoke; users — list, create, enable/disable, change role, change password, revoke sessions. A minted secret is shown **once** (issue dialog: cleared on close; rotate banner: explicit *Dismiss*) and is never cached; the users panel never sees a password or token, only the server's sanitized row | `GET/PUT /api/v1/admin/ai-providers`, `POST /api/v1/admin/ai-providers/{catalog_id}/activate`, `POST /api/v1/admin/ai-providers/{catalog_id}/test`, `POST /api/v1/admin/ai-providers/{catalog_id}/refresh-models`, `GET /api/v1/admin/api-keys`, `POST /api/v1/admin/api-keys`, `POST /api/v1/admin/api-keys/{key_id}/rotate`, `POST /api/v1/admin/api-keys/{key_id}/revoke`, `GET /api/v1/admin/users`, `POST /api/v1/admin/users`, `PUT /api/v1/admin/users/{username}`, `PUT /api/v1/admin/users/{username}/password`, `POST /api/v1/admin/users/{username}/revoke-sessions` |
@@ -148,6 +149,17 @@ used, or if this table drifts.
 | POST | `/api/v1/agent/runs` | `agent:run` | — |
 | GET | `/api/v1/agent/runs/{run_id}` | `agent:read` | — |
 | POST | `/api/v1/agent/runs/{run_id}/feedback` | `agent:run` | — |
+| GET | `/api/v1/learning/overview` | public | — |
+| GET | `/api/v1/learning/agents` | public | — |
+| GET | `/api/v1/learning/skills` | public | — |
+| GET | `/api/v1/learning/assistants` | public | — |
+| GET | `/api/v1/learning/bindings` | public | — |
+| POST | `/api/v1/learning/run` | public | body |
+| PATCH | `/api/v1/learning/agents/{agent_id}` | admin role | — |
+| POST | `/api/v1/learning/agents/{agent_id}/enable` | admin role | — |
+| POST | `/api/v1/learning/agents/{agent_id}/disable` | admin role | — |
+| POST | `/api/v1/learning/bindings` | admin role | — |
+| DELETE | `/api/v1/learning/bindings/{assistant_id}/{agent_id}` | admin role | — |
 | GET | `/api/v1/knowledge/statistics` | `dataset:read` | — |
 | GET | `/api/v1/knowledge/version` | `dataset:read` | — |
 | GET | `/api/v1/foundation/stats` | public (optional surface) | — |
@@ -362,6 +374,14 @@ The app is explicit about the deployment's real capabilities, so a panel is neve
   read as a failed request. Verified: `pasian`, `bang` and `thei` each return 0 for all three while
   `pos` is 1–2. This is **not** the `/word/{w}/forms` sub-resource, which is populated (9–20 rows
   at `limit=20`) and renders normally — two separate fields that must not be reported as one.
+- **`/learning/assistants` and `/learning/bindings` are not registered on this deployment.**
+  Verified live: both answer `404 {"detail":"Not found"}` and neither appears in the deployment's
+  `/openapi.json`, although both exist in the `zolai-core` router. The Orchestra page renders an
+  explicit *"not available on this deployment"* state for assignments — not an empty list, which would
+  read as "this deployment has no assistants" — and hides the bind/unbind controls with it.
+- **`/learning/run` clamps an anonymous caller to `limit` 50.** The server caps the work budget by
+  role and reports it: `limit_applied` is what ran and `limit_clamped` is true when the request asked
+  for more. The run panel prints both and never implies the full page was produced.
 - **Auth is in `enforce` mode** → verified on the deployment (`ZOLAI_API_AUTH=enforce` in
   `.env.production` and in the container environment). Privileged routes already answer `401`
   without a credential: `/admin/ai-providers` and `POST /agent/runs` both do, while public reads

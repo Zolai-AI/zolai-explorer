@@ -37,6 +37,7 @@ export type RouteIconName =
   | 'search'
   | 'message'
   | 'bot'
+  | 'network'
   | 'database'
   | 'link'
   | 'settings'
@@ -166,6 +167,21 @@ export const ROUTES = [
     minRole: 'member',
     icon: 'bot',
     keywords: 'agent run goal research build review shipped',
+    nav: true,
+  },
+  {
+    // Public on purpose: every read the page renders (`/learning/overview`,
+    // `/learning/agents`, `/learning/skills`) is unauthenticated on the server,
+    // and the admin writes behind it are gated inline on the reported role — so
+    // the page itself must be reachable without a key or the read-only view is
+    // invisible to exactly the people it is built for.
+    id: 'orchestra',
+    path: '/orchestra',
+    label: 'Orchestra',
+    description: 'Learning agents, tasks and assistant assignments',
+    minRole: 'anonymous',
+    icon: 'network',
+    keywords: 'orchestra agents skills learning run task bindings assistants team translate grammar vocabulary collocations',
     nav: true,
   },
   {

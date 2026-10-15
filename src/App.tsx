@@ -15,6 +15,7 @@ import { Login } from './routes/Login'
 import { Settings } from './routes/Settings'
 import { Assistant } from './routes/Assistant'
 import { Agent } from './routes/Agent'
+import { Orchestra } from './routes/Orchestra'
 import { Review } from './routes/Review'
 import { Contribute } from './routes/Contribute'
 import { NotFound } from './routes/NotFound'
@@ -126,6 +127,7 @@ const PAGES: Record<RoutePath, ReactNode> = {
   '/rag': <Rag />,
   '/assistant': <Assistant />,
   '/agent': <Agent />,
+  '/orchestra': <Orchestra />,
   '/data': <Data />,
   '/links': <Links />,
   '/review': <Review />,
