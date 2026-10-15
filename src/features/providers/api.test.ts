@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fetchProviderCatalog, modelPlaceholder, modelsFor, postRefreshModels } from './api'
+import {
+  fetchProviderCatalog,
+  modelPlaceholder,
+  modelsFor,
+  postRefreshModels,
+  reconcileSelection,
+} from './api'
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -134,6 +140,115 @@ describe('modelsFor', () => {
     const brain = row({ catalog_id: 'pcore-brain', models: ['opencode/space-bunny-free', 'auto'] })
     const models = modelsFor([brain], 'pcore-brain')
     expect(models[0]).toBe('opencode/space-bunny-free')
+  })
+})
+
+/** A public catalog row as the picker sees it — the five projected fields. */
+type PubRow = {
+  catalog_id: string
+  name: string
+  adapter: string
+  models: string[]
+  selected_model: string
+}
+
+const pubRow = (overrides: Partial<PubRow> = {}): PubRow => ({
+  catalog_id: 'primary',
+  name: 'Primary',
+  adapter: 'brain',
+  models: ['model-a', 'model-b'],
+  selected_model: 'model-a',
+  ...overrides,
+})
+
+describe('reconcileSelection (fresh catalog vs. the controlled value)', () => {
+  it('leaves an empty selection empty — "no override" is the server default', () => {
+    expect(reconcileSelection([pubRow()], { provider: '', model: '' })).toEqual({
+      provider: '',
+      model: '',
+    })
+  })
+
+  it('keeps a selection the catalog still publishes', () => {
+    const value = { provider: 'primary', model: 'model-b' }
+    expect(reconcileSelection([pubRow()], value)).toEqual(value)
+  })
+
+  it('drops to the server default when the provider left the catalog', () => {
+    const other = pubRow({ catalog_id: 'secondary', models: ['other'] })
+    expect(reconcileSelection([other], { provider: 'primary', model: 'model-a' })).toEqual({
+      provider: '',
+      model: '',
+    })
+  })
+
+  it('drops to the server default when a fresh catalog publishes nothing', () => {
+    expect(reconcileSelection([], { provider: 'primary', model: 'model-a' })).toEqual({
+      provider: '',
+      model: '',
+    })
+  })
+
+  it('falls back to the row selected_model when the chosen model is gone', () => {
+    // The row still publishes its own selected_model, so it wins — over the
+    // model the user picked, which the server would reject, and over models[0],
+    // which is not what the row is configured to serve.
+    expect(reconcileSelection([pubRow()], { provider: 'primary', model: 'retired' })).toEqual({
+      provider: 'primary',
+      model: 'model-a',
+    })
+  })
+
+  it('falls back to the first published model when selected_model is not in models', () => {
+    // Exactly the payload that 400s with PROVIDER_MODEL_UNKNOWN — never trust
+    // a declared selected_model the row does not actually publish.
+    expect(
+      reconcileSelection([pubRow({ selected_model: 'also-retired' })], {
+        provider: 'primary',
+        model: 'retired',
+      }),
+    ).toEqual({ provider: 'primary', model: 'model-a' })
+  })
+
+  it('falls back to the first published model when the row declares none', () => {
+    expect(
+      reconcileSelection([pubRow({ selected_model: '' })], { provider: 'primary', model: 'retired' }),
+    ).toEqual({ provider: 'primary', model: 'model-a' })
+  })
+
+  it('falls back to an empty model when the row publishes no models at all', () => {
+    expect(
+      reconcileSelection([pubRow({ models: [], selected_model: '' })], {
+        provider: 'primary',
+        model: 'retired',
+      }),
+    ).toEqual({ provider: 'primary', model: '' })
+  })
+
+  it('matches pickProvider precedence for every shape of row', () => {
+    // `pickProvider` in the picker computes, for the row it was handed:
+    //   row.selected_model published ? row.selected_model : row.models[0] ?? ''
+    // Reconciling a model the row no longer publishes must land on exactly the
+    // same value — one precedence, not two.
+    const pickProvider = (r: PubRow): string =>
+      r.selected_model !== '' && r.models.includes(r.selected_model)
+        ? r.selected_model
+        : (r.models[0] ?? '')
+
+    const rows = [
+      pubRow(),
+      pubRow({ selected_model: 'retired' }),
+      pubRow({ selected_model: '' }),
+      pubRow({ models: ['model-b'], selected_model: 'model-b' }),
+      pubRow({ models: [], selected_model: 'retired' }),
+    ]
+
+    for (const r of rows) {
+      expect(reconcileSelection([r], { provider: r.catalog_id, model: 'retired' })).toEqual({
+        provider: r.catalog_id,
+        model: pickProvider(r),
+      })
+    }
   })
 })
 

@@ -1,6 +1,13 @@
+import { useEffect, useRef } from 'react'
 import { RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
-import { modelPlaceholder, modelsFor, useProviderCatalog, useRefreshModels } from '../features/providers/api'
+import {
+  modelPlaceholder,
+  modelsFor,
+  reconcileSelection,
+  useProviderCatalog,
+  useRefreshModels,
+} from '../features/providers/api'
 import { ErrorState } from './ErrorState'
 import { Skeleton } from './Skeleton'
 import { Button } from './ui/button'
@@ -35,6 +42,14 @@ import type { ProviderSelection } from '../lib/schemas'
  *     request body, so what was chosen is what was sent;
  *   - a catalog that is loading, failed or empty says so honestly and leaves the
  *     request on the server's own default instead of guessing a target;
+ *   - **Re-fetch catalog** is **not** role-gated: it only re-reads the public,
+ *     anon-safe catalog, so a keyed member can pull a fresh list the moment a
+ *     row changes. The admin **Refresh models** action stays the stronger,
+ *     server-side discovery and keeps its `settings:write` gate;
+ *   - the selection is **reconciled against every fresh catalog**
+ *     (`reconcileSelection`): a provider that dropped off the list, or a model
+ *     its row no longer publishes, is corrected instead of sent — and only when
+ *     the value really differs, so the correction can never loop;
  *   - **Refresh models** is an admin action (`settings:write`), so it renders
  *     only for the admin role the server reports — never inferred from a key.
  */
@@ -50,7 +65,7 @@ export function ProviderModelSelect({
   onChange: (next: ProviderSelection) => void
   /** Stable prefix so each label points at its own control. */
   idPrefix?: string
-  /** Opt out of the refresh affordance entirely (the admin gate still applies). */
+  /** Opt out of both refresh affordances entirely (the admin gate still applies to "Refresh models"). */
   showRefresh?: boolean
   disabled?: boolean
   className?: string
@@ -94,6 +109,39 @@ export function ProviderModelSelect({
         toast.error('Could not refresh the model list', {
           description: isApiError(error) ? error.message : String(error),
         }),
+    })
+  }
+
+  // The parent owns `onChange` and may pass a fresh closure every render; a ref
+  // keeps the reconcile effect's dependencies to the values that actually
+  // decide the outcome.
+  const onChangeRef = useRef(onChange)
+  useEffect(() => {
+    onChangeRef.current = onChange
+  }, [onChange])
+
+  // The server list is the truth across **every** catalog change — first load,
+  // the all-roles re-fetch below, an admin refresh invalidating the catalog
+  // key. Nothing runs before the first answer: a pending query is not an empty
+  // catalog, so a selection is never cleared against an unfetched list. The
+  // call is made only when the reconciled value really differs, which is what
+  // keeps a correction from feeding itself.
+  useEffect(() => {
+    if (!catalog.data) return
+    const next = reconcileSelection(catalog.data.items, value)
+    if (next.provider !== value.provider || next.model !== value.model) {
+      onChangeRef.current(next)
+    }
+  }, [catalog.data, value])
+
+  // Public, anon-safe read — available to every role, unlike `runRefresh`.
+  const runRefetch = () => {
+    void catalog.refetch().then((result) => {
+      if (result.isError) {
+        toast.error('Could not re-fetch the provider catalog', {
+          description: isApiError(result.error) ? result.error.message : String(result.error),
+        })
+      }
     })
   }
 
@@ -176,19 +224,37 @@ export function ProviderModelSelect({
           </Select>
         </Field>
 
-        {showRefresh && isAdmin && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="max-lg:h-10 sm:mb-0.5"
-            disabled={disabled || refresh.isPending || value.provider === ''}
-            onClick={runRefresh}
-            title="Re-fetch this provider's model list (admin, settings:write)"
-          >
-            <RefreshCw aria-hidden />
-            {refresh.isPending ? 'Refreshing…' : 'Refresh models'}
-          </Button>
+        {showRefresh && (
+          <div className="flex flex-wrap gap-2">
+            {/* Every role: this only re-reads the public catalog. */}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="max-lg:h-10 sm:mb-0.5"
+              disabled={disabled || catalog.isFetching}
+              onClick={runRefetch}
+              title="Re-fetch the public provider catalog (any role)"
+            >
+              <RefreshCw aria-hidden />
+              {catalog.isFetching ? 'Re-fetching…' : 'Re-fetch catalog'}
+            </Button>
+
+            {isAdmin && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="max-lg:h-10 sm:mb-0.5"
+                disabled={disabled || refresh.isPending || value.provider === ''}
+                onClick={runRefresh}
+                title="Re-fetch this provider's model list (admin, settings:write)"
+              >
+                <RefreshCw aria-hidden />
+                {refresh.isPending ? 'Refreshing…' : 'Refresh models'}
+              </Button>
+            )}
+          </div>
         )}
       </div>
 

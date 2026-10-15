@@ -25,6 +25,7 @@ import {
   RefreshModelsSchema,
   parseOrThrow,
   type ProviderCatalog,
+  type ProviderSelection,
   type PublicProvider,
   type RefreshModels,
 } from '../../lib/schemas'
@@ -53,6 +54,11 @@ export async function postRefreshModels(catalogId: string): Promise<RefreshModel
 }
 
 export function useProviderCatalog() {
+  // No per-query `staleTime`: the global 60s default (`src/lib/queryClient.ts`)
+  // already suits a catalog that changes only when an admin edits a row, and
+  // freshness on demand is what the picker's "Re-fetch catalog" control is for —
+  // a shorter override here would just make every remount re-hit the API without
+  // making the next render any fresher than the explicit refetch already does.
   return useQuery({
     queryKey: CATALOG_KEY,
     queryFn: ({ signal }) => fetchProviderCatalog(signal),
@@ -74,6 +80,45 @@ export function modelsFor(
   catalogId: string,
 ): readonly string[] {
   return items.find((item) => item.catalog_id === catalogId)?.models ?? []
+}
+
+/**
+ * Reconcile a **controlled** selection against a freshly fetched catalog, using
+ * the same precedence the picker applies when a row is chosen (`pickProvider`):
+ *
+ *   - no provider chosen → nothing to reconcile: an empty selection is the real
+ *     "no override" state the server resolves its own default from, so the very
+ *     same `value` comes back;
+ *   - the chosen provider is gone from `items` → `{ provider: '', model: '' }`
+ *     (the server default), because a stale id would only 400;
+ *   - the chosen model is no longer published by that row → the row's own
+ *     `selected_model` **when the row publishes it**, else the row's first
+ *     model, else `''` when the row publishes none.
+ *
+ * The middle step never trusts `selected_model` on its own: a row that declares
+ * one outside its own `models` is exactly the payload that 400s with
+ * PROVIDER_MODEL_UNKNOWN, so it is checked against `models` first — the rule
+ * `pickProvider` already follows.
+ *
+ * Pure and exported so the picker can run it on every catalog change (initial
+ * load, the all-roles "Re-fetch catalog" control, an admin refresh invalidating
+ * the catalog key) and so the precedence is unit-testable.
+ */
+export function reconcileSelection(
+  items: readonly PublicProvider[],
+  value: ProviderSelection,
+): ProviderSelection {
+  // Empty means "no override" — there is no row to check it against.
+  if (value.provider === '') return value
+  const row = items.find((item) => item.catalog_id === value.provider)
+  if (!row) return { provider: '', model: '' }
+  // The current model is still published: the selection stands.
+  if (value.model !== '' && row.models.includes(value.model)) return value
+  const model =
+    row.selected_model !== '' && row.models.includes(row.selected_model)
+      ? row.selected_model
+      : (row.models[0] ?? '')
+  return { provider: value.provider, model }
 }
 
 /**
