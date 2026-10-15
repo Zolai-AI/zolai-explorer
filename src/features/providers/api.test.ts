@@ -250,6 +250,33 @@ describe('reconcileSelection (fresh catalog vs. the controlled value)', () => {
       })
     }
   })
+
+  it('is a fixpoint — a reconciled value reconciles to itself, so the picker corrects once', () => {
+    // The picker's mount effect (`ProviderModelSelect`) calls `onChange` only
+    // when the reconciled value differs, and the parent then feeds that value
+    // back as the controlled `value`. For the correction to be exactly one
+    // call and never a loop, reconciling the reconciled value must be the
+    // identity — for every shape of stale selection against every catalog
+    // that could have retired it.
+    const stale = [
+      { provider: 'primary', model: 'retired' }, // a model the row no longer publishes
+      { provider: 'primary', model: '' }, // a provider chosen with no model yet
+      { provider: 'vanished', model: 'model-a' }, // the provider left the catalog
+    ]
+    const catalogs = [
+      [pubRow()],
+      [pubRow({ selected_model: '' })],
+      [pubRow({ models: [], selected_model: '' })],
+      [pubRow({ catalog_id: 'secondary', models: ['other'] })],
+    ]
+
+    for (const items of catalogs) {
+      for (const value of stale) {
+        const once = reconcileSelection(items, value)
+        expect(reconcileSelection(items, once)).toEqual(once)
+      }
+    }
+  })
 })
 
 describe('modelPlaceholder (honest model picker hint)', () => {

@@ -8,6 +8,16 @@
  * `GET /api/v1/providers` is anon-safe and therefore belongs to **every** role,
  * visibly distinct from the admin action — a different, server-side thing that
  * keeps its gate.
+ *
+ * TODO(reconcile): the picker's mount-time reconcile effect — a stale
+ * selection corrected against a fresh catalog with `onChange` called exactly
+ * once and never again on a re-render with the same data — has no mounting
+ * test: that needs a DOM implementation (`@testing-library/react` + jsdom, or
+ * a `createRoot` + `act` harness) and this suite is deliberately
+ * dependency-free on vitest's node environment. The invariant the effect
+ * relies on is pinned instead in `features/providers/api.test.ts`:
+ * `reconcileSelection` is a fixpoint, so the effect's "only when the value
+ * really differs" guard can correct once and cannot loop.
  */
 import { renderToStaticMarkup } from 'react-dom/server'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
