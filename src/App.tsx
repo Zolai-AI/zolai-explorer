@@ -1,24 +1,34 @@
-import { useState, type ReactNode } from 'react'
+import { Suspense, lazy, useState, type ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { KeyRound } from 'lucide-react'
 import { AppShell } from './components/AppShell'
-import { Dashboard } from './routes/Dashboard'
-import { Word } from './routes/Word'
-import { Analyze } from './routes/Analyze'
-import { Search } from './routes/Search'
-import { Rag } from './routes/Rag'
-import { Data } from './routes/Data'
-import { Links } from './routes/Links'
-import { Login } from './routes/Login'
-import { Settings } from './routes/Settings'
-import { Assistant } from './routes/Assistant'
-import { Agent } from './routes/Agent'
-import { Orchestra } from './routes/Orchestra'
-import { Review } from './routes/Review'
-import { Contribute } from './routes/Contribute'
-import { NotFound } from './routes/NotFound'
+/*
+ * Pages load on demand. The whole studio used to ship as one ~1.37MB chunk
+ * that a phone had to fetch before it could paint anything; only the shell and
+ * the landing page are needed for first render, so everything else is a
+ * dynamic import behind <Suspense>.
+ *
+ * The tests render page components directly under their own MemoryRouter, so
+ * they never cross this boundary — a suspended component cannot be resolved by
+ * renderToStaticMarkup, and none of them depend on it.
+ */
+const Dashboard = lazy(() => import('./routes/Dashboard').then((m) => ({ default: m.Dashboard })))
+const Word = lazy(() => import('./routes/Word').then((m) => ({ default: m.Word })))
+const Analyze = lazy(() => import('./routes/Analyze').then((m) => ({ default: m.Analyze })))
+const Search = lazy(() => import('./routes/Search').then((m) => ({ default: m.Search })))
+const Rag = lazy(() => import('./routes/Rag').then((m) => ({ default: m.Rag })))
+const Data = lazy(() => import('./routes/Data').then((m) => ({ default: m.Data })))
+const Links = lazy(() => import('./routes/Links').then((m) => ({ default: m.Links })))
+const Login = lazy(() => import('./routes/Login').then((m) => ({ default: m.Login })))
+const Settings = lazy(() => import('./routes/Settings').then((m) => ({ default: m.Settings })))
+const Assistant = lazy(() => import('./routes/Assistant').then((m) => ({ default: m.Assistant })))
+const Agent = lazy(() => import('./routes/Agent').then((m) => ({ default: m.Agent })))
+const Orchestra = lazy(() => import('./routes/Orchestra').then((m) => ({ default: m.Orchestra })))
+const Review = lazy(() => import('./routes/Review').then((m) => ({ default: m.Review })))
+const Contribute = lazy(() => import('./routes/Contribute').then((m) => ({ default: m.Contribute })))
+const NotFound = lazy(() => import('./routes/NotFound').then((m) => ({ default: m.NotFound })))
 import { KeyDialog } from './components/KeyDialog'
 import { Empty } from './components/Empty'
 import { Button } from './components/ui/button'
@@ -153,6 +163,18 @@ export function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <BrowserRouter basename={import.meta.env.BASE_URL}>
+          {/* Fallback for a page still downloading. Padding is small-screen
+              first so it never forces a horizontal scroll on a phone. */}
+          <Suspense
+            fallback={
+              <div className="space-y-4 p-4 sm:p-6" role="status" aria-live="polite">
+                <span className="sr-only">Loading page</span>
+                <Skeleton className="h-8 w-48" />
+                <Skeleton className="h-24 w-full" />
+                <Skeleton className="h-24 w-full" />
+              </div>
+            }
+          >
           <Routes>
             <Route element={<AppShell />}>
               {/* Generated from the route registry — see src/lib/routes.ts. */}
@@ -176,6 +198,7 @@ export function App() {
               <Route path="*" element={<NotFound />} />
             </Route>
           </Routes>
+          </Suspense>
           <Toaster position="bottom-right" />
         </BrowserRouter>
       </TooltipProvider>
