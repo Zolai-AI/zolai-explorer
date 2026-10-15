@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 
 const SRC_DIR = fileURLToPath(new URL('../', import.meta.url))
 
-/** Every `.ts` / `.tsx` file under `src/`, tests excluded. */
+/** Every `.ts` / `.tsx` file under `src/` — test files included. */
 function sourceFiles(dir = SRC_DIR): string[] {
   const out: string[] = []
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -15,7 +15,6 @@ function sourceFiles(dir = SRC_DIR): string[] {
       continue
     }
     if (!/\.tsx?$/.test(entry.name)) continue
-    if (entry.name.endsWith('.test.ts')) continue
     out.push(path)
   }
   return out
@@ -25,8 +24,10 @@ function sourceFiles(dir = SRC_DIR): string[] {
  * Provider ids and model ids are **server data**, never app constants: the
  * selectors are fed by `GET /api/v1/providers`, so naming a target in source
  * would silently pin this UI to one deployment's catalog (and rot the moment
- * the catalog changes). Test payloads may of course quote what the live API
- * returned — hence the `*.test.ts` exclusion above.
+ * the catalog changes). That holds for test payloads too — a fixture that
+ * quotes a vendor id is a fixture that pins the same catalog, so every
+ * `*.test.ts` / `*.test.tsx` file is scanned and fixtures use generic ids
+ * (`primary`, `model-a`, …) instead of live ones.
  */
 const FORBIDDEN: readonly { readonly label: string; readonly pattern: RegExp }[] = [
   { label: 'a catalog id (provider name)', pattern: /\bpcore-brain\b/i },
@@ -51,11 +52,14 @@ describe('no hardcoded provider or model ids in src/', () => {
     text: readFileSync(path, 'utf8'),
   }))
 
-  it('scans every non-test source file', () => {
+  it('scans every source file, tests included', () => {
     // Guard the guard: a scanner that found nothing because it walked nothing
-    // would make the assertions below vacuously true.
+    // would make the assertions below vacuously true — and one that skipped
+    // `*.test.ts` let vendor fixtures live in the specs while the guard stayed
+    // green.
     expect(files.length).toBeGreaterThan(20)
-    expect(files.some((file) => file.path.endsWith('.test.ts'))).toBe(false)
+    expect(files.some((file) => file.path.endsWith('.test.ts'))).toBe(true)
+    expect(files.some((file) => file.path.endsWith('.test.tsx'))).toBe(true)
   })
 
   it('never names a provider id or a model id in application code', () => {

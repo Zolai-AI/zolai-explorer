@@ -24,22 +24,22 @@ describe('ragBody — the override must reach the wire', () => {
   })
 
   it('sends the chosen provider', () => {
-    expect(ragBody('q', 5, { provider: 'anthropic', model: '' })).toMatchObject({
-      provider: 'anthropic',
+    expect(ragBody('q', 5, { provider: 'primary', model: '' })).toMatchObject({
+      provider: 'primary',
     })
   })
 
   it('sends provider and model together', () => {
-    expect(ragBody('q', 3, { provider: 'openai', model: 'gpt-4o' })).toEqual({
+    expect(ragBody('q', 3, { provider: 'primary', model: 'model-x' })).toEqual({
       question: 'q',
       limit: 3,
-      provider: 'openai',
-      model: 'gpt-4o',
+      provider: 'primary',
+      model: 'model-x',
     })
   })
 
   it('never invents a `user_provider` — the client must not name a vendor', () => {
-    const body = ragBody('q', 5, { provider: 'anthropic', model: '' })
+    const body = ragBody('q', 5, { provider: 'primary', model: '' })
     expect(Object.keys(body).sort()).toEqual(['limit', 'provider', 'question'])
   })
 })

@@ -345,12 +345,12 @@ describe('parseOrThrow', () => {
 
 /** Trimmed from the deployed `/admin/ai-providers` contract (ADR-014). */
 const PROVIDER_ROW = {
-  catalog_id: 'pcore-brain',
-  name: 'P-Core Brain',
+  catalog_id: 'primary',
+  name: 'Primary',
   adapter: 'brain',
-  base_url: 'https://pcore-brain.peterlianpi.site/v1',
-  models: ['free-1', 'free-2'],
-  selected_model: 'free-1',
+  base_url: 'https://provider.example/v1',
+  models: ['model-a', 'model-b'],
+  selected_model: 'model-a',
   docs: '',
   requires_key: true,
   enabled: true,
@@ -363,7 +363,7 @@ const PROVIDER_ROW = {
 describe('ai provider catalog', () => {
   it('parses a catalog row, including the masked secret view', () => {
     const parsed = ProviderSchema.parse(PROVIDER_ROW)
-    expect(parsed.catalog_id).toBe('pcore-brain')
+    expect(parsed.catalog_id).toBe('primary')
     expect(parsed.adapter).toBe('brain')
     expect(parsed.secret.configured).toBe(true)
     // The mask is the only secret material a row may carry.
@@ -382,14 +382,14 @@ describe('ai provider catalog', () => {
   it('degrades a partial row instead of rejecting the whole catalog', () => {
     const parsed = ProviderListSchema.parse({ items: [PROVIDER_ROW, { name: 'half' }], count: 2 })
     expect(parsed.count).toBe(2)
-    expect(parsed.items[0].catalog_id).toBe('pcore-brain')
+    expect(parsed.items[0].catalog_id).toBe('primary')
     expect(parsed.items[1].catalog_id).toBe('')
     expect(parsed.items[1].models).toEqual([])
   })
 
   it('reads a test probe result with a null status on failure', () => {
     const parsed = ProviderTestSchema.parse({
-      catalog_id: 'pcore-brain',
+      catalog_id: 'primary',
       ok: false,
       status: null,
       latency_ms: 12,
@@ -455,8 +455,8 @@ describe('agent run', () => {
     tool_calls: [],
     evidence: [{ source: 'proverbs', ref: 'x' }],
     answer: 'done',
-    provider: 'pcore-brain',
-    model: 'free-1',
+    provider: 'primary',
+    model: 'model-a',
     turns: 3,
     latency_ms: 900,
     outcome: 'generated',

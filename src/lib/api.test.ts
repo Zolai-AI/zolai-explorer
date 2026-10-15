@@ -232,13 +232,13 @@ describe('apiFetch — key header', () => {
   })
 
   it('serialises a PUT body with the PUT method (provider settings)', async () => {
-    const fetchMock = vi.fn(async () => jsonResponse({ catalog_id: 'pcore-brain' }))
+    const fetchMock = vi.fn(async () => jsonResponse({ catalog_id: 'primary' }))
     vi.stubGlobal('fetch', fetchMock)
 
-    await apiPut('/admin/ai-providers/pcore-brain', { selected_model: 'm1' })
+    await apiPut('/admin/ai-providers/primary', { selected_model: 'm1' })
 
     const [url, init] = lastCall(fetchMock)
-    expect(url).toBe('/api/v1/admin/ai-providers/pcore-brain')
+    expect(url).toBe('/api/v1/admin/ai-providers/primary')
     expect(init.method).toBe('PUT')
     expect(init.body).toBe('{"selected_model":"m1"}')
     expect((init.headers as Record<string, string>)['Content-Type']).toBe('application/json')
@@ -250,7 +250,7 @@ describe('apiFetch — key header', () => {
     const fetchMock = vi.fn(async () => jsonResponse({ ok: true }))
     vi.stubGlobal('fetch', fetchMock)
 
-    await apiPost('/admin/ai-providers/pcore-brain/test', undefined)
+    await apiPost('/admin/ai-providers/primary/test', undefined)
 
     const init = lastCall(fetchMock)[1]
     expect(init.method).toBe('POST')

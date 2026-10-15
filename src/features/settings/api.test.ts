@@ -29,12 +29,12 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 const ROW = {
-  catalog_id: 'pcore-brain',
-  name: 'P-Core Brain',
+  catalog_id: 'primary',
+  name: 'Primary',
   adapter: 'brain',
-  base_url: 'https://pcore-brain.example/v1',
-  models: ['free-1'],
-  selected_model: 'free-1',
+  base_url: 'https://provider.example/v1',
+  models: ['model-a'],
+  selected_model: 'model-a',
   docs: '',
   requires_key: true,
   enabled: true,
@@ -72,7 +72,7 @@ describe('fetchAiProviders', () => {
     expect(url).toBe('/api/v1/admin/ai-providers')
     expect(init.method ?? 'GET').toBe('GET')
     expect(list.count).toBe(1)
-    expect(list.items[0].catalog_id).toBe('pcore-brain')
+    expect(list.items[0].catalog_id).toBe('primary')
   })
 
   it('still returns an empty list when the payload is malformed', async () => {
@@ -89,13 +89,13 @@ describe('putAiProvider', () => {
   it('PUTs the update to the catalog row and returns the fresh row', async () => {
     fetchMock.mockResolvedValue(jsonResponse(ROW))
 
-    const row = await putAiProvider('pcore-brain', { selected_model: 'free-2', enabled: false })
+    const row = await putAiProvider('primary', { selected_model: 'model-b', enabled: false })
 
     const [url, init] = lastCall()
-    expect(url).toBe('/api/v1/admin/ai-providers/pcore-brain')
+    expect(url).toBe('/api/v1/admin/ai-providers/primary')
     expect(init.method).toBe('PUT')
-    expect(init.body).toBe('{"selected_model":"free-2","enabled":false}')
-    expect(row.selected_model).toBe('free-1') // server echoes its own row
+    expect(init.body).toBe('{"selected_model":"model-b","enabled":false}')
+    expect(row.selected_model).toBe('model-a') // server echoes its own row
   })
 
   it('sends the X-API-Key header — settings routes are scope-gated', async () => {
@@ -106,7 +106,7 @@ describe('putAiProvider', () => {
     })
     fetchMock.mockResolvedValue(jsonResponse(ROW))
 
-    await putAiProvider('pcore-brain', { name: 'Renamed' })
+    await putAiProvider('primary', { name: 'Renamed' })
 
     const headers = lastCall()[1].headers as Record<string, string>
     expect(headers['X-API-Key']).toBe('zl_admin_key')
@@ -118,7 +118,7 @@ describe('putAiProvider', () => {
       jsonResponse({ detail: 'missing settings:write scope' }, 403),
     )
 
-    await expect(putAiProvider('pcore-brain', { name: 'x' })).rejects.toSatisfy(
+    await expect(putAiProvider('primary', { name: 'x' })).rejects.toSatisfy(
       (err: unknown) => err instanceof ApiError && err.status === 403,
     )
   })
@@ -127,13 +127,13 @@ describe('putAiProvider', () => {
 describe('postActivateProvider', () => {
   it('POSTs with no body — activate needs a payload-free call', async () => {
     fetchMock.mockResolvedValue(
-      jsonResponse({ catalog_id: 'pcore-brain', is_active: true, active_count: 1 }),
+      jsonResponse({ catalog_id: 'primary', is_active: true, active_count: 1 }),
     )
 
-    const result = await postActivateProvider('pcore-brain')
+    const result = await postActivateProvider('primary')
 
     const [url, init] = lastCall()
-    expect(url).toBe('/api/v1/admin/ai-providers/pcore-brain/activate')
+    expect(url).toBe('/api/v1/admin/ai-providers/primary/activate')
     expect(init.method).toBe('POST')
     expect(init.body).toBeUndefined()
     expect((init.headers as Record<string, string>)['Content-Type']).toBeUndefined()
@@ -154,27 +154,27 @@ describe('postTestProvider', () => {
   it('parses a passing 1-token probe', async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({
-        catalog_id: 'pcore-brain',
+        catalog_id: 'primary',
         ok: true,
         status: 200,
         latency_ms: 142.5,
         error: null,
-        model: 'free-1',
+        model: 'model-a',
       }),
     )
 
-    const probe = await postTestProvider('pcore-brain')
+    const probe = await postTestProvider('primary')
 
     expect(lastCall()[1].method).toBe('POST')
     expect(probe.ok).toBe(true)
     expect(probe.latency_ms).toBeCloseTo(142.5)
-    expect(probe.model).toBe('free-1')
+    expect(probe.model).toBe('model-a')
   })
 
   it('parses a failed probe with a null status and an error string', async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({
-        catalog_id: 'pcore-brain',
+        catalog_id: 'primary',
         ok: false,
         status: 401,
         latency_ms: 30,
@@ -183,7 +183,7 @@ describe('postTestProvider', () => {
       }),
     )
 
-    const probe = await postTestProvider('pcore-brain')
+    const probe = await postTestProvider('primary')
 
     expect(probe.ok).toBe(false)
     expect(probe.error).toBe('invalid key')
@@ -194,16 +194,16 @@ describe('postTestProvider', () => {
 describe('refresh-models — the transport the Settings hook reuses', () => {
   it('POSTs to the admin refresh-models route with no body', async () => {
     fetchMock.mockResolvedValue(
-      jsonResponse({ catalog_id: 'pcore-brain', models: ['free-1', 'free-2'], source: 'remote' }),
+      jsonResponse({ catalog_id: 'primary', models: ['model-a', 'model-b'], source: 'remote' }),
     )
 
-    const result = await postRefreshModels('pcore-brain')
+    const result = await postRefreshModels('primary')
 
     const [url, init] = lastCall()
-    expect(url).toBe('/api/v1/admin/ai-providers/pcore-brain/refresh-models')
+    expect(url).toBe('/api/v1/admin/ai-providers/primary/refresh-models')
     expect(init.method).toBe('POST')
     expect(init.body).toBeUndefined()
-    expect(result.models).toEqual(['free-1', 'free-2'])
+    expect(result.models).toEqual(['model-a', 'model-b'])
     expect(result.source).toBe('remote')
   })
 
@@ -214,10 +214,10 @@ describe('refresh-models — the transport the Settings hook reuses', () => {
       removeItem: () => {},
     })
     fetchMock.mockResolvedValue(
-      jsonResponse({ catalog_id: 'pcore-brain', models: [], source: 'catalog' }),
+      jsonResponse({ catalog_id: 'primary', models: [], source: 'catalog' }),
     )
 
-    await postRefreshModels('pcore-brain')
+    await postRefreshModels('primary')
 
     const headers = lastCall()[1].headers as Record<string, string>
     expect(headers['X-API-Key']).toBe('zl_admin_key')
@@ -228,7 +228,7 @@ describe('refresh-models — the transport the Settings hook reuses', () => {
       jsonResponse({ detail: 'missing settings:write scope' }, 403),
     )
 
-    await expect(postRefreshModels('pcore-brain')).rejects.toSatisfy(
+    await expect(postRefreshModels('primary')).rejects.toSatisfy(
       (err: unknown) => err instanceof ApiError && err.status === 403,
     )
   })
