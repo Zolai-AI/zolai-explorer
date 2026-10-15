@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   fetchAiProviders,
@@ -5,6 +7,7 @@ import {
   postTestProvider,
   putAiProvider,
 } from './api'
+import { postRefreshModels } from '../providers/api'
 import { ApiError } from '../../lib/api'
 import { API_KEY_STORAGE_KEY, __setStorageForTests } from '../../lib/key'
 import type { StorageLike } from '../../lib/key'
@@ -185,5 +188,68 @@ describe('postTestProvider', () => {
     expect(probe.ok).toBe(false)
     expect(probe.error).toBe('invalid key')
     expect(probe.model).toBeNull()
+  })
+})
+
+describe('refresh-models — the transport the Settings hook reuses', () => {
+  it('POSTs to the admin refresh-models route with no body', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ catalog_id: 'pcore-brain', models: ['free-1', 'free-2'], source: 'remote' }),
+    )
+
+    const result = await postRefreshModels('pcore-brain')
+
+    const [url, init] = lastCall()
+    expect(url).toBe('/api/v1/admin/ai-providers/pcore-brain/refresh-models')
+    expect(init.method).toBe('POST')
+    expect(init.body).toBeUndefined()
+    expect(result.models).toEqual(['free-1', 'free-2'])
+    expect(result.source).toBe('remote')
+  })
+
+  it('sends the X-API-Key header — refresh-models is settings:write', async () => {
+    __setStorageForTests({
+      getItem: (k) => (k === API_KEY_STORAGE_KEY ? 'zl_admin_key' : null),
+      setItem: () => {},
+      removeItem: () => {},
+    })
+    fetchMock.mockResolvedValue(
+      jsonResponse({ catalog_id: 'pcore-brain', models: [], source: 'catalog' }),
+    )
+
+    await postRefreshModels('pcore-brain')
+
+    const headers = lastCall()[1].headers as Record<string, string>
+    expect(headers['X-API-Key']).toBe('zl_admin_key')
+  })
+
+  it('surfaces a 403 scope failure as an ApiError, not a parse error', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ detail: 'missing settings:write scope' }, 403),
+    )
+
+    await expect(postRefreshModels('pcore-brain')).rejects.toSatisfy(
+      (err: unknown) => err instanceof ApiError && err.status === 403,
+    )
+  })
+})
+
+describe('useRefreshModels hook wiring (source guard)', () => {
+  // The hook is React Query glue; the node env has no DOM to render it in, so
+  // the wiring is pinned as source — same technique `routes.test.ts` uses for
+  // the shell surfaces.
+  const source = readFileSync(fileURLToPath(new URL('./api.ts', import.meta.url)), 'utf8')
+
+  it('calls the shared providers transport rather than re-pathing the route', () => {
+    expect(source).toMatch(/import \{ postRefreshModels \} from '\.\.\/providers\/api'/)
+    expect(source).toContain('postRefreshModels(catalogId)')
+    // No duplicated endpoint **path** in this feature file — it lives in the
+    // endpoint registry only (the registry *id* in prose is fine).
+    expect(source).not.toContain('/refresh-models')
+  })
+
+  it('invalidates the admin catalog so the model select re-reads', () => {
+    expect(source).toMatch(/invalidateQueries\(\{ queryKey: QKEY \}\)/)
+    expect(source).toMatch(/const QKEY = \['admin', 'ai-providers'\]/)
   })
 })

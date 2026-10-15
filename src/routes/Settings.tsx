@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { KeyRound, Plug, Settings2, Star } from 'lucide-react'
+import { KeyRound, Plug, RefreshCw, Settings2, Star } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   useActivateProvider,
   useAiProviders,
+  useRefreshModels,
   useTestProvider,
   useUpsertProvider,
 } from '../features/settings/api'
@@ -103,6 +104,11 @@ function ProviderRow({ provider }: { provider: Provider }) {
   const upsert = useUpsertProvider()
   const activate = useActivateProvider()
   const test = useTestProvider()
+  const refresh = useRefreshModels()
+  // The route is admin-gated, but the row re-checks the role the server
+  // reports rather than trusting the gate alone — same rule the users panel
+  // follows. The server still enforces `settings:write` either way.
+  const isAdmin = can(useRole(), 'admin')
 
   const [name, setName] = useState(provider.name)
   const [keyDialogOpen, setKeyDialogOpen] = useState(false)
@@ -112,6 +118,9 @@ function ProviderRow({ provider }: { provider: Provider }) {
   useEffect(() => setName(provider.name), [provider.name])
 
   const rename = () => {
+    // Enter and blur both land here; the pending guard makes the second
+    // invocation a no-op so one edit is one PUT.
+    if (upsert.isPending) return
     const clean = name.trim()
     if (clean === '' || clean === provider.name) {
       setName(provider.name)
@@ -176,7 +185,18 @@ function ProviderRow({ provider }: { provider: Provider }) {
     })
   }
 
-  const busy = upsert.isPending || activate.isPending || test.isPending
+  const runRefresh = () => {
+    refresh.mutate(provider.catalog_id, {
+      onSuccess: (result) =>
+        toast.success(`Model list refreshed for ${provider.name}.`, {
+          description: `${formatCount(result.models.length)} model${result.models.length === 1 ? '' : 's'} · source: ${result.source}`,
+        }),
+      onError: (error: unknown) =>
+        toast.error('Could not refresh the model list', { description: describe(error) }),
+    })
+  }
+
+  const busy = upsert.isPending || activate.isPending || test.isPending || refresh.isPending
 
   return (
     <div className="flex flex-col gap-3 rounded-lg border bg-muted/20 p-3 sm:p-4">
@@ -213,7 +233,10 @@ function ProviderRow({ provider }: { provider: Provider }) {
             onKeyDown={(event) => {
               if (event.key === 'Enter') {
                 event.preventDefault()
-                rename()
+                // Commit once: blur routes through the same `rename` (its
+                // pending guard makes the paired invocation a no-op) and
+                // leaves the field the way a click-away would.
+                event.currentTarget.blur()
               }
             }}
             disabled={busy}
@@ -287,6 +310,22 @@ function ProviderRow({ provider }: { provider: Provider }) {
           <Plug aria-hidden />
           {test.isPending ? 'Testing…' : 'Test connection'}
         </Button>
+        {/* The model `<Select>` above only shows the catalog's cached list —
+            this asks the server to re-read it (`settings:write`, honest error
+            toast on failure). Admin-only, re-checked against the role the
+            server reports. */}
+        {isAdmin && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="max-lg:h-10"
+            disabled={busy}
+            onClick={runRefresh}
+          >
+            <RefreshCw aria-hidden className={refresh.isPending ? 'animate-spin' : undefined} />
+            {refresh.isPending ? 'Refreshing…' : 'Refresh models'}
+          </Button>
+        )}
       </div>
 
       <SecretDialog

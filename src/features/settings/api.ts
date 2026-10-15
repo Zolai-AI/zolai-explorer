@@ -13,6 +13,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiGet, apiPost, apiPut } from '../../lib/api'
 import { endpointPath } from '../../lib/endpoints'
+import { postRefreshModels } from '../providers/api'
 import {
   ActivateSchema,
   ProviderListSchema,
@@ -23,6 +24,7 @@ import {
   type Provider,
   type ProviderList,
   type ProviderTest,
+  type RefreshModels,
 } from '../../lib/schemas'
 
 const BASE = endpointPath('admin.providers.list')
@@ -112,5 +114,20 @@ export function useActivateProvider() {
 export function useTestProvider() {
   return useMutation({
     mutationFn: (catalogId: string): Promise<ProviderTest> => postTestProvider(catalogId),
+  })
+}
+
+/**
+ * Re-fetch a row's model list server-side (`admin.providers.refresh_models`,
+ * strict `settings:write`). The transport is shared with the public-catalog
+ * picker (`features/providers/api.ts`) — same endpoint, different cache: this
+ * hook invalidates the **admin** catalog the Settings screen renders, so the
+ * model `<Select>` picks up the new list.
+ */
+export function useRefreshModels() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (catalogId: string): Promise<RefreshModels> => postRefreshModels(catalogId),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: QKEY }),
   })
 }
