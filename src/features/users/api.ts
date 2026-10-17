@@ -31,7 +31,15 @@ import {
   type RevokeSessionsResult,
 } from '../../lib/schemas'
 
-const QKEY = ['admin', 'users'] as const
+/**
+ * Query key for the account list.
+ *
+ * Exported so a render test can seat a payload in the cache under the *same* key
+ * the hooks read — a test that retyped the literal would keep passing while
+ * rendering the loading skeleton, which is a vacuous test rather than a broken
+ * one. (Same reason `features/learning/api.ts` exports `LEARNING_KEYS`.)
+ */
+export const ADMIN_USERS_KEY = ['admin', 'users'] as const
 
 /** Server vocabulary for `role` (`VALID_ROLES` in zolai-core). */
 export const USER_ROLES = ['member', 'admin'] as const
@@ -117,7 +125,7 @@ export async function revokeAdminUserSessions(username: string): Promise<RevokeS
 
 export function useAdminUsers() {
   return useQuery({
-    queryKey: QKEY,
+    queryKey: ADMIN_USERS_KEY,
     queryFn: ({ signal }) => fetchAdminUsers(signal),
   })
 }
@@ -125,7 +133,7 @@ export function useAdminUsers() {
 /** Shared list invalidation — every write below mutates the same rows. */
 function useInvalidateUsers() {
   const queryClient = useQueryClient()
-  return () => queryClient.invalidateQueries({ queryKey: QKEY })
+  return () => queryClient.invalidateQueries({ queryKey: ADMIN_USERS_KEY })
 }
 
 export function useCreateAdminUser() {

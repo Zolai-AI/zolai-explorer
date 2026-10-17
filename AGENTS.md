@@ -174,7 +174,7 @@ panel in the same commit.
 
 ```bash
 bun run typecheck    # tsc -b --force
-bun run test         # 378 vitest specs
+bun run test         # 539 vitest specs across 34 files
 bun run build        # must be warning-free
 ```
 

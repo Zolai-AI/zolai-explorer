@@ -24,7 +24,7 @@ bun run dev        # http://localhost:5173/  (proxies /api + /health upstream)
 | `bun run dev` | Vite dev server with `/api` + `/health` proxied to `https://api.zolai.space` |
 | `bun run build` | `tsc -b` then `vite build` → `dist/` |
 | `bun run typecheck` | Type check only (`tsc -b --force`) |
-| `bun run test` | Vitest suite (378 tests) |
+| `bun run test` | Vitest suite (539 tests) |
 | `bun run deploy` | `vite build` + rsync to `pcore-server:/var/www/zolai-studio` + `nginx -t` + reload |
 
 Requires **bun** (1.4.1+). Never npm/yarn — this is a workspace-wide convention.
@@ -83,7 +83,7 @@ storage backend so the round-trip is unit tested without jsdom.
 | `/orchestra` | Multi-agent learning system — registry counts and role histogram, one card per agent (skills, enabled state, confidence threshold), the skill catalog, a **run panel** for the six orchestrator tasks (translate, validate/correct grammar, learn Bible patterns, build vocabulary, extract collocations) that reports `limit_applied` / `limit_clamped` verbatim, and assistant assignments with admin bind/unbind. Reads are public; the enable/disable, threshold and assignment controls render only for a role the **server** reported, so a member sees a read-only roster instead of buttons that would 401 | `GET /api/v1/learning/overview`, `GET /api/v1/learning/agents`, `GET /api/v1/learning/skills`, `GET /api/v1/learning/assistants`, `GET /api/v1/learning/bindings`, `POST /api/v1/learning/run`, `PATCH /api/v1/learning/agents/{agent_id}`, `POST /api/v1/learning/agents/{agent_id}/enable`, `POST /api/v1/learning/agents/{agent_id}/disable`, `POST /api/v1/learning/bindings`, `DELETE /api/v1/learning/bindings/{assistant_id}/{agent_id}` |
 | `/data` | Collection table (zero-based `#`, bars from zero, `?collection=` filter), knowledge version, health | `/api/v1/knowledge/statistics`, `/api/v1/knowledge/version`, `/health` |
 | `/links` | Endpoint reference, server-rendered links, known gaps | — (renders `src/lib/endpoints.ts`) |
-| `/settings` | AI provider catalog, the admin API-keys panel **and** the admin users panel (all admin): providers — rename, model, enable, paste key, activate, test, refresh models; keys — list, issue, rotate, revoke; users — list, create, enable/disable, change role, change password, revoke sessions. A minted secret is shown **once** (issue dialog: cleared on close; rotate banner: explicit *Dismiss*) and is never cached; the users panel never sees a password or token, only the server's sanitized row | `GET/PUT /api/v1/admin/ai-providers`, `POST /api/v1/admin/ai-providers/{catalog_id}/activate`, `POST /api/v1/admin/ai-providers/{catalog_id}/test`, `POST /api/v1/admin/ai-providers/{catalog_id}/refresh-models`, `GET /api/v1/admin/api-keys`, `POST /api/v1/admin/api-keys`, `POST /api/v1/admin/api-keys/{key_id}/rotate`, `POST /api/v1/admin/api-keys/{key_id}/revoke`, `GET /api/v1/admin/users`, `POST /api/v1/admin/users`, `PUT /api/v1/admin/users/{username}`, `PUT /api/v1/admin/users/{username}/password`, `POST /api/v1/admin/users/{username}/revoke-sessions` |
+| `/settings` | AI provider catalog, the admin API-keys panel **and** the admin users panel (all admin): providers — rename, model, enable, paste key, activate, test, refresh models; keys — list, issue, rotate, revoke; users — list, create, enable/disable, change role, change password, revoke sessions. A minted secret is shown **once** (issue dialog: cleared on close; rotate banner: explicit *Dismiss*) and is never cached; the users panel never sees a password or token, only the server's sanitized row. Every users write that narrows access or drops live sessions goes through a confirm step that names the account and warns when the row is *your own* (**you** badge) or the **last enabled admin** — the two cases with no undo from this browser | `GET/PUT /api/v1/admin/ai-providers`, `POST /api/v1/admin/ai-providers/{catalog_id}/activate`, `POST /api/v1/admin/ai-providers/{catalog_id}/test`, `POST /api/v1/admin/ai-providers/{catalog_id}/refresh-models`, `GET /api/v1/admin/api-keys`, `POST /api/v1/admin/api-keys`, `POST /api/v1/admin/api-keys/{key_id}/rotate`, `POST /api/v1/admin/api-keys/{key_id}/revoke`, `GET /api/v1/admin/users`, `POST /api/v1/admin/users`, `PUT /api/v1/admin/users/{username}`, `PUT /api/v1/admin/users/{username}/password`, `POST /api/v1/admin/users/{username}/revoke-sessions` |
 
 `/login` is the only destination with `nav: false`: it must stay reachable **before** any privilege is
 held, because the role prompt on `/agent` and `/settings` and the warn-mode banner all link to it as
@@ -242,6 +242,28 @@ secret cannot land in the mutation cache. The *stored* key is only ever rendered
 (`zolai_sk_ab••••••`), and the first key is bootstrapped with the `zolai apikey` CLI, because
 minting one needs an existing `apikey:manage` key.
 
+**Users** — `GET /api/v1/admin/users` lists accounts, `POST` creates one, and
+`PUT …/{username}` / `PUT …/{username}/password` / `POST …/{username}/revoke-sessions` act on one.
+The server is **strict** on all five (`user:manage` **and** the admin role, both `strict=True`), so
+they 401 an anonymous caller in `warn` mode too — `GET /api/v1/admin/users` answering 401 without a
+credential is the contract working, not a broken panel.
+
+The server enforces nothing that protects the *caller* (`zolai-core/zolai/api/session_auth.py`:
+`set_user_role`, `set_user_enabled`, `change_password`), so the panel says what each write does:
+
+| Write | What the server does | What the panel adds |
+|-------|---------------------|---------------------|
+| `enable` / `promote` | widens access | nothing — undoable in one click |
+| `disable` | revokes **every** live session of the account, in the same request | confirm; warns when the row is yours (this browser is signed out) or the last enabled admin (way back: `zolai user enable`) |
+| `demote` | takes effect on the target's **next request** (`reset_session_cache`) | confirm; same two warnings — and for the last admin it says there is **no supported undo at all**, because `/settings` needs admin to open and `zolai user` has no role command |
+| `revoke-sessions` | revokes every live session, returns a **count** | confirm naming the account |
+| own password | revokes every live session **including the caller's** | the dialog says you will be signed out, and success drops the local session rather than leaving a dead token to 401 every panel |
+
+The row the server says is *you* (`GET /auth/me` → `username`) carries a **you** badge. With an admin
+**API key** there is no badge at all: the server cannot map a key to an account, and marking a row
+would be a guess. A **403** on this panel ("this credential lacks the scope or role") renders as
+*Not permitted*, not as a raw `forbidden`.
+
 ## Data page: zero-based, bars from zero
 
 `/data` (and the dashboard's collections table) show a `#` column that starts at **0** for the first
@@ -397,7 +419,7 @@ The same list is rendered as cards on `/links` under "Known API gaps".
 bun run test
 ```
 
-378 Vitest specs across twenty-one files:
+539 Vitest specs across thirty-four files:
 
 - `src/lib/api.test.ts` — 401 → `ApiError` with `needsKey`; 15s timeout budget and abort →
   `timeout` / `aborted` distinction; transport failure → `network`; **empty body tolerated** instead
@@ -470,6 +492,20 @@ bun run test
   revoke-sessions) with method/path/body, trimming on create, optional `display_name`/`role` omitted
   when blank, numeric `enabled` normalised to a boolean, no `password_hash` ever expected in a row,
   and honest `username_taken` / `user_not_found` / `invalid_input` messages.
+- `src/features/users/accountActions.ts` + `accountActions.test.ts` — **which account write needs a
+  confirm step, and what it must say.** `enable`/`promote` need none (they widen access and undo in
+  one click); `disable` / `demote` / `revoke-sessions` always confirm, and the copy gains a warning
+  when the row is *your own* account or the **last enabled admin** — the two cases with no in-browser
+  undo. `endsOwnSession` decides the one case where a password change signs the caller out: the
+  target is your account **and** the active credential is a session (an API key is not a session).
+  Pure, so all four actions × self/last-admin are pinned rather than eyeballed.
+- `src/features/users/UsersPanel.test.tsx` — the panel rendered through `react-dom/server`: the row
+  the **server** named is marked `you` and no other; an admin **API key** marks nothing (the server
+  cannot say whose account it is, so the panel must not guess); every write control is present; and
+  no confirm dialog is armed on first render.
+- `src/components/ErrorState.test.tsx` — the shared failure surface: **401 prompts for a key** while
+  **403 says "Not permitted"** (the server's raw `forbidden` token explains nothing over the admin
+  users list) with no Retry either way, and a 5xx stays retryable and stays silent about permission.
 - `src/lib/providerLiterals.test.ts` — the **no-hardcoded-target guard**: every non-test file under
   `src/` is scanned for provider ids and model ids (`pcore-brain`, `opencode/`, `gpt-*`, `claude-*`,
   `gemini-*`, …), and `ProviderModelSelect` must stay fed by `useProviderCatalog()` (with no

@@ -1,4 +1,4 @@
-import { AlertTriangle, Clock, KeyRound, RefreshCw, WifiOff } from 'lucide-react'
+import { AlertTriangle, Clock, KeyRound, RefreshCw, ShieldAlert, WifiOff } from 'lucide-react'
 import { ApiError, isApiError } from '../lib/api'
 import { Alert, AlertDescription, AlertTitle } from './ui/alert'
 import { Button } from './ui/button'
@@ -29,6 +29,22 @@ function describe(error: unknown): {
         hint: 'The Zolai Core API did not answer within the 15s budget.',
         Icon: Clock,
         retryable: true,
+      }
+    }
+    // 403 is *not* "missing key" — that is 401 and drives the key prompt. Here
+    // the server recognised the credential and refused the permission. The
+    // detail for a role failure is the bare token `forbidden`, which explains
+    // nothing on its own, so say what it actually means instead of echoing it.
+    if (apiError.status === 403) {
+      const informative = apiError.message !== '' && apiError.message !== 'forbidden'
+      return {
+        title: 'Not permitted',
+        message: informative
+          ? apiError.message
+          : 'The server refused this request — this credential does not carry the scope or role it requires.',
+        hint: 'The role comes from the server, so a demotion or a key without the scope applies on the very next request.',
+        Icon: ShieldAlert,
+        retryable: false,
       }
     }
     if (apiError.kind === 'network') {

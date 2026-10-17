@@ -10,12 +10,32 @@ import {
   useUpdateAdminUser,
   type UserRole,
 } from './api'
+import {
+  confirmationFor,
+  enabledAdminCount,
+  endsOwnSession,
+  isSelf,
+  roleAction,
+  toggleAction,
+  type AccountAction,
+  type AccountConfirmation,
+} from './accountActions'
 import { Card } from '../../components/Card'
 import { Empty } from '../../components/Empty'
 import { ErrorPanel } from '../../components/ErrorState'
 import { Skeleton } from '../../components/Skeleton'
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '../../components/ui/alert-dialog'
 import {
   Dialog,
   DialogContent,
@@ -34,7 +54,9 @@ import {
   SelectValue,
 } from '../../components/ui/select'
 import { isApiError } from '../../lib/api'
+import { useAuthMe } from '../../lib/auth'
 import { formatCount, formatTimestamp } from '../../lib/format'
+import { signOut } from '../../lib/session'
 import type { AdminUser } from '../../lib/schemas'
 
 /** Server minimum for a password (`UserCreateIn` / `UserPasswordIn`). */
@@ -53,11 +75,24 @@ const MIN_PASSWORD = 8
  *     close, never toasted, never cached;
  *   - every call is strict server-side (`user:manage` + admin role), so a stale
  *     browser role surfaces as an honest 401/403 rather than a silent no-op.
+ *
+ * What it must *say*, because the server will not stop it (`accountActions.ts`
+ * records the exact lines in `session_auth.py`): every write that narrows
+ * access or drops live sessions goes through a confirm step, the row the server
+ * says is *you* is marked as such, and a warning is shown when a write would
+ * remove the last account that can sign in as an admin.
  */
 export function UsersPanel() {
   const users = useAdminUsers()
+  // The server's answer to "who am I?" — the only identity source (never the
+  // stored key). `username` is present only for a session credential.
+  const me = useAuthMe()
   const [createOpen, setCreateOpen] = useState(false)
   const [passwordFor, setPasswordFor] = useState<string | null>(null)
+  const items = users.data?.items ?? []
+  // Read from the full list — `GET /admin/users` is unpaginated, so this is a
+  // real total rather than a page pretending to be one.
+  const enabledAdmins = enabledAdminCount(items)
 
   return (
     <div className="flex flex-col gap-4">
@@ -85,54 +120,94 @@ export function UsersPanel() {
           </div>
         ) : users.isError ? (
           <ErrorPanel error={users.error} onRetry={() => void users.refetch()} />
-        ) : (users.data?.items.length ?? 0) === 0 ? (
+        ) : items.length === 0 ? (
           <Empty
             title="No accounts yet"
             hint="Accounts are created here or with the `zolai user create` CLI. There is no sign-up path: a username/password login only works for an account an admin made."
           />
         ) : (
           <ul className="flex flex-col gap-2">
-            {users.data?.items.map((user) => (
-              <UserRow key={user.id} user={user} onChangePassword={() => setPasswordFor(user.username)} />
+            {items.map((user) => (
+              <UserRow
+                key={user.id}
+                user={user}
+                isSelf={isSelf(user, me.username)}
+                enabledAdmins={enabledAdmins}
+                onChangePassword={() => setPasswordFor(user.username)}
+              />
             ))}
           </ul>
         )}
       </Card>
 
       <CreateUserDialog open={createOpen} onClose={() => setCreateOpen(false)} />
-      <PasswordDialog username={passwordFor} onClose={() => setPasswordFor(null)} />
+      <PasswordDialog
+        username={passwordFor}
+        // The server revokes every live session of the target, so this is the
+        // one case where the admin's own browser is signed out by the request.
+        ownSessionEnds={endsOwnSession({
+          targetUsername: passwordFor ?? '',
+          me: me.username,
+          authSource: me.auth_source,
+        })}
+        onClose={() => setPasswordFor(null)}
+      />
     </div>
   )
 }
 
 function UserRow({
   user,
+  isSelf: self,
+  enabledAdmins,
   onChangePassword,
 }: {
   user: AdminUser
+  isSelf: boolean
+  enabledAdmins: number
   onChangePassword: () => void
 }) {
   const update = useUpdateAdminUser()
   const revoke = useRevokeAdminUserSessions()
   const busy = update.isPending || revoke.isPending
+  /** The write waiting on a confirm step, with the copy that explains it. */
+  const [pending, setPending] = useState<{
+    action: AccountAction
+    confirmation: AccountConfirmation
+  } | null>(null)
 
-  const setEnabled = (enabled: boolean) => {
-    update.mutate(
-      { username: user.username, update: { enabled } },
-      {
-        onSuccess: () =>
-          toast.success(enabled ? `${user.username} enabled.` : `${user.username} disabled.`, {
-            description: enabled
-              ? 'The account can sign in again.'
-              : 'The server revoked every live session for this account.',
+  const execute = (action: AccountAction) => {
+    if (action === 'revoke-sessions') {
+      revoke.mutate(user.username, {
+        onSuccess: (result) =>
+          toast.success(`Signed ${user.username} out everywhere.`, {
+            description: `${formatCount(result.revoked)} session${result.revoked === 1 ? '' : 's'} revoked — a count, never a token.`,
           }),
         onError: (error: unknown) =>
-          toast.error('Could not change the state', { description: describe(error) }),
-      },
-    )
-  }
+          toast.error('Could not revoke sessions', { description: describe(error) }),
+      })
+      return
+    }
 
-  const setRole = (role: UserRole) => {
+    if (action === 'enable' || action === 'disable') {
+      const enabled = action === 'enable'
+      update.mutate(
+        { username: user.username, update: { enabled } },
+        {
+          onSuccess: () =>
+            toast.success(enabled ? `${user.username} enabled.` : `${user.username} disabled.`, {
+              description: enabled
+                ? 'The account can sign in again.'
+                : 'The server revoked every live session for this account.',
+            }),
+          onError: (error: unknown) =>
+            toast.error('Could not change the state', { description: describe(error) }),
+        },
+      )
+      return
+    }
+
+    const role: UserRole = action === 'promote' ? 'admin' : 'member'
     update.mutate(
       { username: user.username, update: { role } },
       {
@@ -143,15 +218,25 @@ function UserRow({
     )
   }
 
-  const revokeSessions = () => {
-    revoke.mutate(user.username, {
-      onSuccess: (result) =>
-        toast.success(`Signed ${user.username} out everywhere.`, {
-          description: `${formatCount(result.revoked)} session${result.revoked === 1 ? '' : 's'} revoked — a count, never a token.`,
-        }),
-      onError: (error: unknown) =>
-        toast.error('Could not revoke sessions', { description: describe(error) }),
+  /**
+   * Confirm first when the write narrows access, otherwise run it.
+   *
+   * The decision is pure and unit-tested (`accountActions.ts`) because the
+   * server enforces nothing that protects the caller: a demoted last admin
+   * cannot undo it from this browser at all.
+   */
+  const request = (action: AccountAction) => {
+    const confirmation = confirmationFor({
+      action,
+      account: user,
+      isSelf: self,
+      enabledAdmins,
     })
+    if (!confirmation) {
+      execute(action)
+      return
+    }
+    setPending({ action, confirmation })
   }
 
   return (
@@ -164,6 +249,7 @@ function UserRow({
           <UserRound className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
           <span className="truncate">{user.username}</span>
         </span>
+        {self && <Badge variant="outline">you</Badge>}
         {user.display_name && (
           <span className="truncate text-xs text-muted-foreground">{user.display_name}</span>
         )}
@@ -192,7 +278,11 @@ function UserRow({
           <FieldLabel htmlFor={`role-${user.id}`} className="text-[11px]">
             Role
           </FieldLabel>
-          <Select value={user.role} onValueChange={(next) => setRole(next as UserRole)} disabled={busy}>
+          <Select
+            value={user.role}
+            onValueChange={(next) => request(roleAction(next as UserRole))}
+            disabled={busy}
+          >
             <SelectTrigger id={`role-${user.id}`} className="mt-1 h-10 w-full">
               <SelectValue />
             </SelectTrigger>
@@ -212,7 +302,7 @@ function UserRow({
             size="sm"
             className="max-lg:h-10"
             disabled={busy}
-            onClick={() => setEnabled(!user.enabled)}
+            onClick={() => request(toggleAction(user))}
           >
             {user.enabled ? (
               <>
@@ -240,14 +330,41 @@ function UserRow({
             variant="outline"
             size="sm"
             className="max-lg:h-10"
-            disabled={busy || revoke.isPending}
-            onClick={revokeSessions}
+            disabled={busy}
+            onClick={() => request('revoke-sessions')}
           >
             <RotateCcw aria-hidden />
             Revoke sessions
           </Button>
         </div>
       </div>
+
+      {pending && (
+        <AlertDialog open onOpenChange={(next) => !next && setPending(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{pending.confirmation.title}</AlertDialogTitle>
+              <AlertDialogDescription>{pending.confirmation.body}</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel className="max-lg:h-10">Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                className="max-lg:h-10"
+                variant={pending.confirmation.destructive ? 'destructive' : 'default'}
+                onClick={() => {
+                  const action = pending.action
+                  // Close first: the action is already decided, and leaving the
+                  // dialog up over a pending row invites a second click.
+                  setPending(null)
+                  execute(action)
+                }}
+              >
+                {pending.confirmation.confirmLabel}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
     </li>
   )
 }
@@ -397,7 +514,16 @@ function CreateUserDialog({ open, onClose }: { open: boolean; onClose: () => voi
 }
 
 /** Replace one account's password — the server drops its live sessions too. */
-function PasswordDialog({ username, onClose }: { username: string | null; onClose: () => void }) {
+function PasswordDialog({
+  username,
+  ownSessionEnds,
+  onClose,
+}: {
+  username: string | null
+  /** The server will revoke the *caller's own* session in this request. */
+  ownSessionEnds: boolean
+  onClose: () => void
+}) {
   const setPassword = useSetAdminUserPassword()
   const [password, setPasswordValue] = useState('')
   const [error, setError] = useState<string | undefined>(undefined)
@@ -419,9 +545,24 @@ function PasswordDialog({ username, onClose }: { username: string | null; onClos
       { username, password },
       {
         onSuccess: () => {
-          toast.success(`Password changed for ${username}.`, {
-            description: 'Every live session for that account was revoked by the server.',
-          })
+          if (ownSessionEnds) {
+            // `change_password` revokes every live session of the target, and
+            // this target is the account this browser is signed in as — so the
+            // stored token is already dead. Dropping it here is what keeps the
+            // app honest: otherwise the shell keeps reporting the old role and
+            // every panel 401s until a reload. (`signOut()` clears local state
+            // first, then best-effort calls `/auth/logout` with a token the
+            // server has already revoked.)
+            void signOut()
+            toast.success(`Password changed for ${username}.`, {
+              description:
+                'The server revoked every live session for that account — including this one, so you have been signed out. Sign in again with the new password.',
+            })
+          } else {
+            toast.success(`Password changed for ${username}.`, {
+              description: 'Every live session for that account was revoked by the server.',
+            })
+          }
           setPasswordValue('')
           onClose()
         },
@@ -445,7 +586,10 @@ function PasswordDialog({ username, onClose }: { username: string | null; onClos
           <DialogTitle>Change password</DialogTitle>
           <DialogDescription>
             For <span className="font-mono">{username}</span> — sent once in the PUT body; this app
-            never stores or displays it.
+            never stores or displays it.{' '}
+            {ownSessionEnds
+              ? 'This is your own account: the server revokes every live session for it, including the one in this browser, so you will be signed out.'
+              : 'The server revokes every live session for that account.'}
           </DialogDescription>
         </DialogHeader>
         <form
