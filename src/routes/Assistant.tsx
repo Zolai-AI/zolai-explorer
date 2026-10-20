@@ -363,6 +363,11 @@ export function Assistant() {
             <Skeleton className="h-4 w-2/3" />
             <Skeleton className="h-4" />
             <Skeleton className="h-4 w-5/6" />
+            {/* No fake progress: the honest fact is the budget, not a countdown. */}
+            <p className="text-[11px] text-muted-foreground">
+              A free-tier provider answer can take up to ~60s — there is nothing to show until the
+              server replies.
+            </p>
             <span className="sr-only">Waiting for the assistant…</span>
           </div>
         </Card>

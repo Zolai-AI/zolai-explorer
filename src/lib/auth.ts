@@ -72,7 +72,10 @@ export function roleBadge(role: Role): RoleBadge {
 /* ------------------------------------------------------- auth-mode notice */
 
 export type AuthModeNotice = {
-  /** `false` when there is nothing to say (enforce, off, or no answer yet). */
+  /**
+   * `false` when there is nothing to say — enforce, off, a signed-in role
+   * (session or key), or no answer yet.
+   */
   show: boolean
   tone: 'warn' | 'ok'
   title: string
@@ -86,7 +89,8 @@ export type AuthModeNotice = {
  *
  * - `warn` — the API still accepts unauthenticated requests and *may* flip to
  *   `enforce`. That is the one state where the UI should nag, because nothing
- *   is broken yet and a key takes seconds to add.
+ *   is broken yet and a key takes seconds to add — and only to an **anonymous**
+ *   visitor, who is the one an enforce flip would lock out.
  * - `enforce` — a key is already required; the 401s on gated panels say it.
  * - `off` — authentication is disabled deployment-wide; nothing to prepare for.
  * - `''` (unknown, older server, offline) — say nothing rather than guess.
@@ -97,17 +101,18 @@ export function authModeNotice(mode: string, role: Role): AuthModeNotice {
   // Decision, not an oversight: `off` stays quiet on purpose — authentication is
   // disabled deployment-wide, so "add a key now" would be advice the server
   // cannot act on. Only `warn` is a state where a key changes anything.
-  if (mode.trim().toLowerCase() !== 'warn') {
+  // Only anonymous users need the warn nag; a signed-in user (session or key)
+  // already survives an enforce flip, so the banner must not nag them.
+  if (mode.trim().toLowerCase() !== 'warn' || role !== 'anonymous') {
     return { show: false, tone: 'ok', title: '', body: '', cta: null }
   }
-  const who = role === 'anonymous' ? 'You are anonymous right now.' : `You are signed in as ${role}.`
   return {
     show: true,
     tone: 'warn',
     title: 'Authentication: warn mode',
     body:
       'The API accepts unauthenticated requests today, but it can flip to enforce at any time. ' +
-      `${who} Add a key now so nothing breaks when it does.`,
+      'You are anonymous right now. Add a key now so nothing breaks when it does.',
     cta: 'Sign in…',
   }
 }

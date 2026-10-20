@@ -120,19 +120,25 @@ describe('command palette role filter', () => {
 })
 
 describe('authModeNotice — the warn-mode banner copy', () => {
-  it('says so, with a Sign in CTA, while the API is in warn mode', () => {
+  it('says so, with a Sign in CTA, while the API is in warn mode and nobody is signed in', () => {
     const notice = authModeNotice('warn', 'anonymous')
     expect(notice.show).toBe(true)
     expect(notice.title).toMatch(/warn mode/)
     expect(notice.body).toMatch(/flip to enforce/)
     expect(notice.body).toMatch(/anonymous/)
+    // Warn mode may flip; it never claims a key is needed *today*.
+    expect(notice.body).not.toMatch(/requires a key|key is required/i)
     expect(notice.cta).toBeTruthy()
   })
 
-  it('never claims a key is needed today, only that it may be', () => {
-    const notice = authModeNotice('warn', 'member')
-    expect(notice.body).not.toMatch(/requires a key|key is required/i)
-    expect(notice.body).toMatch(/signed in as member/)
+  it('never nags a signed-in user — a session or key already survives an enforce flip', () => {
+    for (const role of ['member', 'admin'] as const) {
+      const notice = authModeNotice('warn', role)
+      expect(notice.show, role).toBe(false)
+      expect(notice.cta, role).toBeNull()
+      expect(notice.body, role).toBe('')
+      expect(notice.tone, role).toBe('ok')
+    }
   })
 
   it('stays quiet in enforce mode (the 401s say it) and when auth is off', () => {

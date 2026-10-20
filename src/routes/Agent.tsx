@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react'
+import { Link, useLocation } from 'react-router-dom'
 import { Check, CircleDashed, KeyRound, ThumbsDown, ThumbsUp, Workflow, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { RUN_TIMEOUT_MS, useAgentRun, useRunAgent, useSendFeedback } from '../features/agent/api'
@@ -15,6 +16,7 @@ import { failedDetail, failedTitle } from '../lib/agentErrors'
 import { can, useRole } from '../lib/auth'
 import { isApiError } from '../lib/api'
 import { formatCount } from '../lib/format'
+import { signInPath } from '../lib/routes'
 import type { AgentRun, ProviderSelection } from '../lib/schemas'
 
 /** The orchestrator's four phases, in order (`zolai.agent.orchestrator`). */
@@ -41,6 +43,8 @@ const PHASE_LABELS: Record<(typeof PHASE_ORDER)[number], string> = {
 export function Agent() {
   const role = useRole()
   const allowed = can(role, 'member')
+  // Registry-driven sign-in destination (carries `?from=/agent`), never a literal.
+  const location = useLocation()
   const [goal, setGoal] = useState('')
   // Per-request target from the shared selector — travels in the run body as
   // `provider`/`model` and comes back as `requested_*` + the `provider · model`
@@ -68,12 +72,18 @@ export function Agent() {
       <div className="flex flex-col gap-5">
         <PageHeader />
         <Empty
-          title="A key is required to run the agent"
-          hint="Agent runs are strict server-side (401 without a key, 403 without a member+ scope). Paste a key in the top bar, then reload this tab."
+          title="Sign in to run the agent"
+          hint="Agent runs are strict server-side (401 without a credential, 403 without a member+ scope). Sign in with your username and password, or paste an API key."
           icon={<KeyRound className="size-5" aria-hidden />}
         >
-          <p className="mt-1 text-[11px] text-muted-foreground">
-            Public reads and the public assistant stay available without a key.
+          <Button className="mt-1 h-10" asChild>
+            <Link to={signInPath(location.pathname)}>
+              <KeyRound aria-hidden />
+              Sign in…
+            </Link>
+          </Button>
+          <p className="text-[11px] text-muted-foreground">
+            Public reads and the public assistant stay available without a credential.
           </p>
         </Empty>
       </div>
