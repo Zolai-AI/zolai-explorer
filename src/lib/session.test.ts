@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { API_KEY_STORAGE_KEY, __setStorageForTests, getApiKey } from './key'
+import { API_KEY_STORAGE_KEY, __setStorageForTests, getApiKey, setApiKey } from './key'
 import {
   SESSION_STORAGE_KEY,
   __setStorageForTests as setSessionStorage,
   getSession,
   parseExpiresAt,
 } from './sessionAuth'
+import { authMeQueryKey, fetchAuthMe, identityGeneration, subscribeIdentity } from './auth'
 import { resolveAuthHeader } from './credentials'
 import type { StorageLike } from './key'
 import { queryClient } from './queryClient'
@@ -657,5 +658,139 @@ describe('signOut — ends whichever credential is active', () => {
 
     expect(result).toEqual({ kind: 'api-key' })
     expect(getApiKey()).toBe('')
+  })
+})
+
+/**
+ * Identity cache coherence — every credential change must invalidate
+ * `/auth/me`.
+ *
+ * The regression this guards: `useAuthMeQuery` keyed the query on an identity
+ * generation fed **only** by the API-key store. A password sign-in wrote
+ * `zolai.session` and notified only `sessionAuth`'s own subscribers, which
+ * nothing in `auth.ts` listened to — so the cached `anonymous` payload kept
+ * driving `me.role` and the warn-mode banner stayed up until a full reload.
+ * An expired session was the same hole: `getSession()` drops it on the next
+ * read, but nothing invalidated the cached role.
+ *
+ * These tests exercise the **real** query pipeline: the same query key
+ * (`authMeQueryKey`) and transport (`fetchAuthMe`) the hook uses, on the real
+ * `queryClient`, with `staleTime: 30_000` exactly as the hook sets it. The
+ * `/auth/me` stub answers with the identity the credential on the request
+ * actually earns — Bearer session → member, X-API-Key → admin, nothing →
+ * anonymous — so a stale cache is visible as the wrong role.
+ */
+describe('identity cache coherence — /auth/me invalidates on every credential change', () => {
+  /** What `useAuthMeQuery` reads right now, through the real key + transport. */
+  function fetchMe() {
+    return queryClient.fetchQuery({
+      queryKey: authMeQueryKey(),
+      queryFn: ({ signal }) => fetchAuthMe(signal),
+      staleTime: 30_000,
+      retry: false,
+    })
+  }
+
+  /** `/auth/me` answers with the identity the credential on the request earns. */
+  function stubAuthMeByCredential() {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (url.endsWith('/auth/login')) return loginResponse()
+        if (url.endsWith('/auth/logout')) return new Response(null, { status: 204 })
+        const headers = (init?.headers ?? {}) as Record<string, string>
+        if (headers.Authorization) return authMe('member', null)
+        if (headers['X-API-Key']) return authMe('admin', 'zolai_sk_abcdef', 'enforce')
+        return authMe('anonymous', null)
+      }),
+    )
+  }
+
+  beforeEach(() => {
+    // Each test starts with an empty cache; the identity generation itself is
+    // module-level and only ever increases, which is exactly how the app runs.
+    queryClient.clear()
+  })
+
+  it('updates me.role from anonymous to member on a session sign-in, without a reload', async () => {
+    stubAuthMeByCredential()
+    // The mounted hook has already probed the identity: nobody signed in.
+    const before = await fetchMe()
+    expect(before.role).toBe('anonymous')
+
+    const genBefore = identityGeneration()
+    let notified = 0
+    const off = subscribeIdentity(() => {
+      notified += 1
+    })
+    const result = await signInWithPassword('alice', 'secret123')
+    off()
+
+    expect(result.ok).toBe(true)
+    // The invalidation signal fired — this is what makes the hook refetch…
+    expect(notified).toBeGreaterThan(0)
+    expect(identityGeneration()).toBeGreaterThan(genBefore)
+    // …and the refetch carries the session, so the role is the server's answer.
+    const after = await fetchMe()
+    expect(after.role).toBe('member')
+  })
+
+  it('returns me.role to anonymous on a session sign-out, without a reload', async () => {
+    stubAuthMeByCredential()
+    // A signed-in session, cached by the mounted hook as member.
+    sessionStorage.setItem(
+      SESSION_STORAGE_KEY,
+      JSON.stringify({ token: 'sess_live', expiresAt: Date.now() + 3600_000, username: 'alice', role: 'member' }),
+    )
+    const before = await fetchMe()
+    expect(before.role).toBe('member')
+
+    await signOutSession()
+
+    const after = await fetchMe()
+    expect(after.role).toBe('anonymous')
+  })
+
+  it('reads an expired session as anonymous — the self-clear invalidates identity', async () => {
+    stubAuthMeByCredential()
+    // A session that expires while the app is mounted.
+    sessionStorage.setItem(
+      SESSION_STORAGE_KEY,
+      JSON.stringify({ token: 'sess_short', expiresAt: Date.now() + 80, username: 'alice', role: 'member' }),
+    )
+    const before = await fetchMe()
+    expect(before.role).toBe('member')
+
+    await new Promise((resolve) => setTimeout(resolve, 120))
+    // The next request reads the session the way `apiFetch` does — expired, so
+    // `sessionAuth` drops it. That change must invalidate the cached role too.
+    expect(resolveAuthHeader()).toEqual({ type: 'none' })
+
+    const after = await fetchMe()
+    expect(after.role).toBe('anonymous')
+  })
+
+  it('still invalidates on an API-key change (regression)', async () => {
+    stubAuthMeByCredential()
+    const before = await fetchMe()
+    expect(before.role).toBe('anonymous')
+
+    const genBefore = identityGeneration()
+    setApiKey('zolai_sk_abcdefghijklmnop')
+
+    expect(identityGeneration()).toBeGreaterThan(genBefore)
+    const after = await fetchMe()
+    expect(after.role).toBe('admin')
+  })
+
+  it('stops notifying after unsubscribe, like any store subscriber', async () => {
+    stubAuthMeByCredential()
+    let notified = 0
+    const off = subscribeIdentity(() => {
+      notified += 1
+    })
+    off()
+    await signOutSession()
+    expect(notified).toBe(0)
   })
 })

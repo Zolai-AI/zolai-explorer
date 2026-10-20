@@ -3,10 +3,10 @@
  * say I am?*
  *
  * The role is **never guessed from the stored key**. `useRole()` re-queries
- * `GET /auth/me` (public, never 401) whenever the stored key changes and
- * falls back to `anonymous` — on a missing key, a failed probe, or a payload
- * the tolerant schema cannot read. The server derives the role from the key's
- * scopes; this module only renders and ranks what it answers.
+ * `GET /auth/me` (public, never 401) whenever the stored key **or session**
+ * changes and falls back to `anonymous` — on a missing key, a failed probe,
+ * or a payload the tolerant schema cannot read. The server derives the role
+ * from the credential; this module only renders and ranks what it answers.
  *
  * The ranking helpers (`rankOf` / `can` / `roleBadge`) are pure so the gating
  * rules are unit-tested in the plain-Node vitest environment.
@@ -17,6 +17,7 @@ import { useQuery } from '@tanstack/react-query'
 import { apiGet } from './api'
 import { endpointPath } from './endpoints'
 import { getApiKey, subscribeApiKey } from './key'
+import { hasSession, subscribeSession } from './sessionAuth'
 import { AuthMeSchema, parseOrThrow, type AuthMe, type Role } from './schemas'
 
 export type { AuthMe, Role }
@@ -120,26 +121,66 @@ export function authModeNotice(mode: string, role: Role): AuthModeNotice {
 /* ------------------------------------------------------- reactive identity */
 
 /**
- * Bumped on every stored-key change so `useRole()` refetches `/auth/me`.
- * Increment happens *before* subscribers are notified, which is what makes
- * the `useSyncExternalStore` snapshot change. Seeded from the stored key so
- * a key present before this module loaded still counts as "identified".
+ * **One** identity generation, bumped by **every** credential change.
+ *
+ * A request's identity can come from either credential the resolver knows
+ * about — the API key in `localStorage` **or** the password session in
+ * `sessionStorage` — so the `/auth/me` cache must be invalidated by both.
+ * This used to be keyed on `subscribeApiKey` alone: a session sign-in wrote
+ * `zolai.session` and notified only `sessionAuth`'s own subscribers, which
+ * nothing here listened to, so the query kept serving the stale `anonymous`
+ * payload and the warn-mode banner stayed up after a password sign-in until a
+ * full reload. An *expired* session was worse: `getSession()` silently drops
+ * it on the next read, but with no subscriber on that event nothing ever
+ * invalidated the cached `member` either.
+ *
+ * Now `sessionAuth` publishes its changes (it stays the only module that
+ * reads/writes `zolai.session`; this module only *subscribes*), and both
+ * stores feed this single counter. The feeding listener is registered once at
+ * module load — the generation reflects every change whether or not a hook is
+ * currently mounted — and each increment happens *before* React's subscriber
+ * is notified, which is what makes the `useSyncExternalStore` snapshot change
+ * and the query key with it. Seeded from both stored credentials so a key or
+ * session present before this module loaded still counts as "identified".
  */
-let generation = getApiKey() ? 1 : 0
+let generation = getApiKey() || hasSession() ? 1 : 0
 
-function subscribeRoleChange(listener: () => void): () => void {
-  return subscribeApiKey(() => {
-    generation += 1
-    listener()
-  })
+// The one feed: API-key changes and session changes (sign-in, sign-out, and
+// the silent self-clear of an expired session) all bump the same counter.
+subscribeApiKey(() => {
+  generation += 1
+})
+subscribeSession(() => {
+  generation += 1
+})
+
+/** Subscribe to **any** identity change — API key *or* session. */
+export function subscribeIdentity(listener: () => void): () => void {
+  const offKey = subscribeApiKey(listener)
+  const offSession = subscribeSession(listener)
+  return () => {
+    offKey()
+    offSession()
+  }
 }
 
-function keyGenerationSnapshot(): number {
+/** Current identity generation — the snapshot behind `useSyncExternalStore`. */
+export function identityGeneration(): number {
   return generation
 }
 
 function serverSnapshot(): number {
   return 0
+}
+
+/** Query key for the identity probe; the generation forces a refetch on change. */
+export function authMeQueryKey(): readonly [string, string, number] {
+  return ['auth', 'me', generation]
+}
+
+/** The `/auth/me` transport itself, so tests exercise the real query function. */
+export async function fetchAuthMe(signal?: AbortSignal): Promise<AuthMe> {
+  return parseOrThrow(AuthMeSchema, await apiGet<unknown>(endpointPath('identity.me'), { signal }), 'auth/me')
 }
 
 const ANONYMOUS: AuthMe = {
@@ -153,11 +194,12 @@ const ANONYMOUS: AuthMe = {
 
 /** The identity query itself, for callers that must tell "unknown" from "none". */
 export function useAuthMeQuery() {
-  const keyGen = useSyncExternalStore(subscribeRoleChange, keyGenerationSnapshot, serverSnapshot)
+  // The single subscription: a re-render happens on any identity change, and
+  // `authMeQueryKey()` then reads the bumped generation.
+  useSyncExternalStore(subscribeIdentity, identityGeneration, serverSnapshot)
   return useQuery({
-    queryKey: ['auth', 'me', keyGen],
-    queryFn: async ({ signal }): Promise<AuthMe> =>
-      parseOrThrow(AuthMeSchema, await apiGet<unknown>(endpointPath('identity.me'), { signal }), 'auth/me'),
+    queryKey: authMeQueryKey(),
+    queryFn: ({ signal }) => fetchAuthMe(signal),
     staleTime: 30_000,
     // Identity is a gate, not a dashboard: one probe, no retry storm.
     retry: false,
