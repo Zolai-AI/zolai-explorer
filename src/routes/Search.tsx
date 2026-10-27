@@ -27,6 +27,7 @@ import {
   DEFAULT_SEARCH_LIMIT,
   SEARCH_LIMIT_CHOICES,
   searchQuerySchema,
+  searchSubmitDisabled,
   submitSearch,
   wordPath,
   type SearchQueryInput,
@@ -63,6 +64,17 @@ export function Search() {
     resolver: zodResolver(searchQuerySchema),
     defaultValues: { query: 'pasian' },
   })
+
+  /**
+   * The submit control mirrors the field: held back while the query is
+   * whitespace-only (there is nothing to POST) or a search is already in
+   * flight, and re-enabled as soon as there is text to send — `watch`
+   * re-renders on every keystroke, so the state cannot go stale. A disabled
+   * submit button also keeps the browser's Enter-to-submit from firing an
+   * empty request; with text in the field the button is enabled and Enter
+   * submits exactly as before.
+   */
+  const submitDisabled = searchSubmitDisabled(form.watch('query'), search.isPending)
 
   const runSearch = (query: string, rawLimit: string) => {
     const payload = submitSearch({ query, limit: rawLimit })
@@ -139,7 +151,7 @@ export function Search() {
             </div>
             <Button
               type="submit"
-              disabled={search.isPending}
+              disabled={submitDisabled}
               className="h-10 sm:w-auto"
             >
               {search.isPending ? 'Searching…' : 'Search'}

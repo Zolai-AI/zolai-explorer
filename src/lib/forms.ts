@@ -133,6 +133,20 @@ export function wordPath(word: string): string {
   return routeWordPath(word.trim().toLowerCase())
 }
 
+/**
+ * Whether the search submit control must be held back.
+ *
+ * Empty (or whitespace-only) means there is nothing to POST, and a pending
+ * request means a second click would race the first — both hold the button.
+ * The moment the field carries text the control comes back, because this is
+ * re-evaluated on every keystroke. Kept pure so the rule is testable without
+ * a DOM: the route's render test only sees the default (enabled) state.
+ */
+export function searchSubmitDisabled(query: unknown, pending: boolean): boolean {
+  if (pending) return true
+  return typeof query !== 'string' || query.trim().length === 0
+}
+
 /** Search submit: validated query + clamped limit, ready for the mutation. */
 export function submitSearch(
   values: { query?: unknown; limit?: unknown },
