@@ -23,8 +23,11 @@ import { DASHBOARD_PATH } from '../lib/routes'
  *
  * Mobile-first: below `lg` the navigation lives in a shadcn `<Sheet>` drawer
  * opened from a hamburger in the top bar; from `lg` up it is a persistent
- * sidebar that can collapse to an icon rail. The routed panel area is
- * width-capped so long payloads never stretch across a wide display.
+ * sidebar that can collapse to an icon rail. The routed panel area spans the
+ * **full** viewport width on desktop — the former `max-w-6xl` cap left a
+ * centred column of unused space on wide displays (#25), and tables/charts
+ * are exactly what that width is for. Line-length guards stay where they
+ * belong instead: prose keeps `max-w-prose`, forms keep their narrow columns.
  *
  * The collapse toggle is now at the TOP of the sidebar for discoverability.
  * The sidebar uses `sticky top-0` + `h-screen` so it stays in view while
@@ -138,7 +141,9 @@ export function AppShell() {
         />
 
         <main className="min-w-0 flex-1 px-3 py-4 sm:px-5 sm:py-6">
-          <div className="mx-auto w-full max-w-6xl">
+          {/* Full-bleed content column: gutters come from <main>'s padding,
+              not from a centred max-width clamp (#25). */}
+          <div className="w-full">
             {/* Auth-mode notice (warn → enforce) sits above every panel. */}
             <AuthBanner />
             <Outlet />
