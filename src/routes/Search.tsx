@@ -154,7 +154,7 @@ export function Search() {
               disabled={submitDisabled}
               className="h-10 sm:w-auto"
             >
-              {search.isPending ? 'Searching…' : 'Search'}
+              {search.isPending ? 'Searching…' : 'Run search'}
             </Button>
           </div>
         </form>

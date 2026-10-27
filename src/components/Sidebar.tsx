@@ -19,7 +19,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from './ui/badge'
-import { Button } from './ui/button'
+import { Button, buttonVariants } from './ui/button'
 import { Separator } from './ui/separator'
 import { can, useAuthMe, useRole, type Role } from '../lib/auth'
 import { NAV_ROUTES, DASHBOARD_PATH, specOf, type RouteIconName } from '../lib/routes'
@@ -72,9 +72,13 @@ export const NAV_ITEMS: NavItem[] = NAV_ROUTES.map((route) => ({
 /**
  * Primary navigation, filtered by the role the server reports.
  *
- * Each item is a shadcn `<Button variant="ghost">` rendered `asChild` into a
- * router `<NavLink>`, so the active state comes from `aria-current` styling
- * rather than a parallel mechanism.
+ * Each item is a router `<NavLink>` carrying the same `buttonVariants`
+ * classes the shell's buttons use, so the row **is** the link: one focusable
+ * element (no `<button>` nested inside an `<a>`), middle-click and
+ * open-in-new-tab work, and assistive tech announces a link — not a button
+ * that happens to navigate. The active state is the NavLink's own
+ * `aria-current="page"`, applied through the `className` callback, so there
+ * is no second mechanism to drift.
  *
  * `onNavigate` lets the mobile `<Sheet>` close itself after a tap.
  *
@@ -122,28 +126,30 @@ export function Sidebar({
               end={to === DASHBOARD_PATH}
               title={description}
               onClick={onNavigate}
-              className="block"
+              // Icon-only mode: the label is hidden visually but the
+              // accessible name and the tooltip title still carry it.
+              aria-label={collapsed ? label : undefined}
+              // `data-slot` keeps the row classed as a button-weight control
+              // (it is 44px tall on mobile either way); everything else about
+              // it is plain link semantics.
+              data-slot="button"
+              className={({ isActive }) =>
+                cn(
+                  buttonVariants({
+                    variant: 'ghost',
+                    className: cn(
+                      'max-lg:h-11 w-full justify-start gap-2.5 px-2.5',
+                      collapsed && 'justify-center gap-0 px-0',
+                      !isActive && 'text-muted-foreground',
+                    ),
+                  }),
+                  isActive &&
+                    'bg-primary/15 text-primary ring-1 ring-primary/30 hover:bg-primary/15',
+                )
+              }
             >
-              {({ isActive }) => (
-                <Button
-                  variant="ghost"
-                  // 44px rows: comfortably past the 40px mobile touch target.
-                  className={cn(
-                    'max-lg:h-11 w-full justify-start gap-2.5 px-2.5',
-                    isActive
-                      ? 'bg-primary/15 text-primary ring-1 ring-primary/30 hover:bg-primary/15'
-                      : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-                    collapsed && 'justify-center gap-0 px-0',
-                  )}
-                  // Icon-only mode: the label is hidden visually but the
-                  // accessible name and the tooltip title still carry it.
-                  aria-label={collapsed ? label : undefined}
-                  aria-current={isActive ? 'page' : undefined}
-                >
-                  <Icon className="size-4.5 shrink-0" aria-hidden />
-                  {!collapsed && <span className="truncate">{label}</span>}
-                </Button>
-              )}
+              <Icon className="size-4.5 shrink-0" aria-hidden />
+              {!collapsed && <span className="truncate">{label}</span>}
             </NavLink>
           </li>
         ))}
@@ -158,25 +164,30 @@ export function Sidebar({
             cannot pass a gate yet. */}
         {showSignIn &&
           (signIn.action === 'sign-in' && signIn.to ? (
-            <NavLink to={signIn.to} onClick={onNavigate} className="block" title={signIn.title}>
-              {({ isActive }) => (
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    'max-lg:h-11 w-full justify-start gap-2.5 px-2.5',
-                    'border-amber-500/50 text-amber-700 hover:bg-amber-500/10 hover:text-amber-800 dark:text-amber-300',
-                    isActive && 'bg-amber-500/15 ring-1 ring-amber-500/30',
-                    collapsed && 'justify-center gap-0 border-0 px-0',
-                  )}
-                  aria-label={collapsed ? signIn.label : undefined}
-                  aria-current={isActive ? 'page' : undefined}
-                >
-                  {/* Sign-in affordance: `LogIn`, so it cannot be confused
-                      with the `key` route icon in the nav map above. */}
-                  <LogIn className="size-4.5 shrink-0" aria-hidden />
-                  {!collapsed && <span className="truncate">{signIn.label}</span>}
-                </Button>
-              )}
+            <NavLink
+              to={signIn.to}
+              onClick={onNavigate}
+              title={signIn.title}
+              aria-label={collapsed ? signIn.label : undefined}
+              data-slot="button"
+              className={({ isActive }) =>
+                cn(
+                  buttonVariants({
+                    variant: 'ghost',
+                    className: cn(
+                      'max-lg:h-11 w-full justify-start gap-2.5 px-2.5',
+                      'border-amber-500/50 text-amber-700 hover:bg-amber-500/10 hover:text-amber-800 dark:text-amber-300',
+                      collapsed && 'justify-center gap-0 border-0 px-0',
+                    ),
+                  }),
+                  isActive && 'bg-amber-500/15 ring-1 ring-amber-500/30',
+                )
+              }
+            >
+              {/* Sign-in affordance: `LogIn`, so it cannot be confused
+                  with the `key` route icon in the nav map above. */}
+              <LogIn className="size-4.5 shrink-0" aria-hidden />
+              {!collapsed && <span className="truncate">{signIn.label}</span>}
             </NavLink>
           ) : (
             <div className={cn('flex items-center gap-1', collapsed ? 'justify-center' : 'px-2.5')}>
