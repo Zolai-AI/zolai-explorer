@@ -1,0 +1,6 @@
+# RFC 9116 security.txt for studio.zolai.space — a real file, not the SPA shell.
+# Refresh `Expires` annually (next: 2027-10).
+Contact: https://github.com/Zolai-AI/zolai-explorer/security/advisories
+Preferred-Languages: en
+Policy: https://github.com/Zolai-AI/zolai-explorer/security
+Expires: 2027-10-27T00:00:00.000Z

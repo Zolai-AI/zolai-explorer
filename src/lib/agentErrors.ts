@@ -22,10 +22,10 @@ export function isEdgeTimeout(error: unknown): boolean {
 export function failedTitle(error: unknown): string {
   if (isEdgeTimeout(error)) return 'The run took too long for the CDN'
   if (isApiError(error)) {
-    if (error.status === 403) return 'Not allowed for this key'
+    if (error.status === 403) return 'Not allowed for this credential'
     if (error.status === 429) return 'Run budget reached'
     if (error.kind === 'timeout') return 'The run exceeded the time budget'
-    if (error.status === 401) return 'API key required'
+    if (error.status === 401) return 'Credential refused'
   }
   return 'Run failed'
 }
@@ -35,12 +35,14 @@ export function failedDetail(error: unknown, clientBudgetS: number): string {
     return 'The proxy closed the connection after ~100s before the server answered. The run itself had not failed — try a narrower goal, or run it again now the server enforces its own 60s budget.'
   }
   if (isApiError(error)) {
-    if (error.status === 403) return 'This key lacks a member+ role on the server.'
-    if (error.status === 429) return 'Five runs per minute per key — wait a moment and try again.'
+    if (error.status === 403) return 'The credential this request carried lacks a member+ role on the server.'
+    if (error.status === 429) return 'Five runs per minute per credential — wait a moment and try again.'
     if (error.kind === 'timeout') {
       return `No answer within ${clientBudgetS}s; the server budget is 60s.`
     }
     return error.message
   }
-  return error instanceof Error ? error.message : String(error)
+  // A raw exception can carry request internals; the toast must not echo it.
+  // (No `describeError` import here — `lib/` must not depend on a component.)
+  return 'The run did not complete.'
 }

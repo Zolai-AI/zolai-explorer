@@ -22,11 +22,14 @@ export function Empty({
   return (
     <div
       className={cn(
-        'flex flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/30 text-center',
+        // `bg-muted` rather than a translucent wash: on a white card the
+        // translucent version computed to #fcfcfc, so the empty slot was
+        // invisible and only the dashed border hinted that anything was there.
+        'flex flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted text-center',
         compact ? 'gap-1 px-3 py-4' : 'gap-2 px-4 py-8',
       )}
     >
-      <span className="text-muted-foreground/60">{icon ?? <Inbox className="size-5" aria-hidden />}</span>
+      <span className="text-muted-foreground">{icon ?? <Inbox className="size-5" aria-hidden />}</span>
       <p className={cn('font-medium text-foreground', compact ? 'text-xs' : 'text-sm')}>{title}</p>
       {hint && <p className="max-w-prose text-xs leading-relaxed text-muted-foreground">{hint}</p>}
       {children}

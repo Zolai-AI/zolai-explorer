@@ -12,13 +12,27 @@ import { apiGet, apiPatch } from '../../lib/api'
 import { endpointPath, queryLimitPath } from '../../lib/endpoints'
 import { parseOrThrow, CorrectionResponseSchema } from '../../lib/schemas'
 
+/**
+ * The server's whitelist (`RECORDS_WHITELIST` in `zolai/api/records_router.py`),
+ * and `records.list` answers 400 for anything outside it.
+ *
+ * `contributions` is listed with a **raised gate**: reading it needs
+ * `dataset:edit` rather than `dataset:read`, and its rows arrive with `email`
+ * stripped from both the payload and the searchable fields — a contributor list
+ * is not a directory. Contacting a contributor is `/contributions/mine` for the
+ * person themselves, and otherwise an editorial act outside this API.
+ */
 export const RECORDS_WHITELIST = [
   'dictionary',
   'bible_verses',
   'grammar_patterns',
   'phrases',
   'vocabulary',
+  'contributions',
 ] as const
+
+/** Tables the queue can only be opened by an editor with `dataset:edit`. */
+export const EDITOR_ONLY_TABLES: readonly TableName[] = ['contributions']
 
 export type TableName = typeof RECORDS_WHITELIST[number]
 

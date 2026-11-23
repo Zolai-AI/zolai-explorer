@@ -35,8 +35,9 @@ export function useKnowledgeVersion() {
 
 /**
  * Optional surface: `/foundation/stats` only exists when the deployment
- * registers the foundation router, so it never retries and callers are expected
- * to render nothing when it fails rather than surface an error.
+ * registers the foundation router, so it never retries — and a 404 renders an
+ * explicit "not exposed on this deployment" notice (`CurationChart`), never a
+ * silent gap and never an error the user has to decode.
  */
 export function useFoundationStats() {
   return useQuery({

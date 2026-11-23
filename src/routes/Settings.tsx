@@ -10,7 +10,7 @@ import {
 } from '../features/settings/api'
 import { Card } from '../components/Card'
 import { Empty } from '../components/Empty'
-import { ErrorPanel } from '../components/ErrorState'
+import { describeError, ErrorPanel, failureDetail } from '../components/ErrorState'
 import { Skeleton } from '../components/Skeleton'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
@@ -28,7 +28,6 @@ import {
 import { ApiKeysPanel } from '../features/apikeys/ApiKeysPanel'
 import { UsersPanel } from '../features/users/UsersPanel'
 import { can, useRole } from '../lib/auth'
-import { isApiError } from '../lib/api'
 import { formatCount } from '../lib/format'
 import type { Provider } from '../lib/schemas'
 
@@ -75,12 +74,20 @@ export function Settings() {
           </div>
         </Card>
       ) : providers.isError ? (
-        <ErrorPanel error={providers.error} onRetry={() => void providers.refetch()} />
+        // The failure renders *inside* the panel it describes — the same
+        // "Catalog" Card frame as every other state — rather than as a bare
+        // banner below it. `ErrorPanel` owns the error copy/tone (a 401/403 is
+        // not painted like an outage).
+        <Card title="Catalog" subtitle="GET /admin/ai-providers">
+          <ErrorPanel error={providers.error} onRetry={() => void providers.refetch()} />
+        </Card>
       ) : items.length === 0 ? (
-        <Empty
-          title="No providers in the catalog"
-          hint="The server seeds the catalog on boot. If this deployment has no rows, nothing can be configured here."
-        />
+        <Card title="Catalog" subtitle="GET /admin/ai-providers">
+          <Empty
+            title="No providers in the catalog"
+            hint="The server seeds the catalog on boot. If this deployment has no rows, nothing can be configured here."
+          />
+        </Card>
       ) : (
         <Card
           title="Catalog"
@@ -427,12 +434,13 @@ function SecretDialog({
   )
 }
 
-/** One short line for a toast — no stack traces, no key material. */
+/** One short line for a toast — no stack traces, no key material. The
+ *  classification is `describeError`'s; only the admin-credential case, which
+ *  says what *this* surface needs, is local. */
 function describe(error: unknown): string {
-  if (isApiError(error)) {
-    if (error.status === 401 || error.status === 403)
-      return 'Admin access required — an admin API key must be active in this browser.'
-    return error.message
+  const d = describeError(error)
+  if (d.code === 'needsKey' || d.code === 'forbidden') {
+    return 'Admin access required — an admin credential must be active in this browser.'
   }
-  return error instanceof Error ? error.message : String(error)
+  return failureDetail(error)
 }

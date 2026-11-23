@@ -33,6 +33,7 @@ export type EndpointArea =
   | 'learning'
   | 'knowledge'
   | 'admin'
+  | 'roles'
 
 /**
  * Where the `limit` parameter travels on a route.
@@ -141,7 +142,11 @@ export const ENDPOINTS: readonly EndpointSpec[] = [
     limitDefault: null,
     limitMax: null,
     limit: 'none',
-    note: 'Word entry: frequency, POS, sources, confidence (sentence_frequency always 0).',
+    note:
+      'Word entry: frequency, POS, sources, confidence. `frequency` is the **best-supported count** ' +
+      'across the entry’s sources, not a sum of them, and `sentence_frequency` / `grammar_usage` are ' +
+      'filled from the same rows the /word/{w}/patterns and observation evidence report (a `0` means ' +
+      'nothing was recorded for that word, not that the field is unimplemented).',
   },
   {
     id: 'word.forms',
@@ -200,6 +205,19 @@ export const ENDPOINTS: readonly EndpointSpec[] = [
     limitMax: 200,
     limit: 'query',
     note: 'Tiered provenance records — the one word route capped at 200.',
+  },
+  {
+    id: 'word.related',
+    method: 'GET',
+    template: '/word/{word}/related',
+    area: 'word',
+    scope: 'dataset:read',
+    limitDefault: 12,
+    limitMax: 50,
+    limit: 'query',
+    note:
+      'Related words after the exact match: same family (shared prefix / extension) first, ' +
+      'then same-POS neighbours. Never includes the query word. Server cap 50 (default 12).',
   },
   {
     id: 'analyze.sentence',
@@ -291,7 +309,18 @@ export const ENDPOINTS: readonly EndpointSpec[] = [
     limitDefault: null,
     limitMax: null,
     limit: 'none',
-    note: 'Submit a public dictionary contribution for editorial review.',
+    note: 'Submit a public dictionary contribution for editorial review. Open to anonymous; a resolved credential is recorded as `attributed_to`, and the client never sends an identity field.',
+  },
+  {
+    id: 'contributions.mine',
+    method: 'GET',
+    template: '/contributions/mine',
+    area: 'assistant',
+    scope: '',
+    limitDefault: 20,
+    limitMax: 100,
+    limit: 'query',
+    note: "This account's own submissions and their review state, newest first. Strict member role and a **session**; the `user_id` comes from the credential, so there is no parameter to point at someone else, and the projection has no `email`.",
   },
   {
     id: 'agent.run.create',
@@ -302,7 +331,7 @@ export const ENDPOINTS: readonly EndpointSpec[] = [
     limitDefault: null,
     limitMax: null,
     limit: 'none',
-    note: 'Start a research run. Runs synchronously (≤60s), 5 runs/min/key.',
+    note: 'Start a research run. Runs synchronously (≤60s), 5 runs/min/credential.',
   },
   {
     id: 'agent.run.read',
@@ -368,7 +397,7 @@ export const ENDPOINTS: readonly EndpointSpec[] = [
     limitDefault: null,
     limitMax: null,
     limit: 'none',
-    note: 'Assistant surfaces that have agents bound. **Not registered on this deployment** — 404, see the gap list.',
+    note: 'Assistant surfaces that have agents bound. Public; currently returns an empty list until something is bound.',
   },
   {
     id: 'learning.bindings.list',
@@ -379,7 +408,7 @@ export const ENDPOINTS: readonly EndpointSpec[] = [
     limitDefault: null,
     limitMax: null,
     limit: 'none',
-    note: 'Agent ↔ assistant bindings; optional `?assistant=<id>` filter. Not registered on this deployment (404).',
+    note: 'Agent ↔ assistant bindings; optional `?assistant=<id>` filter. Public; empty until a bind exists.',
   },
   {
     id: 'learning.run',
@@ -437,7 +466,7 @@ export const ENDPOINTS: readonly EndpointSpec[] = [
     limitDefault: null,
     limitMax: null,
     limit: 'none',
-    note: 'Bind an agent to an assistant with a role (201). Not registered on this deployment.',
+    note: 'Bind an agent to an assistant with a role (201). Admin only.',
   },
   {
     id: 'learning.bindings.delete',
@@ -448,7 +477,7 @@ export const ENDPOINTS: readonly EndpointSpec[] = [
     limitDefault: null,
     limitMax: null,
     limit: 'none',
-    note: 'Unbind an agent from an assistant (204). Not registered on this deployment.',
+    note: 'Unbind an agent from an assistant (204). Admin only.',
   },
   {
     id: 'knowledge.statistics',
@@ -649,6 +678,50 @@ export const ENDPOINTS: readonly EndpointSpec[] = [
     note: 'Logout-everywhere for one account; returns a count, never a token.',
   },
   {
+    id: 'roles.request.create',
+    method: 'POST',
+    template: '/role-requests',
+    area: 'roles',
+    scope: '',
+    limitDefault: null,
+    limitMax: null,
+    limit: 'none',
+    note: 'Ask a superadmin for `admin` or `superadmin`. Strict member role and a **session** — a key or a delegated OAuth token answers 403 `session_required`. Reason is 10–1000 chars; 5 asks/min; one pending ask per (account, role), enforced by the index (409 `duplicate_pending`).',
+  },
+  {
+    id: 'roles.request.mine',
+    method: 'GET',
+    template: '/role-requests/mine',
+    area: 'roles',
+    scope: '',
+    limitDefault: 20,
+    limitMax: 100,
+    limit: 'query',
+    note: "This account's own asks and their decisions, newest first. Filtered by the `user_id` the session proves — no `user_id` parameter exists.",
+  },
+  {
+    id: 'roles.queue',
+    method: 'GET',
+    template: '/role-requests',
+    area: 'roles',
+    scope: 'role:manage',
+    limitDefault: 50,
+    limitMax: 200,
+    limit: 'query',
+    note: 'The queue: every account\'s asks, defaulting to `status=pending`. `role:manage` **and** the superadmin role, both strict — `role:manage` is the scope that makes a credential a superadmin, and the role half closes the queue if that ever changes.',
+  },
+  {
+    id: 'roles.decision',
+    method: 'POST',
+    template: '/role-requests/{request_id}/decision',
+    area: 'roles',
+    scope: 'role:manage',
+    limitDefault: null,
+    limitMax: null,
+    limit: 'none',
+    note: 'Approve or reject one ask. Approval runs through the single guarded role writer, so a refusal (`self_role_change`, `last_superadmin`) leaves the request `pending`. A rejection needs a note; decisions are single-use (409 `already_decided`).',
+  },
+  {
     id: 'records.list',
     method: 'GET',
     template: '/records',
@@ -658,7 +731,7 @@ export const ENDPOINTS: readonly EndpointSpec[] = [
     limitMax: 500,
     limit: 'query',
     requiredQuery: ['table'],
-    note: 'Whitelisted table rows (dictionary, bible_verses, grammar_patterns, phrases, vocabulary). Cursor-paginated; free-text filter over search fields.',
+    note: 'Whitelisted table rows (dictionary, bible_verses, grammar_patterns, phrases, vocabulary, contributions). Cursor-paginated; free-text filter over search fields. **`table=contributions` is the exception**: it needs `dataset:edit`, not `dataset:read`, and its `email` column is redacted from both the payload and the filter — contributions carry contributor contact details.',
   },
   {
     id: 'audit.list',
@@ -706,11 +779,20 @@ export const AREA_LABELS: Record<EndpointArea, string> = {
   learning: 'Learning agents',
   knowledge: 'Knowledge',
   admin: 'Admin (role-gated)',
+  roles: 'Roles & requests',
 }
+
+/**
+ * The versioned prefix the API is served under. Registry `template`s are relative
+ * to it (`API_BASE`), and every path shown to a human is rebased onto it here —
+ * one place, because the README, the Links table, and the prose in an Empty panel
+ * all have to print the same URL.
+ */
+export const API_PREFIX = '/api/v1'
 
 /** The public path as the Links page and the README print it. */
 export function publicPath(spec: EndpointSpec): string {
-  return `/api/v1${spec.template}`
+  return `${API_PREFIX}${spec.template}`
 }
 
 /** The method badge text, used for the colour decision in Links. */
@@ -738,6 +820,24 @@ export function endpointPath(
     }
     return encodeURIComponent(String(value).trim())
   })
+}
+
+/**
+ * The path as it is *written down* for a human: request method plus the versioned
+ * prefix, e.g. `GET /api/v1/agent/runs/412`.
+ *
+ * Prose that names an endpoint must use this, not `endpointPath` alone. The
+ * registry stores paths relative to `API_BASE`, so the bare template reads
+ * `/agent/runs/412` — which is not a URL anyone can paste, and it drifted: the
+ * Dashboard and Search empties printed `/api/v1/...` while the Agent and Assistant
+ * panels printed the prefix-less form for the same endpoints, so the copy
+ * contradicted itself across the app.
+ */
+export function documentedPath(
+  id: EndpointId,
+  params: Readonly<Record<string, string | number>> = {},
+): string {
+  return `/api/v1${endpointPath(id, params)}`
 }
 
 /**
@@ -809,24 +909,24 @@ export const API_GAPS: readonly ApiGap[] = [
     body: 'Only tokens are populated today. The Analyze panel labels the missing sections instead of showing empty boxes.',
   },
   {
-    id: 'sentence-frequency-zero',
-    title: 'sentence_frequency is always 0',
-    body: 'Re-verified: /word/pasian reports frequency 5223 and document_frequency 64 but sentence_frequency 0. The word explorer shows "—" for sentence counts rather than a misleading zero.',
-  },
-  {
     id: 'morphology-not-populated',
     title: 'The morphology / forms fields **on an entry** are empty',
-    body: 'Re-verified: /word/pasian, /word/bang and /word/thei each return entry `forms` 0, `morphology` 0, `grammar_usage` 0, `pos` 1-2 — so those entry fields collapse to a "not populated" note rather than a broken panel. This is *not* the /word/{w}/forms sub-resource, which is populated (9-20 rows at limit=20) and renders normally; the two are separate fields and must not be reported as one.',
+    body: 'Re-verified: /word/pasian, /word/bang and /word/thei each return entry `forms` 0 and `morphology` 0, so those two entry fields collapse to a "not populated" note rather than a broken panel. This is *not* the /word/{w}/forms sub-resource, which is populated (9-20 rows at limit=20) and renders normally; the two are separate fields and must not be reported as one.',
+  },
+  {
+    id: 'collocations-pmi-zero',
+    title: '/word/{w}/collocations reports `pmi` 0.0 for every row',
+    body: 'Verified live: every row of /word/pasian/collocations carries `frequency` but `pmi: 0.0` — the server-side `pmiproxy` column that feeds it is unpopulated, which is a data-pipeline gap rather than an API one. The same word\'s own `collocations` field, read from the observation row, *does* carry PMI (/word/pasian → `sangpen` pmi 6.493, freq 14), so the two sources are not interchangeable and the Collocations tab must not present its zeros as "no association".',
   },
   {
     id: 'review-stats-missing',
     title: '/review/stats is not available on the versioned API',
-    body: '/api/v1/review/stats answers 200 {"error":"Not found"}, and the unversioned /review/stats 422s because /review/{item_id} swallows "stats". No review count is rendered anywhere in this app as if it were real; only the server-rendered /review/ page is linked.',
+    body: 'Verified live: /api/v1/review/stats answers 404 {"detail":"Not found"}. The unversioned /review/stats 422s because /review/{item_id} swallows "stats". No review count is rendered anywhere in this app as if it were real; only the server-rendered /review/ page is linked.',
   },
   {
-    id: 'learning-assignments-not-registered',
-    title: '/learning/assistants and /learning/bindings are not registered on this deployment',
-    body: 'Verified live: both answer 404 `{"detail":"Not found"}` and neither appears in the deployment\'s /openapi.json, although both exist in the zolai-core router source. The Orchestra page therefore renders an explicit "not available on this deployment" state for assignments instead of an empty list that would read as "no assistants exist", and the bind/unbind controls stay hidden.',
+    id: 'learning-assignments-empty',
+    title: '/learning/assistants and /learning/bindings are live but empty',
+    body: 'Verified live: both answer 200 with empty arrays and appear in /openapi.json. The Orchestra page shows "No assistant surfaces yet" for an empty list. A true 404 (route absent on an older deployment) still gets a separate "not available on this deployment" state — empty and missing must not share copy.',
   },
   {
     id: 'learning-run-anonymous-limit',
@@ -834,8 +934,8 @@ export const API_GAPS: readonly ApiGap[] = [
     body: 'The server caps the work budget by role (PUBLIC_MAX_LIMIT = 50 for anonymous, 5000 for a recognised key) and says so in the response: `limit_applied` is what ran and `limit_clamped` is true when the request asked for more. The run panel reports both and never implies the full page was produced.',
   },
   {
-    id: 'auth-enforce-mode',
-    title: 'Authentication is in enforce mode',
-    body: 'This deployment sets ZOLAI_API_AUTH=enforce (verified in .env.production and the container environment). Privileged routes already answer 401 without a credential — /admin/ai-providers and POST /agent/runs both do — while public reads such as /word/{w} stay open by design. Sign in for anything role-gated; this is no longer a "before it flips" warning.',
+    id: 'auth-warn-mode',
+    title: 'Authentication is in warn mode',
+    body: 'Verified live via GET /auth/me: mode is "warn" (not enforce). Public reads stay open; privileged routes still 401 without a credential. The shell banner is sourced from that mode field so it nags only while warn and anonymous — flip to enforce and the 401s become the signal instead.',
   },
 ] as const

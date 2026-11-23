@@ -6,10 +6,10 @@ import {
   clearApiKey,
   getApiKey,
   maskApiKey,
-  setApiKey,
   subscribeApiKey,
 } from '../lib/key'
 import { apiKeySchema, submitApiKey, type ApiKeyInput } from '../lib/forms'
+import { signIn } from '../lib/session'
 import { roleBadge, useAuthMe } from '../lib/auth'
 import { queryClient } from '../lib/queryClient'
 import { Alert, AlertDescription, AlertTitle } from './ui/alert'
@@ -53,7 +53,10 @@ export function KeyDialog({
   /** e.g. "The API rejected the stored key." */
   reason?: string
 }) {
-  const { masked } = useApiKey()
+  // `hasKey` is the store's own emptiness read (`getApiKey()` via
+  // `useSyncExternalStore`) — the dialog's input is write-only and reset to
+  // '' on every open, so "something to clear" can only mean a stored key.
+  const { hasKey, masked } = useApiKey()
   // Identity as the server sees it *now*; saving a key bumps the query
   // generation so this badge re-probes `/auth/me` on its own.
   const me = useAuthMe()
@@ -62,9 +65,10 @@ export function KeyDialog({
   /**
    * `useForm` + zod: the schema rejects an empty/whitespace paste *before* the
    * dialog can overwrite a working key, and the field is cleared whenever the
-   * dialog re-opens. The value is only ever handed to `setApiKey`
-   * (`localStorage`) — never rendered as text, logged, or put in an error
-   * message. `submitApiKey` is the pure handler the tests cover.
+   * dialog re-opens. The value is only ever handed to `signIn`, which writes it
+   * to `localStorage` after the server recognises it — never rendered as text,
+   * logged, or put in an error message. `submitApiKey` is the pure handler the
+   * tests cover.
    */
   const form = useForm<ApiKeyInput>({
     resolver: zodResolver(apiKeySchema),
@@ -78,16 +82,23 @@ export function KeyDialog({
   }, [open])
 
   const save = useCallback(
-    (values: ApiKeyInput) => {
+    async (values: ApiKeyInput) => {
       const result = submitApiKey(values)
       if (!result.ok) {
         form.setError('apiKey', { message: result.issues[0] ?? 'Invalid API key.' })
         return
       }
-      setApiKey(result.value)
-      // Any previously cached response may have been produced without a key.
-      void queryClient.resetQueries()
-      toast.success('API key stored in this browser only.')
+      // One sign-in path for both entry points. The dialog used to write
+      // `setApiKey` itself, which stored an unverified key and left an active
+      // session in place — and `credentials.ts` sends the session in preference
+      // to the key, so the save reported success and changed nothing. `signIn`
+      // verifies against `GET /auth/me` before it stores, and ends the session.
+      const signedIn = await signIn(result.value)
+      if (!signedIn.ok) {
+        form.setError('apiKey', { message: signedIn.message })
+        return
+      }
+      toast.success('Key verified and stored in this browser only.')
       form.clearErrors('apiKey')
       onClose()
     },
@@ -111,9 +122,11 @@ export function KeyDialog({
             {me.key_prefix && <Badge variant="outline">{me.key_prefix}</Badge>}
           </DialogTitle>
           <DialogDescription>
-            Stored in this browser only (<code className="font-mono">localStorage</code>). It is sent
-            as the <code className="font-mono">X-API-Key</code> header to the Zolai Core API and is
-            never logged or committed. Current role: {badge.hint}
+            Saved here only (<code className="font-mono">localStorage</code>), and only after{' '}
+            <code className="font-mono">GET /auth/me</code> recognises it; it is then sent as the{' '}
+            <code className="font-mono">X-API-Key</code> header and never logged or committed. One
+            credential goes out per request, so saving a key ends any password session in this tab.
+            Current role: {badge.hint}
             {me.scopes.length > 0 && (
               <>
                 {' '}
@@ -162,6 +175,9 @@ export function KeyDialog({
                   variant="ghost"
                   size="sm"
                   className="text-muted-foreground max-lg:h-10"
+                  // No stored key → nothing to clear; an enabled button here
+                  // would advertise an action that does nothing.
+                  disabled={!hasKey}
                 >
                   Clear
                 </Button>
@@ -194,7 +210,7 @@ export function KeyDialog({
                 Cancel
               </Button>
               <Button type="submit" disabled={form.formState.isSubmitting} className="max-lg:h-10">
-                Save key
+                {form.formState.isSubmitting ? 'Verifying…' : 'Save key'}
               </Button>
             </div>
           </DialogFooter>

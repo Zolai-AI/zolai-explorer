@@ -1,14 +1,19 @@
 /**
- * Key-based sign-in — the only credential the API understands.
+ * Sign-in — the two credentials this API accepts, and what ending each one does.
  *
- * **There are no accounts.** `zolai-core` exposes no login route: identity *is*
- * an API key, and the server derives the role from the key's scopes. So this
- * module does the only honest thing available — *verify, then store*:
+ * **An API key is the original credential.** `zolai-core` derives the role from
+ * the key's scopes, so the only honest thing available is *verify, then store*:
  *
  *   1. probe `GET /auth/me` with the candidate key in the header only
  *      (`apiFetch(..., { apiKey })` — nothing is persisted yet);
  *   2. require the server to actually recognise it;
  *   3. only then write it to `localStorage`.
+ *
+ * **A session is the newer one** — `signInWithPassword` below, for the accounts
+ * an admin creates. It wins over a stored key (`lib/credentials.ts` is the one
+ * place that decides), and the two do not end the same way: `signOut` drops
+ * whichever is active, `signOutSession` ends the session and leaves the key in
+ * `localStorage` untouched.
  *
  * `/auth/me` is public and **never 401s**, so a wrong key still answers `200`
  * with `key_prefix: null` and `role: "anonymous"`. That is the honest signal we
@@ -23,7 +28,7 @@ import { apiGet, isApiError } from './api'
 import { endpointPath } from './endpoints'
 import { clearApiKey, setApiKey } from './key'
 import { queryClient } from './queryClient'
-import { AuthMeSchema, parseOrThrow, type AuthMe, type Role } from './schemas'
+import { AuthMeSchema, RoleSchema, parseOrThrow, type AuthMe, type Role } from './schemas'
 
 export type { Role }
 
@@ -180,21 +185,25 @@ export type SignInResult =
  * A rejected or unreachable key stores nothing, so the previous key (if any)
  * stays untouched. On success the query cache is cleared: responses fetched
  * before this key existed may have been produced without it.
+ *
+ * A password session is ended too. `credentials.ts` resolves **session wins,
+ * else key**, so storing a key *underneath* a live session saved a credential
+ * this tab would never send: the UI reported the key as stored, the role kept
+ * coming from the session, and the key only became active when the tab closed.
+ * `signInWithPassword` clears the key for exactly this reason; this is the
+ * mirror, and it revokes the server-side session rather than just forgetting it.
  */
 export async function signIn(candidate: unknown, signal?: AbortSignal): Promise<SignInResult> {
   const verified = await verifyApiKey(candidate, signal)
   if (!verified.ok) return verified
+  // Order matters: the key is written first, so a slow or failing logout call
+  // inside `signOutSession` can never leave the tab with no credential at all.
   setApiKey(String(candidate).trim())
+  await signOutSession(signal)
   dropCachedResponses()
   return { ok: true, role: verified.role, keyPrefix: verified.keyPrefix, mode: verified.mode, authSource: 'api-key', username: null }
 }
 
-/**
- * Sign out: drop the stored key and every cached response.
- *
- * There is no server session to end — the key *was* the session — so clearing
- * storage plus the cache is the complete operation.
- */
 /**
  * What `signOut()` actually ended — the caller says so honestly instead of
  * always claiming the API key is gone.
@@ -240,7 +249,7 @@ function dropCachedResponses(): void {
 /* ------------------------------------------------------------------ password */
 
 import { apiPost } from './api'
-import { clearSession, getSession, parseExpiresAt, setSession, type SessionRole } from './sessionAuth'
+import { clearSession, getSession, parseExpiresAt, setSession } from './sessionAuth'
 
 /** Why a password sign-in was not accepted. */
 export type PasswordVerifyFailure =
@@ -302,7 +311,7 @@ export function passwordVerifyFailureNotice(reason: PasswordVerifyFailure): Pass
 }
 
 export type PasswordSignInResult =
-  | { ok: true; username: string; role: 'anonymous' | 'member' | 'admin'; expiresAt: number; authSource: 'session' }
+  | { ok: true; username: string; role: Role; expiresAt: number; authSource: 'session' }
   | { ok: false; reason: PasswordVerifyFailure; message: string }
 
 /**
@@ -371,7 +380,10 @@ export async function signInWithPassword(
     }
   }
   const sessionUsername = response.user?.username ?? response.username ?? user
-  const role = (response.user?.role ?? response.role ?? 'anonymous') as SessionRole
+  // Parsed, not cast: the response body is what `apiPost` handed us unchecked, so
+  // a role this build does not know must fall to the lowest privilege rather than
+  // to whatever string the server sent wearing a `Role` type.
+  const role = RoleSchema.parse(response.user?.role ?? response.role ?? 'anonymous')
 
   // Success: store session, clear API key (one active credential), clear cache.
   setSession({ token: response.token, expiresAt, username: sessionUsername, role })

@@ -72,6 +72,29 @@ describe('Sidebar — route nav is link semantics', () => {
   })
 })
 
+describe('GitHub link — the destination is not tooltip-only (candidate #8)', () => {
+  /** The org-link anchor block, isolated so the nav items' own title stays out of scope. */
+  function githubAnchor(html: string): string {
+    const block = html.match(/<a\b[^>]*href="https:\/\/github\.com\/Zolai-AI"[^>]*>[\s\S]*?<\/a>/)?.[0]
+    expect(block, 'GitHub anchor not found').toBeTruthy()
+    return block as string
+  }
+
+  it('drops the native title and names the org in the collapsed icon rail', () => {
+    const collapsed = githubAnchor(render(<Sidebar collapsed />))
+    expect(collapsed).not.toMatch(/\stitle=/)
+    // Icon-only visually, but the accessible name reaches a screen reader whole.
+    expect(collapsed).toContain('Zolai-AI org on GitHub')
+  })
+
+  it('keeps the visible label while naming the full destination when expanded', () => {
+    const expanded = githubAnchor(render(<Sidebar />))
+    expect(expanded).not.toMatch(/\stitle=/)
+    expect(expanded).toContain('Zolai-AI org')
+    expect(expanded).toContain('on GitHub')
+  })
+})
+
 describe('accessible names — the sidebar and the search form do not collide', () => {
   const both = render(
     <>

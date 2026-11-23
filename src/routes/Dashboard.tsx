@@ -19,7 +19,10 @@ import {
 import { useKnowledgeVersion, useFoundationStats, useStatistics } from '../features/data/api'
 import { useHealth } from '../components/HealthPill'
 import { Card } from '../components/Card'
+import { DataFreshness } from '../components/DataFreshness'
 import { StatTile } from '../components/StatTile'
+import { StatGrid } from '../components/StatGrid'
+import { PageHeader } from '../components/PageHeader'
 import { Empty } from '../components/Empty'
 import { ErrorPanel } from '../components/ErrorState'
 import { RawJson } from '../components/RawJson'
@@ -28,9 +31,21 @@ import { DataTable, type Column } from '../components/DataTable'
 import { CorpusChart, CurationChart, PipelineChart } from '../components/Charts'
 import { Button } from '../components/ui/button'
 import { DOCS_URL, METRICS_URL, REVIEW_URL } from '../lib/api'
+import { ENDPOINTS_BY_ID, publicPath } from '../lib/endpoints'
 import { maxValue, rowIndexLabel, shareLabel, zeroBasedBarPercent } from '../lib/charts'
 import { formatCount, formatTimestamp, formatUptime } from '../lib/format'
 import { collectionPath, pathOf, wordPath } from '../lib/routes'
+
+/** Issue #8: a collection at or below this count is seeded scaffolding, not a
+ *  dataset — the tile wears an "early-stage" badge instead of reading as done. */
+export const EARLY_STAGE_MAX = 10
+
+/**
+ * The versioned statistics endpoint, read from the registry so an empty panel
+ * can name the address it asked (`/api/v1/knowledge/statistics`) without
+ * hand-typing an `/api/v1` literal here.
+ */
+export const STATISTICS_PATH = publicPath(ENDPOINTS_BY_ID['knowledge.statistics'])
 
 /**
  * Maps the live `/knowledge/statistics` labels (which are human sentences, not
@@ -176,23 +191,36 @@ export function Dashboard() {
 
   return (
     <div className="flex flex-col gap-6">
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">
-            Zolai Core knowledge base
-          </h1>
-          <p className="mt-1 max-w-prose text-sm text-muted-foreground">
+      <PageHeader
+        title="Zolai Core knowledge base"
+        description={
+          <>
             Live counts from the deployed API, plus service health and the knowledge version the
             container is serving.
-          </p>
-        </div>
-        {stats.data && (
-          <p className="text-xs text-muted-foreground">
-            <span className="tabular-nums">{formatCount(totalRows)}</span> rows across{' '}
-            <span className="tabular-nums">{Object.keys(stats.data.stats).length}</span> collections
-          </p>
-        )}
-      </header>
+          </>
+        }
+        meta={
+          <span className="flex flex-col items-start gap-1">
+            {stats.data ? (
+              <span>
+                <span className="tabular-nums">{formatCount(totalRows)}</span> rows across{' '}
+                <span className="tabular-nums">{Object.keys(stats.data.stats).length}</span>{' '}
+                collections
+              </span>
+            ) : null}
+            {/* Currency of the one query that governs the tiles and tables on
+                this page. Health and version panels have their own receive
+                times, so the claim is scoped by `subject` and the refresh
+                target is the same query the timestamp describes. */}
+            <DataFreshness
+              subject="statistics"
+              updatedAtMs={stats.dataUpdatedAt}
+              isFetching={stats.isFetching}
+              onRefresh={() => void stats.refetch()}
+            />
+          </span>
+        }
+      />
 
       <section aria-label="Collection totals">
         {stats.isPending ? (
@@ -201,25 +229,33 @@ export function Dashboard() {
           <ErrorPanel error={stats.error} onRetry={() => void stats.refetch()} />
         ) : tiles.every((tile) => tile.value === null) ? (
           <Empty
-            title="Statistics unavailable"
-            hint="The API returned no collections. The versioned surface may require an API key."
-          />
+            title="No collection tiles in this response"
+            hint={`GET ${STATISTICS_PATH} reported no collection this panel has a tile for. Every collection the response does list is in All collections below; Refresh re-asks the same endpoint.`}
+          >
+            <Button
+              variant="outline"
+              size="sm"
+              className="max-lg:h-10"
+              onClick={() => void stats.refetch()}
+            >
+              Refresh
+            </Button>
+          </Empty>
         ) : (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {tiles
-              .filter((tile) => tile.value !== null)
-              .map((tile) => (
-                <StatTile
-                  key={tile.label}
-                  label={tile.label}
-                  value={tile.value as number}
-                  icon={<tile.icon className="size-4" />}
-                  accent={tile.accent}
-                  to={tile.to}
-                  hint="Open in Data"
-                />
-              ))}
-          </div>
+          <StatGrid columns={4}>
+            {tiles.map((tile) => (
+              <StatTile
+                key={tile.label}
+                label={tile.label}
+                value={tile.value}
+                icon={<tile.icon className="size-4" />}
+                accent={tile.accent}
+                early={typeof tile.value === 'number' && tile.value <= EARLY_STAGE_MAX}
+                to={tile.to}
+                hint="Open in Data"
+              />
+            ))}
+          </StatGrid>
         )}
       </section>
 
@@ -266,7 +302,19 @@ export function Dashboard() {
         ) : stats.isError ? (
           <ErrorPanel error={stats.error} onRetry={() => void stats.refetch()} />
         ) : allRows.length === 0 ? (
-          <Empty title="No collections" hint="The API returned an empty stats object." />
+          <Empty
+            title="No collections"
+            hint={`GET ${STATISTICS_PATH} answered with an empty stats object — this response lists no collection at all.`}
+          >
+            <Button
+              variant="outline"
+              size="sm"
+              className="max-lg:h-10"
+              onClick={() => void stats.refetch()}
+            >
+              Refresh
+            </Button>
+          </Empty>
         ) : (
           <DataTable
             columns={allColumns}
@@ -292,14 +340,18 @@ export function Dashboard() {
               <Row label="Status">{health.data.status}</Row>
               <Row label="Uptime">{formatUptime(health.data.uptime_s)}</Row>
               <Row label="Version">{health.data.version}</Row>
-              <Row label="Data root">
-                <span className="font-mono text-xs">{health.data.data_root}</span>
+              <Row label="Engine">
+                {/* The public payload no longer carries the container's data
+                    path (core#16), so this row reports what it does report. */}
+                <span className="font-mono text-xs">{health.data.engine_mode || '—'}</span>
               </Row>
             </dl>
           )}
-          <div className="mt-4">
-            <RawJson data={health.data} label="raw /health" />
-          </div>
+          {health.data && (
+            <div className="mt-4">
+              <RawJson data={health.data} label="raw /health" />
+            </div>
+          )}
         </Card>
 
         <Card
@@ -322,9 +374,11 @@ export function Dashboard() {
               <Row label="Built at">{formatTimestamp(version.data.created_at)}</Row>
             </dl>
           )}
-          <div className="mt-4">
-            <RawJson data={version.data} label="raw /knowledge/version" />
-          </div>
+          {version.data && (
+            <div className="mt-4">
+              <RawJson data={version.data} label="raw /knowledge/version" />
+            </div>
+          )}
         </Card>
       </div>
 
@@ -388,7 +442,7 @@ export function Dashboard() {
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="min-w-0">
-      <dt className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase">{label}</dt>
+      <dt className="text-xs font-medium tracking-wider text-muted-foreground uppercase">{label}</dt>
       <dd className="mt-0.5 truncate">{children}</dd>
     </div>
   )

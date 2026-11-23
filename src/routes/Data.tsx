@@ -1,22 +1,24 @@
 import { useMemo, type ReactNode } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { BarChart3, Boxes, Database, FileCode2, GitCommit, HeartPulse, RefreshCw, ScrollText } from 'lucide-react'
 import { useKnowledgeVersion, useStatistics } from '../features/data/api'
 import { healthLevel, useHealth } from '../components/HealthPill'
 import { Card } from '../components/Card'
+import { DataFreshness } from '../components/DataFreshness'
 import { Empty } from '../components/Empty'
 import { ErrorPanel } from '../components/ErrorState'
 import { RawJson } from '../components/RawJson'
 import { Skeleton } from '../components/Skeleton'
 import { DataTable, type Column } from '../components/DataTable'
 import { StatTile } from '../components/StatTile'
-import { pathOf } from '../lib/routes'
+import { StatGrid } from '../components/StatGrid'
+import { PageHeader } from '../components/PageHeader'
+import { FilterChips, type FilterChip } from '../components/FilterChips'
+import { collectionFromSearch, pathOf } from '../lib/routes'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
-import { HEALTH_URL } from '../lib/api'
 import { maxValue, rowIndexLabel, shareLabel, zeroBasedBarPercent } from '../lib/charts'
 import { formatCount, formatTimestamp, formatUptime } from '../lib/format'
-import { collectionFromSearch } from '../lib/routes'
 
 /** Human labels the API returns, mapped to an icon + group for the Data panel. */
 const GROUPS: { test: RegExp; label: string; icon: typeof Boxes }[] = [
@@ -44,6 +46,7 @@ export function Data() {
   // filter is the label the API reported, so a tile can never point at nothing.
   const [searchParams] = useSearchParams()
   const collection = collectionFromSearch(searchParams)
+  const navigate = useNavigate()
 
   const rows: Row[] = useMemo(() => {
     const entries = stats.data?.stats ?? {}
@@ -70,6 +73,33 @@ export function Data() {
 
   // The bar axis: the largest collection, so every bar starts at zero.
   const barMax = useMemo(() => maxValue(rows.map((row) => row.count)), [rows])
+
+  const filtered = useMemo(
+    () => (collection === '' ? rows : rows.filter((row) => row.label === collection)),
+    [rows, collection],
+  )
+
+  // The chip row carries both halves of the old prose block: the collection
+  // filter with the ✕ that drops `?collection=` (what the old link did), and
+  // the real number of collections on screen. Both counts come from the
+  // payload — never a computed "total rows".
+  const chips: FilterChip[] = [
+    ...(collection === ''
+      ? []
+      : [
+          {
+            id: 'collection',
+            label: 'Collection',
+            value: collection,
+            onRemove: () => navigate(pathOf('data')),
+          },
+        ]),
+    {
+      id: 'count',
+      label: 'Showing',
+      value: `${formatCount(filtered.length)} of ${formatCount(rows.length)} collection${rows.length === 1 ? '' : 's'}`,
+    },
+  ]
 
   const columns: Column<Row>[] = [
     {
@@ -129,46 +159,69 @@ export function Data() {
 
   return (
     <div className="flex flex-col gap-5">
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
-            <Database className="size-5 text-primary" aria-hidden />
-            Data and service
-          </h1>
-          <p className="mt-1 max-w-prose text-sm text-muted-foreground">
+      <PageHeader
+        title="Data and service"
+        icon={<Database className="size-5" aria-hidden />}
+        description={
+          <>
             Every collection the deployed container reports, the knowledge version it is serving, and
             the health of the process behind it.
-          </p>
-        </div>
-        <Button
-          variant="outline"
-          onClick={() => {
-            void stats.refetch()
-            void version.refetch()
-            void health.refetch()
-          }}
-          className="max-lg:h-10"
-        >
-          <RefreshCw aria-hidden />
-          Refresh all
-        </Button>
-      </header>
+          </>
+        }
+        meta={
+          /* Currency of the governing payload — the collections table. The
+             "Refresh all" action above re-runs all three queries; this line
+             and its Refresh target only /knowledge/statistics, so the
+             timestamp and the button always describe the same data. */
+          <DataFreshness
+            subject="collections"
+            updatedAtMs={stats.dataUpdatedAt}
+            isFetching={stats.isFetching}
+            onRefresh={() => void stats.refetch()}
+          />
+        }
+        actions={
+          <Button
+            variant="outline"
+            onClick={() => {
+              void stats.refetch()
+              void version.refetch()
+              void health.refetch()
+            }}
+            className="max-lg:h-10"
+          >
+            <RefreshCw aria-hidden />
+            Refresh all
+          </Button>
+        }
+      />
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <StatGrid columns={4}>
+        {/* A tile that reads `0` before the payload lands is not an empty
+            corpus, it is a request in flight — and `/knowledge/statistics` is
+            the slowest call on this page. Say `—` until it answers. */}
         <StatTile
           label="Total rows"
-          value={grandTotal}
+          value={stats.isPending || stats.isError ? '—' : grandTotal}
           icon={<Boxes className="size-4" aria-hidden />}
           accent
         />
-        <StatTile label="Collections" value={rows.length} icon={<Database className="size-4" aria-hidden />} />
-        <StatTile label="Groups" value={grouped.length} icon={<BarChart3 className="size-4" aria-hidden />} />
+        <StatTile
+          label="Collections"
+          value={stats.isPending || stats.isError ? '—' : rows.length}
+          icon={<Database className="size-4" aria-hidden />}
+        />
+        <StatTile
+          label="Groups"
+          value={stats.isPending || stats.isError ? '—' : grouped.length}
+          icon={<BarChart3 className="size-4" aria-hidden />}
+        />
         <StatTile
           label="Health"
           value={health.isPending ? '—' : health.isError ? 'down' : healthLevel(health.data, health.error)}
           icon={<HeartPulse className="size-4" aria-hidden />}
         />
-      </div>
+      </StatGrid>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card
@@ -191,9 +244,11 @@ export function Data() {
               <Row label="Built at">{formatTimestamp(version.data.created_at)}</Row>
             </dl>
           )}
-          <div className="mt-4">
-            <RawJson data={version.data} label="raw /knowledge/version" />
-          </div>
+          {version.data && (
+            <div className="mt-4">
+              <RawJson data={version.data} label="raw /knowledge/version" />
+            </div>
+          )}
         </Card>
 
         <Card
@@ -210,21 +265,24 @@ export function Data() {
               <Row label="Status">{health.data.status}</Row>
               <Row label="Uptime">{formatUptime(health.data.uptime_s)}</Row>
               <Row label="Version">{health.data.version}</Row>
-              <Row label="Data root">
-                <span className="font-mono text-xs">{health.data.data_root}</span>
+              <Row label="Engine">
+                {/* The public payload no longer carries the container's data
+                    path (core#16), so this row reports what it does report. */}
+                <span className="font-mono text-xs">{health.data.engine_mode || '—'}</span>
               </Row>
             </dl>
           )}
-          <div className="mt-4">
-            <RawJson data={health.data} label="raw /health" />
-          </div>
+          {health.data && (
+            <div className="mt-4">
+              <RawJson data={health.data} label="raw /health" />
+            </div>
+          )}
         </Card>
       </div>
 
       <Card
         title="Collections"
         subtitle="GET /knowledge/statistics · row index starts at 0 · bars scale 0 → largest"
-        actions={<span className="font-mono text-[11px] text-muted-foreground">{HEALTH_URL}</span>}
       >
         {stats.isPending ? (
           <div className="space-y-2" aria-busy="true">
@@ -239,26 +297,16 @@ export function Data() {
           <Empty title="No collections reported" hint="The endpoint returned an empty stats object." />
         ) : (
           <div className="flex flex-col gap-4">
-            {collection !== '' && (
-              <p className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                <span>
-                  Showing one collection from the dashboard link:
-                  <span className="font-medium text-foreground"> {collection}</span>
-                </span>
-                <Button asChild variant="link" size="xs" className="h-auto max-lg:h-10 px-0">
-                  <Link to={pathOf('data')}>Show all collections</Link>
-                </Button>
-              </p>
-            )}
+            <FilterChips chips={chips} />
             <DataTable
               columns={columns}
-              rows={collection === '' ? rows : rows.filter((row) => row.label === collection)}
+              rows={filtered}
               rowKey={(row) => row.label}
               caption="Collections reported by the Zolai Core API with row counts"
               empty={
                 <Empty
                   title={`No collection named "${collection}"`}
-                  hint="The dashboard linked a label this payload no longer reports. Show all collections to see what is live."
+                  hint="The dashboard linked a label this payload no longer reports. Remove the collection filter with its ✕ to see every collection that is live."
                 />
               }
             />
@@ -274,18 +322,18 @@ export function Data() {
         >
           <ul className="flex flex-col gap-2">
             {grouped.map(([group, count], index) => (
-              <li key={group} className="flex items-center gap-3">
-                <span className="w-6 shrink-0 text-right font-mono text-[11px] text-muted-foreground tabular-nums">
+              <li key={group} className="flex items-center gap-2 sm:gap-3">
+                <span className="shrink-0 text-right font-mono text-xs tabular-nums text-muted-foreground">
                   {rowIndexLabel(index)}
                 </span>
-                <span className="w-28 shrink-0 truncate text-xs sm:w-36">{group}</span>
-                <span className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
+                <span className="min-w-0 flex-1 truncate text-xs">{group}</span>
+                <span className="h-2 w-16 shrink-0 overflow-hidden rounded-full bg-muted sm:w-24">
                   <span
                     className="block h-full rounded-full bg-primary"
                     style={{ width: `${zeroBasedBarPercent(count, groupMax)}%` }}
                   />
                 </span>
-                <span className="w-32 shrink-0 text-right font-mono text-xs text-muted-foreground tabular-nums sm:w-40">
+                <span className="shrink-0 text-right font-mono text-xs tabular-nums text-muted-foreground">
                   {formatCount(count)} · {shareLabel(count, groupTotal)}
                 </span>
               </li>
@@ -300,7 +348,7 @@ export function Data() {
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="min-w-0">
-      <dt className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase">{label}</dt>
+      <dt className="text-xs font-medium tracking-wider text-muted-foreground uppercase">{label}</dt>
       <dd className="mt-0.5 truncate">{children}</dd>
     </div>
   )

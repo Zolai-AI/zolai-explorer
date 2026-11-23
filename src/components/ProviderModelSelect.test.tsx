@@ -97,16 +97,25 @@ describe('Re-fetch catalog — the public read every role may repeat', () => {
     expect(html).not.toContain('Refresh models')
   })
 
-  it('stays visible beside the admin action for an admin', () => {
+  it('spells out the permission each control needs as visible text, not a tooltip', () => {
     const html = render(ADMIN)
 
     expect(html).toContain('Re-fetch catalog')
     expect(html).toContain('Refresh models')
-    // Two controls, two honest titles: a public re-read versus the
-    // server-side discovery that needs settings:write. (The apostrophe in the
-    // admin title is HTML-escaped in the emitted attribute, hence the tail.)
-    expect(html).toContain('Re-fetch the public provider catalog (any role)')
-    expect(html).toContain('model list (admin, settings:write)')
+    // Two controls, two honest permissions — now readable without hovering
+    // (WCAG 1.4.13): a public re-read for any role versus the server-side
+    // discovery that needs settings:write.
+    expect(html).toContain('any role')
+    expect(html).toContain('admin, settings:write')
+    // No native `title=` survives on the picker.
+    expect(html).not.toMatch(/\stitle=/)
+  })
+
+  it('offers only the public sentence to a member, never the admin one', () => {
+    const html = render(MEMBER)
+    expect(html).toContain('any role')
+    expect(html).not.toContain('settings:write')
+    expect(html).not.toMatch(/\stitle=/)
   })
 
   it('shows a busy label while the catalog re-fetch is in flight', () => {
@@ -114,11 +123,14 @@ describe('Re-fetch catalog — the public read every role may repeat', () => {
 
     expect(html).toContain('Re-fetching…')
     // The whole control is disabled while the request runs, not just relabelled.
-    const tag = html.match(
-      /<button[^>]*title="Re-fetch the public provider catalog \(any role\)"[^>]*>/,
-    )?.[0]
-    expect(tag, 'public re-fetch button not found').toBeTruthy()
-    expect(tag).toContain('disabled=""')
+    // Located by its own busy label: the picker also renders the two `combobox`
+    // triggers as buttons, so "the first `<button>`" is a provider select, not
+    // this control — and the tooltip that used to name it is gone (candidate #8).
+    const busy = (html.match(/<button\b[^>]*>[\s\S]*?<\/button>/g) ?? []).filter((block) =>
+      block.includes('Re-fetching…'),
+    )
+    expect(busy, 'public re-fetch button not found').toHaveLength(1)
+    expect(busy[0]).toMatch(/^<button\b[^>]*disabled=""/)
   })
 
   it('does not offer it before the catalog has answered — the error state carries the retry', () => {

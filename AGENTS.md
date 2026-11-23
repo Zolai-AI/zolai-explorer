@@ -24,11 +24,16 @@ verbatim captures from the live API).
    the `X-API-Key` header. No key in any tracked file, no key in a URL or query string, no `console`
    output of the key, no key in `.env.example`. If you add a credential-shaped string, it must be a
    placeholder. **Sign-in is verify-then-store** (`src/lib/session.ts`): the API key path probes
-   `/auth/me` with `apiFetch(..., { apiKey })` and persists only when the server recognises the key.
-   The username/password path calls `POST /auth/login` and stores the returned session token in
+   `/auth/me` with `apiFetch(..., { apiKey })` and persists only when the server recognises the key —
+   including from the key dialog, which must route through `signIn` rather than write `setApiKey`
+   itself. The username/password path calls `POST /auth/login` and stores the returned session token in
    `sessionStorage` (`zolai.session`), sent as `Authorization: Bearer`. `/auth/me` is public and
-   never 401s, so "200 with no `key_prefix`" means *rejected* — never store that. There are no
-   accounts in the traditional sense; identity is derived from the credential the server recognises.
+   never 401s, so "200 with no `key_prefix`" means *rejected* — never store that. **Exactly one
+   credential is sent** (`src/lib/credentials.ts`: session wins, else key, never both), so each
+   sign-in path ends the other — password sign-in clears the key, key sign-in ends the session;
+   a path that stored its credential without ending the other left it *inert*. Accounts are real
+   (an admin creates the username) but identity is still derived from what the server recognises,
+   never from what `localStorage` holds.
    **Sign-in must also stay *discoverable* from the top bar, the sidebar footer and ⌘K, for every
    role** (`src/lib/signIn.ts` + `specOf('login')`) — including the sign-*out* half, the only way an
    identified user drops a key. That was a real founder-facing defect: `nav: false` removed `/login`
@@ -76,7 +81,7 @@ verbatim captures from the live API).
   share of the total printed beside it. No 1% floor, no min/max scaling, and row indexes start at
   `0` (`rowIndexLabel`) — a value that reads as "0" because of a scale choice is a lie.
 - `/review/stats` is **not available** on the versioned API (`/api/v1/review/stats` answers
-  `200 {"error":"Not found"}`; the unversioned path 422s because `/review/{item_id}` matches
+  `404 {"detail":"Not found"}`; the unversioned path 422s because `/review/{item_id}` matches
   `stats`). Never render a review count as if it were real; link the server-rendered `/review/` queue
   and say that its stats sub-path does not work.
 - **`retrieval_only: true` on `/assistant/chat` means no model ran.** Title it
@@ -104,13 +109,33 @@ panel in the same commit.
   you own them afterwards. Add new ones with `bunx shadcn@latest add -y -o <component>`; never
   hand-write a primitive or fork one under a new name. App-level composition belongs in
   `src/components/` (`Card`, `DataTable`, `Empty`, …) built *from* the primitives.
+- **Shared composition lives in six components** — reuse them instead of re-spelling markup:
+  `Notice` (one tone map for info/warning/danger/success boxes, built on `<Alert>`), `PageHeader`
+  (the page's single `<h1>` in the heading face, plus description/actions), `StatGrid`
+  (responsive tile grid, base `grid-cols-2`), `MetaList` (`<dl>` that renders `—` for nullish
+  values), `DataFreshness` (`fetched 4 min ago · Refresh` over `query.dataUpdatedAt` — say
+  **fetched**, never "updated"/"synced"/"current", and `not fetched yet` with no digit in it),
+  `CopyValue` (clipboard affordance whose toast builders take a **label and no value**, so nothing
+  copied can ever be echoed into a toast; no `execCommand` fallback — a hidden node holding a
+  minted secret is forbidden here). A seventh — `ErrorState`/`ErrorPanel` — owns error copy and tone.
+- **Tokens before literals.** `src/index.css` carries `--font-heading` (Cormorant Garamond,
+  self-hosted via `@fontsource-variable/cormorant-garamond` — the org display face; use the
+  `cn-font-heading` utility, never a font literal in markup), an elevation scale
+  (`shadow-card`/`shadow-popover`/`shadow-modal` from `--elevation-*`, theme-aware — no static
+  `shadow-md`/`shadow-lg` on overlays), and a destructive surface pair (`--destructive-surface` /
+  `--destructive-border`, what the `destructive` alert variant and error boxes draw with). The
+  vendored `button.tsx` deviates from upstream: `max-lg:min-h-10` on the text sizes gives every
+  control a 40px touch target below `lg` — `shadcn add button` overwrites this; re-apply it.
 - **Theme is class-based.** `.dark` on `<html>`, preference `system | light | dark` persisted under
   `zolai.theme`. Resolution logic is pure in `src/lib/theme.ts` (unit tested); the **blocking script
   in `index.html` must stay in sync with it** — it is what prevents a flash of the wrong theme.
 - **Mobile-first.** Base classes are the small-screen layout; scale up with `sm:` / `md:` / `lg:`.
   Navigation is a `<Sheet>` drawer below `lg` and a persistent sidebar from `lg`. Interactive
   controls carry `max-lg:h-10`/`max-lg:h-11` for a 40px+ touch target. Tables must stay usable at
-  375px: use `hideBelow` column priority plus the scrolling container, never a fixed layout.
+  375px: use `hideBelow` column priority plus the scrolling container, never a fixed layout. **A column
+  that is off-screen at this width must be announced** — `DataTable` renders `hiddenColumnsAt` in its footer
+  from the same `HIDE_BELOW_QUERY` media queries, so a bespoke `hideBelow` that no marker names is a bug
+  (candidate #9 in `docs/OPEN-ISSUES.md`). Prefer the shared tiers over an ad-hoc breakpoint.
 - **The endpoint table has exactly one source of truth: `src/lib/endpoints.ts`.** It holds method,
   path template, required scope, `limit` placement/cap and the honest note per route. Transports
   call `endpointPath(id, params)` / `queryLimitPath(id, params, limit)`; **never write a path
@@ -158,7 +183,20 @@ panel in the same commit.
 - **Server-side limits, not client-side pagination.** The word sub-resources take `limit` (1–100,
   evidence 1–200); the footers say `showing N rows (limit L)` and warn when `N === L`, because these
   endpoints return bare arrays with no server total. A "of N rows" total over fetched rows is a lie —
-  do not reintroduce one.
+  do not reintroduce one. The one permitted second axis is paging **what was already fetched**:
+  a table may split those rows across pages, and then it must say so
+  (`showing 20 of 50 rows fetched (limit 50)` — `shown` vs `fetched`, never a bare "of N rows").
+  Where such a table offers its own page sizes, they are the **same numbers** the server accepts as
+  `limit` and the default page is the default limit, so the two controls cannot disagree.
+- **`DataTable` keeps three facts apart** — `src/lib/datatable.ts` `rowsSummary(shown, limit,
+  fetched, reach)`: rows the server returned (`fetched`), rows on screen (`shown`), the applied
+  `limit`, and how more rows can be reached (`reach`: `limit` when the page has a limit control,
+  `cursor` when the next page does, `none` by default). A footer may only advise an action the
+  page actually offers — "raise the limit" on the cursor-paginated review queue was a live
+  defect. The footer renders whenever `serverLimit` is set, even without client pagination; empty
+  states render *inside* the table body so headers survive; `filterable` opts into a global text
+  filter, `numeric` opts a column into `tabular-nums`. Never hand-roll a table footer or a
+  truncation notice — the copy is unit-tested and a bespoke one drifts.
 - **Zod schemas are tolerant by design** (`.catch([])` / `.catch({})`). Do not "tighten" them: the
   live API returns empty arrays for fields that are simply not populated yet, and a strict schema
   would turn that into a user-facing error.
@@ -174,7 +212,7 @@ panel in the same commit.
 
 ```bash
 bun run typecheck    # tsc -b --force
-bun run test         # 539 vitest specs across 34 files
+bun run test         # 924 vitest specs across 62 files
 bun run build        # must be warning-free
 ```
 

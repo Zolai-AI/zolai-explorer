@@ -23,11 +23,11 @@ import { AuthMeSchema, parseOrThrow, type AuthMe, type Role } from './schemas'
 export type { AuthMe, Role }
 
 /** Least → greatest privilege, mirroring `zolai.api.rbac.ROLES`. */
-export const ROLES: readonly Role[] = ['anonymous', 'member', 'admin']
+export const ROLES: readonly Role[] = ['anonymous', 'member', 'admin', 'superadmin']
 
-const RANK: Record<Role, number> = { anonymous: 0, member: 1, admin: 2 }
+const RANK: Record<Role, number> = { anonymous: 0, member: 1, admin: 2, superadmin: 3 }
 
-/** Numeric privilege of a role (0 = anonymous, 2 = admin). */
+/** Numeric privilege of a role (0 = anonymous, 3 = superadmin). */
 export function rankOf(role: Role): number {
   return RANK[role] ?? RANK.anonymous
 }
@@ -49,22 +49,28 @@ export type RoleBadge = {
 /** Display copy for a role — pure so the wording is testable. */
 export function roleBadge(role: Role): RoleBadge {
   switch (role) {
+    case 'superadmin':
+      return {
+        label: 'Superadmin',
+        hint: 'Everything an admin can do, plus role changes and the request queue.',
+        variant: 'default',
+      }
     case 'admin':
       return {
         label: 'Admin',
-        hint: 'Full access: provider settings, admin assistant, agent runs.',
+        hint: 'Management access: provider settings, admin assistant, agent runs, accounts and keys.',
         variant: 'default',
       }
     case 'member':
       return {
         label: 'Member',
-        hint: 'Key-backed access: agent runs and the public assistant.',
+        hint: 'Credential-backed access: agent runs and the public assistant.',
         variant: 'secondary',
       }
     default:
       return {
         label: 'Anonymous',
-        hint: 'No API key: public reads and the public assistant only.',
+        hint: 'No accepted credential: public reads and the public assistant only.',
         variant: 'outline',
       }
   }
@@ -100,8 +106,8 @@ export type AuthModeNotice = {
  */
 export function authModeNotice(mode: string, role: Role): AuthModeNotice {
   // Decision, not an oversight: `off` stays quiet on purpose — authentication is
-  // disabled deployment-wide, so "add a key now" would be advice the server
-  // cannot act on. Only `warn` is a state where a key changes anything.
+  // disabled deployment-wide, so "sign in now" would be advice the server
+  // cannot act on. Only `warn` is a state where a credential changes anything.
   // Only anonymous users need the warn nag; a signed-in user (session or key)
   // already survives an enforce flip, so the banner must not nag them.
   if (mode.trim().toLowerCase() !== 'warn' || role !== 'anonymous') {
@@ -113,7 +119,7 @@ export function authModeNotice(mode: string, role: Role): AuthModeNotice {
     title: 'Authentication: warn mode',
     body:
       'The API accepts unauthenticated requests today, but it can flip to enforce at any time. ' +
-      'You are anonymous right now. Add a key now so nothing breaks when it does.',
+      'You are anonymous right now. Sign in — with a key or an account — so nothing breaks when it does.',
     cta: 'Sign in…',
   }
 }
@@ -188,7 +194,7 @@ const ANONYMOUS: AuthMe = {
   key_prefix: null,
   scopes: [],
   mode: '',
-  auth_source: 'none',
+  auth_source: 'anonymous',
   username: null,
 }
 
@@ -215,7 +221,7 @@ export function useAuthMeQuery() {
  * Note the identity query is still in flight here too: a caller that shows an
  * access wall on this value will flash "you are anonymous" on every cold load,
  * and on a slow `/auth/me` leave it there. Use `useAuthMeQuery()` where
- * "not answered yet" has to be shown differently from "answered: none".
+ * "not answered yet" has to be shown differently from "answered: anonymous".
  */
 export function useAuthMe(): AuthMe {
   return useAuthMeQuery().data ?? ANONYMOUS

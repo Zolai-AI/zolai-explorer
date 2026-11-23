@@ -1,15 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   DEFAULT_EVIDENCE_LIMIT,
+  DEFAULT_RELATED_LIMIT,
   DEFAULT_WORD_LIMIT,
   EVIDENCE_LIMIT_CHOICES,
+  RELATED_LIMIT_CHOICES,
   SUB_RESOURCE_ENDPOINT,
   WORD_LIMIT_CHOICES,
+  WORD_SUB_RESOURCES,
   coerceWordLimit,
   defaultWordLimit,
   wordKey,
   wordLimitChoices,
 } from './api'
+import { resolvePageSize } from '../../lib/datatable'
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -31,19 +35,22 @@ afterEach(() => {
 })
 
 describe('word limit choices', () => {
-  it('offers the shared choices, with the evidence ceiling raised to 200', () => {
+  it('offers the shared choices, with evidence and related ceilings of their own', () => {
     expect(wordLimitChoices('contexts')).toBe(WORD_LIMIT_CHOICES)
     expect(wordLimitChoices('collocations')).toBe(WORD_LIMIT_CHOICES)
     expect(wordLimitChoices('patterns')).toBe(WORD_LIMIT_CHOICES)
     expect(wordLimitChoices('forms')).toBe(WORD_LIMIT_CHOICES)
     expect(wordLimitChoices('evidence')).toBe(EVIDENCE_LIMIT_CHOICES)
+    expect(wordLimitChoices('related')).toBe(RELATED_LIMIT_CHOICES)
     expect(Math.max(...EVIDENCE_LIMIT_CHOICES)).toBe(200)
+    expect(Math.max(...RELATED_LIMIT_CHOICES)).toBe(50)
     expect(Math.max(...WORD_LIMIT_CHOICES)).toBe(100)
   })
 
   it('uses each route\\u2019s documented server default', () => {
     expect(defaultWordLimit('contexts')).toBe(DEFAULT_WORD_LIMIT)
     expect(defaultWordLimit('evidence')).toBe(DEFAULT_EVIDENCE_LIMIT)
+    expect(defaultWordLimit('related')).toBe(DEFAULT_RELATED_LIMIT)
   })
 
   it('maps every sub-resource tab to its registry endpoint', () => {
@@ -52,6 +59,7 @@ describe('word limit choices', () => {
     expect(SUB_RESOURCE_ENDPOINT.patterns).toBe('word.patterns')
     expect(SUB_RESOURCE_ENDPOINT.evidence).toBe('word.evidence')
     expect(SUB_RESOURCE_ENDPOINT.forms).toBe('word.forms')
+    expect(SUB_RESOURCE_ENDPOINT.related).toBe('word.related')
   })
 })
 
@@ -65,6 +73,7 @@ describe('coerceWordLimit', () => {
   it('clamps an over-large value to the route cap instead of letting the API 422', () => {
     expect(coerceWordLimit(500, 'contexts')).toBe(100)
     expect(coerceWordLimit(500, 'evidence')).toBe(200)
+    expect(coerceWordLimit(500, 'related')).toBe(50)
   })
 
   it('never returns below 1, which the API rejects', () => {
@@ -104,5 +113,27 @@ describe('limit travels in the query string', () => {
     for (const id of Object.values(SUB_RESOURCE_ENDPOINT)) {
       expect(ENDPOINTS_BY_ID[id].limit, id).toBe('query')
     }
+  })
+})
+
+/**
+ * `/word` tables page the fetched rows client-side using **these same numbers**,
+ * and the initial page size is the tab's default limit. If a default ever left
+ * its choice list, `resolvePageSize` would silently coerce it to the first
+ * choice and the pager would disagree with the limit control again — the exact
+ * complaint in issue #23 ("pager shows 10 while the limit suggests 20").
+ */
+describe('a tab default is always an offerable page size', () => {
+  it.each(WORD_SUB_RESOURCES.map((sub) => [sub.key] as const))(
+    'resolves %s without falling back',
+    (sub) => {
+      const choices = wordLimitChoices(sub)
+      const fallback = choices[0] ?? 10
+      expect(resolvePageSize(defaultWordLimit(sub), choices, fallback)).toBe(defaultWordLimit(sub))
+    },
+  )
+
+  it('keeps the shared word-page default inside the shared choices', () => {
+    expect(WORD_LIMIT_CHOICES).toContain(DEFAULT_WORD_LIMIT)
   })
 })

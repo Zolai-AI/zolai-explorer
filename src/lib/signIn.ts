@@ -25,6 +25,7 @@
 
 import { roleBadge, type Role } from './auth'
 import { inPalette, pathOf, specOf, type RouteSpec } from './routes'
+import type { MeAuthSource } from './schemas'
 
 /** The identity fields the shell reads — the `/auth/me` payload, or a subset. */
 export type SignInIdentity = {
@@ -33,8 +34,8 @@ export type SignInIdentity = {
   keyPrefix?: string | null
   /** Scopes the server granted, rendered verbatim where the key's power is shown. */
   scopes?: readonly string[]
-  /** Auth source the server reported (`api-key`, `session`, `none`). */
-  authSource?: 'api-key' | 'session' | 'none'
+  /** Auth source the **server** reported (`anonymous` | `api_key` | `session` | `oauth`). */
+  authSource?: MeAuthSource
   /** Username when a session is active. */
   username?: string | null
 }
@@ -135,8 +136,8 @@ export function signInEntry(identity: SignInIdentity): SignInEntry {
     keyPrefix: prefix,
     anonymous,
     title: anonymous
-      ? 'No API key recognised — public endpoints only. Sign in with a key.'
-      : `Signed in as ${badge.label.toLowerCase()}${suffix}. Open sign-in to replace or clear the key.`,
+      ? 'No credential accepted — public endpoints only. Sign in with a key or an account.'
+      : `Signed in as ${badge.label.toLowerCase()}${suffix}. Open sign-in to replace or clear the credential.`,
     routeLabel: spec.label,
   }
 }
@@ -146,7 +147,8 @@ export function signInEntry(identity: SignInIdentity): SignInEntry {
  *
  * Anonymous → a real link to the sign-in page, styled like the top bar's amber
  * "no key" control. Identified → the role plus a **sign out** button, because the
- * one thing a signed-in user must always be able to do is drop the key.
+ * one thing a signed-in user must always be able to do is drop the credential
+ * they are sending.
  */
 export type SignInFooterEntry = {
   /** Registry destination, or `null` when the entry signs out instead. */
@@ -173,7 +175,7 @@ export function signInFooterEntry(identity: SignInIdentity): SignInFooterEntry {
       role: 'anonymous',
       roleLabel: null,
       keyPrefix: prefix,
-      title: 'Sign in with an API key — public endpoints only until then.',
+      title: 'Sign in with a key or an account — public endpoints only until then.',
     }
   }
   return {
@@ -183,8 +185,34 @@ export function signInFooterEntry(identity: SignInIdentity): SignInFooterEntry {
     role: identity.role,
     roleLabel: badge.label,
     keyPrefix: prefix,
-    title: `Signed in as ${badge.label.toLowerCase()}${prefix ? ` (${prefix})` : ''}. Sign out clears the stored key and every cached response.`,
+    title: `Signed in as ${badge.label.toLowerCase()}${prefix ? ` (${prefix})` : ''}. ${signOutConsequence(identity.authSource)}`,
   }
+}
+
+/**
+ * What pressing **Sign out** actually ends, in the tooltip's own sentence.
+ *
+ * The credentials are not cleared by the same act: ending a session leaves the
+ * `localStorage` key alone (`session.ts` says so explicitly), signing out with a
+ * key removes that key, and an MCP access token is not held by this browser at
+ * all. One sentence covering all three told a session user their key was going
+ * away, which it is not — so the wording follows the `auth_source` the **server**
+ * reported, and an unreported source gets the one sentence true either way.
+ */
+function signOutConsequence(source: SignInIdentity['authSource']): string {
+  if (source === 'session') {
+    return 'Sign out ends this session; an API key stored in this browser is left untouched.'
+  }
+  if (source === 'api_key') {
+    return 'Sign out clears the stored key and every cached response.'
+  }
+  // An MCP access token is not a credential this browser can hold — `credentials.ts`
+  // sends a session bearer or the stored key, never `zolai_at_*` — so no click here
+  // ends it, and promising that one did would be the lie this sentence avoids.
+  if (source === 'oauth') {
+    return 'This identity came from an MCP access token, which Studio never stores; revoke it from the client that holds it.'
+  }
+  return 'Sign out ends the credential this browser is sending and clears every cached response.'
 }
 
 /** What the `/login` page says about the identity it just verified. */
@@ -203,21 +231,42 @@ export type IdentitySummary = {
 }
 
 /**
- * Summarise a stored identity for the `/login` page, straight from `/auth/me`.
+ * Summarise the credential this browser is holding, straight from `/auth/me`.
  *
- * The interesting case is the middle one: a key **is** in `localStorage` while the
- * server still answers `anonymous` — revoked, rotated, or the probe simply did
- * not answer. That is a `warn`, not a silent success, and never a claim that the
- * key works.
+ * Three states matter. A **session**: the page used to go silent, because the
+ * only reason it had for showing anything was "there is a stored key", and a
+ * signed-in account has no key — so the identity the server just accepted was
+ * invisible on the page that asked for it. A **recognised key**: role, prefix,
+ * scopes. And the middle one, a key **in `localStorage` while the server still
+ * answers `anonymous`** — revoked, rotated, or the probe simply did not answer.
+ * That is a `warn`, not a silent success, and never a claim that the key works.
+ *
+ * `hasKey` is the one local fact here (the server cannot report a key it does
+ * not hold), and it only ever *triggers the warning* — it no longer decides
+ * whether the identity shows at all.
  */
 export function identitySummary(identity: SignInIdentity, hasKey: boolean): IdentitySummary {
   const badge = roleBadge(identity.role)
   const prefix = prefixOf(identity)
-  const source = 'GET /auth/me — the server derives the role from the key’s scopes.'
-  if (!hasKey) {
-    return { show: false, tone: 'ok', title: '', detail: '', scopes: [], source }
-  }
   const scopes = Array.isArray(identity.scopes) ? identity.scopes : []
+  const keySource = 'GET /auth/me — the server derives the role from the key’s scopes.'
+  if (identity.authSource === 'session') {
+    const who = typeof identity.username === 'string' && identity.username.trim() !== ''
+      ? identity.username.trim()
+      : 'this browser'
+    return {
+      show: true,
+      tone: 'ok',
+      title: 'Signed in',
+      detail: `${badge.label} · ${who} — ${badge.hint}`,
+      scopes,
+      source:
+        'GET /auth/me — auth_source=session, so this role comes from the account, not from a key’s scopes.',
+    }
+  }
+  if (!hasKey) {
+    return { show: false, tone: 'ok', title: '', detail: '', scopes: [], source: keySource }
+  }
   if (identity.role === 'anonymous') {
     return {
       show: true,
@@ -228,7 +277,7 @@ export function identitySummary(identity: SignInIdentity, hasKey: boolean): Iden
           ? 'A key is stored in this browser, but the API reports anonymous — it may have been revoked, or the identity probe did not answer.'
           : `A key is stored (${prefix}) but the API reports anonymous — the server does not recognise it any more.`,
       scopes,
-      source,
+      source: keySource,
     }
   }
   return {
@@ -237,6 +286,6 @@ export function identitySummary(identity: SignInIdentity, hasKey: boolean): Iden
     title: 'Signed in',
     detail: `${badge.label}${prefix ? ` · ${prefix}` : ''} — ${badge.hint}`,
     scopes,
-    source,
+    source: keySource,
   }
 }

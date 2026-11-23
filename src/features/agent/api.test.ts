@@ -68,7 +68,7 @@ describe('run timeout budget', () => {
     // POST /agent/runs runs the whole loop server-side (≤60s), so the default
     // REQUEST_TIMEOUT_MS would abort a perfectly healthy run.
     expect(RUN_TIMEOUT_MS).toBeGreaterThan(REQUEST_TIMEOUT_MS)
-    expect(RUN_TIMEOUT_MS).toBeGreaterThanOrEqual(60_000)
+    expect(RUN_TIMEOUT_MS).toBeGreaterThan(60_000)
   })
 })
 

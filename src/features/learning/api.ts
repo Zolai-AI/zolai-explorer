@@ -16,6 +16,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch, apiGet, apiPatch, apiPost } from '../../lib/api'
+import type { Role } from '../../lib/auth'
 import { clampLimit, endpointPath } from '../../lib/endpoints'
 import {
   LearningAgentsSchema,
@@ -116,19 +117,50 @@ export function learningTask(id: LearningTaskId): LearningTaskSpec {
 }
 
 /**
+ * The documented anonymous work budget — `PUBLIC_MAX_LIMIT` in
+ * `zolai/api/learning_agents_router.py`. A recognised key gets 5000 instead.
+ */
+export const PUBLIC_LEARNING_LIMIT = 50
+
+/**
+ * Whether a request above the anonymous ceiling is worth warning about *before*
+ * it runs. Only anonymous callers are clamped server-side (`_effective_limit`);
+ * for a recognised key the same number is an ordinary request, not a warning.
+ */
+export function clampsForRole(
+  role: Role,
+  requested: number,
+  ceiling = PUBLIC_LEARNING_LIMIT,
+): boolean {
+  return role === 'anonymous' && Number.isFinite(requested) && requested > ceiling
+}
+
+/**
  * Scalar fields each task's `result` is known to carry, in display order.
  *
  * The result shape is per task (the API says so itself), so the panel names the
  * fields it can read and prints the raw record underneath — never a guess that
- * one task's keys exist for another.
+ * one task's keys exist for another. Every name here was checked against the
+ * agent's return dict: a name the server never sends is a blank cell, and a
+ * missing one hides real output (e.g. `extract_collocations` returns
+ * `total_collocations`, not `vocabulary_size`).
  */
 export const RESULT_SCALARS: Record<LearningTaskId, readonly string[]> = {
-  translate: ['translation', 'source_lang', 'target_lang', 'cached'],
-  validate_grammar: ['original', 'corrected', 'is_valid', 'confidence'],
-  correct_grammar: ['original', 'corrected', 'is_valid', 'confidence'],
+  // Cached hits omit the language pair; the panel filters on presence.
+  translate: ['translation', 'source_lang', 'target_lang', 'confidence', 'cached'],
+  validate_grammar: [
+    'original',
+    'corrected',
+    'is_valid',
+    'violations_before',
+    'violations_after',
+    'confidence',
+  ],
+  // `_correct_grammar` returns a change count and no confidence.
+  correct_grammar: ['original', 'corrected', 'changes', 'is_valid'],
   learn_bible_patterns: ['pattern_type', 'patterns_found', 'learned_at'],
   build_vocabulary: ['vocabulary_size', 'min_frequency'],
-  extract_collocations: ['vocabulary_size', 'min_frequency'],
+  extract_collocations: ['total_collocations'],
 }
 
 /** The collection field a corpus task returns, and the columns worth showing. */
@@ -140,7 +172,10 @@ export const RESULT_ROWS: Partial<
     columns: ['structure', 'example_zo', 'example_en', 'frequency'],
   },
   build_vocabulary: { field: 'entries', columns: ['word', 'frequency', 'pos', 'learned_from'] },
-  extract_collocations: { field: 'entries', columns: ['word', 'frequency', 'pos', 'learned_from'] },
+  extract_collocations: {
+    field: 'top_collocations',
+    columns: ['word1', 'word2', 'frequency'],
+  },
 }
 
 /* ----------------------------------------------------------------- reads */

@@ -8,7 +8,7 @@ import {
   useProviderCatalog,
   useRefreshModels,
 } from '../features/providers/api'
-import { ErrorState } from './ErrorState'
+import { ErrorState, failureDetail } from './ErrorState'
 import { Skeleton } from './Skeleton'
 import { Button } from './ui/button'
 import { Field, FieldLabel } from './ui/field'
@@ -20,7 +20,6 @@ import {
   SelectValue,
 } from './ui/select'
 import { can, useRole } from '../lib/auth'
-import { isApiError } from '../lib/api'
 import { cn } from '../lib/utils'
 import type { ProviderSelection } from '../lib/schemas'
 
@@ -107,7 +106,7 @@ export function ProviderModelSelect({
       },
       onError: (error: unknown) =>
         toast.error('Could not refresh the model list', {
-          description: isApiError(error) ? error.message : String(error),
+          description: failureDetail(error),
         }),
     })
   }
@@ -139,7 +138,7 @@ export function ProviderModelSelect({
     void catalog.refetch().then((result) => {
       if (result.isError) {
         toast.error('Could not re-fetch the provider catalog', {
-          description: isApiError(result.error) ? result.error.message : String(result.error),
+          description: failureDetail(result.error),
         })
       }
     })
@@ -183,7 +182,10 @@ export function ProviderModelSelect({
 
   return (
     <div className={cn('flex flex-col gap-2', className)}>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+      {/* Top-aligned: the explanation under the refresh buttons makes that
+          cell taller than a select, and `items-end` then floated the buttons
+          above the selects they sit beside. All cells start on one label line. */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-start">
         <Field>
           <FieldLabel htmlFor={`${idPrefix}-provider`}>Provider</FieldLabel>
           <Select
@@ -225,35 +227,52 @@ export function ProviderModelSelect({
         </Field>
 
         {showRefresh && (
-          <div className="flex flex-wrap gap-2">
-            {/* Every role: this only re-reads the public catalog. */}
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="max-lg:h-10 sm:mb-0.5"
-              disabled={disabled || catalog.isFetching}
-              onClick={runRefetch}
-              title="Re-fetch the public provider catalog (any role)"
-            >
-              <RefreshCw aria-hidden />
-              {catalog.isFetching ? 'Re-fetching…' : 'Re-fetch catalog'}
-            </Button>
-
-            {isAdmin && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="max-lg:h-10 sm:mb-0.5"
-                disabled={disabled || refresh.isPending || value.provider === ''}
-                onClick={runRefresh}
-                title="Re-fetch this provider's model list (admin, settings:write)"
+          <div className="flex flex-col gap-1.5">
+            <div className="flex flex-col gap-2">
+              {/* The selects have a FieldLabel above them; the buttons do not.
+                  This reserved line puts them on the same top edge. */}
+              <span
+                aria-hidden
+                className="invisible hidden text-sm leading-snug font-medium sm:block"
               >
-                <RefreshCw aria-hidden />
-                {refresh.isPending ? 'Refreshing…' : 'Refresh models'}
-              </Button>
-            )}
+                Actions
+              </span>
+              <div className="flex flex-wrap gap-2">
+                {/* Every role: this only re-reads the public catalog. */}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="max-lg:h-10"
+                  disabled={disabled || catalog.isFetching}
+                  onClick={runRefetch}
+                >
+                  <RefreshCw aria-hidden />
+                  {catalog.isFetching ? 'Re-fetching…' : 'Re-fetch catalog'}
+                </Button>
+
+                {isAdmin && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="max-lg:h-10"
+                    disabled={disabled || refresh.isPending || value.provider === ''}
+                    onClick={runRefresh}
+                  >
+                    <RefreshCw aria-hidden />
+                    {refresh.isPending ? 'Refreshing…' : 'Refresh models'}
+                  </Button>
+                )}
+              </div>
+            </div>
+            {/* The permission each control needs, stated as visible text rather than
+                a hover-only `title=` (WCAG 1.4.13) — matching how the paragraph below
+                already spells out the catalog/admin distinction. */}
+            <p className="text-[11px] leading-snug text-muted-foreground">
+              Re-fetch catalog reads the public provider list — any role.
+              {isAdmin && ' Refresh models re-fetches this provider’s model list — admin, settings:write.'}
+            </p>
           </div>
         )}
       </div>
@@ -261,7 +280,7 @@ export function ProviderModelSelect({
       <div className="flex flex-wrap items-center gap-2">
         <p className="text-[11px] text-muted-foreground">
           {value.provider
-            ? 'Chosen provider and model travel in the request body; the answer reports the provider · model the server actually used.'
+            ? 'Chosen provider and model travel in the request body; the answer reports the provider · model the server actually used. Use server default clears this override so the next request goes out without one.'
             : 'No provider chosen — the request goes out without an override and the server picks its own target.'}
         </p>
         {value.provider !== '' && (
@@ -272,7 +291,6 @@ export function ProviderModelSelect({
             className="max-lg:h-10 sm:ml-auto"
             disabled={disabled}
             onClick={() => onChange({ provider: '', model: '' })}
-            title="Clear the override and let the server pick its own active provider"
           >
             Use server default
           </Button>

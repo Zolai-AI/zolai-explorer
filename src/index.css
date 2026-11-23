@@ -25,6 +25,12 @@
 @import 'tw-animate-css';
 @import 'shadcn/tailwind.css';
 @import '@fontsource-variable/geist';
+/*
+ * The org's display face, the same one journey.zolai.space sets its headlines
+ * in. Self-hosted (not a Google Fonts link) so the studio makes no third-party
+ * request and works offline.
+ */
+@import '@fontsource-variable/cormorant-garamond';
 
 @custom-variant dark (&:is(.dark *));
 
@@ -48,6 +54,19 @@
 
   :focus-visible {
     @apply outline-ring outline-2 outline-offset-2;
+  }
+
+  /* WCAG 2.2.2/2.3.3 — the health pill pings and the skeletons shimmer with no
+     user action; both must still stop when the OS asks for reduced motion. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 
   * {
@@ -81,8 +100,15 @@
  ---break---
  */
 @theme inline {
+  /*
+   * The heading face. It used to alias the body font, which made the shadcn
+   * `cn-font-heading` hook a no-op and left every card title in the same
+   * weight as the body copy. Cormorant Garamond is the org's display serif
+   * (journey.zolai.space sets its headlines in it), so the studio now shares
+   * one typographic identity with the rest of the org.
+   */
   --font-heading:
-    var(--font-sans);
+    'Cormorant Garamond Variable', 'Cormorant Garamond', Georgia, 'Times New Roman', serif;
   --font-sans:
     'Geist Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --color-sidebar-ring:
@@ -119,6 +145,10 @@
     var(--border);
   --color-destructive:
     var(--destructive);
+  --color-destructive-surface:
+    var(--destructive-surface);
+  --color-destructive-border:
+    var(--destructive-border);
   --color-accent-foreground:
     var(--accent-foreground);
   --color-accent:
@@ -161,6 +191,18 @@
     calc(var(--radius) * 2.2);
   --radius-4xl:
     calc(var(--radius) * 2.6);
+  /*
+   * Elevation. The raw values live in `:root` / `.dark` because the pairing
+   * inverts between themes: a light surface is separated by a shadow, a dark
+   * one by a stronger border. Mapping them through `inline` keeps the theme
+   * switch live without a second copy of the ladder.
+   */
+  --shadow-card:
+    var(--elevation-card);
+  --shadow-popover:
+    var(--elevation-popover);
+  --shadow-modal:
+    var(--elevation-modal);
 }
 /*
  ---break---
@@ -195,8 +237,35 @@
     oklch(0.97 0 0);
   --accent-foreground:
     oklch(0.205 0 0);
+  /*
+   * Danger red, darkened from the stock shadcn value. Error copy is painted
+   * *on* the tinted surface below, and at oklch(0.577 …) that text measured
+   * 4.21:1 — under the 4.5:1 floor of WCAG 1.4.3. Same hue and chroma, lower
+   * lightness: 5.15:1 on the surface, 6:1 against white, and white text on a
+   * solid `bg-destructive` fill goes from 4.77:1 to 6:1 with it.
+   */
   --destructive:
-    oklch(0.577 0.245 27.325);
+    oklch(0.52 0.23 27.325);
+  /*
+   * A failure needs a *surface*, not just a red glyph: the alert primitive's
+   * destructive variant was `bg-card`, so an error panel looked like an empty
+   * card with some red text in it. These two tokens give every failure one
+   * tinted fill and one border, in both themes.
+   */
+  --destructive-surface:
+    oklch(0.52 0.23 27.325 / 0.07);
+  --destructive-border:
+    oklch(0.52 0.23 27.325 / 0.35);
+  /*
+   * Elevation. Light surfaces are lifted by a shadow because the border on a
+   * white page is too faint to read as a boundary.
+   */
+  --elevation-card:
+    0 1px 2px oklch(0 0 0 / 0.05), 0 1px 3px oklch(0 0 0 / 0.07);
+  --elevation-popover:
+    0 4px 12px oklch(0 0 0 / 0.09), 0 2px 4px oklch(0 0 0 / 0.05);
+  --elevation-modal:
+    0 16px 40px oklch(0 0 0 / 0.13);
   --border:
     oklch(0.922 0 0);
   --input:
@@ -270,13 +339,27 @@
   --muted:
     oklch(0.269 0 0);
   --muted-foreground:
-    oklch(0.708 0 0);
+    oklch(0.8 0 0);
   --accent:
     oklch(0.269 0 0);
   --accent-foreground:
     oklch(0.985 0 0);
   --destructive:
     oklch(0.704 0.191 22.216);
+  --destructive-surface:
+    oklch(0.704 0.191 22.216 / 0.14);
+  --destructive-border:
+    oklch(0.704 0.191 22.216 / 0.42);
+  /*
+   * Elevation in dark mode is a shadow too, but a deeper one — on a near-black
+   * surface a shadow separates by occlusion, not by a lightened edge.
+   */
+  --elevation-card:
+    0 1px 2px oklch(0 0 0 / 0.45);
+  --elevation-popover:
+    0 8px 24px oklch(0 0 0 / 0.55);
+  --elevation-modal:
+    0 20px 48px oklch(0 0 0 / 0.65);
   --border:
     oklch(1 0 0 / 10%);
   --input:

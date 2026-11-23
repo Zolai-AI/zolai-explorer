@@ -4,16 +4,18 @@ import { toast } from 'sonner'
 import { useAnalyzeParagraph, useAnalyzeSentence } from '../features/analyze/api'
 import { Card } from '../components/Card'
 import { Empty } from '../components/Empty'
-import { ErrorState } from '../components/ErrorState'
+import { ErrorState, failureDetail } from '../components/ErrorState'
 import { RawJson } from '../components/RawJson'
 import { Metric } from '../components/StatTile'
+import { StatGrid } from '../components/StatGrid'
+import { PageHeader } from '../components/PageHeader'
 import { Skeleton } from '../components/Skeleton'
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert'
 import { Button } from '../components/ui/button'
 import { Label } from '../components/ui/label'
 import { Textarea } from '../components/ui/textarea'
 import type { ParagraphAnalysis, SentenceAnalysis } from '../lib/schemas'
-import { isNonEmptyArray, isNonEmptyRecord } from '../lib/format'
+import { formatScore, isNonEmptyArray } from '../lib/format'
 
 const SAMPLES = [
   'Pasian in leitung a piangsak hi.',
@@ -30,9 +32,7 @@ export function Analyze() {
 
   /** Mutations surface failures twice: inline via ErrorState, and as a toast. */
   const reportFailure = (which: string) => (error: unknown) => {
-    toast.error(`${which} failed`, {
-      description: error instanceof Error ? error.message : String(error),
-    })
+    toast.error(`${which} failed`, { description: failureDetail(error) })
   }
 
   const runSentence = () => {
@@ -51,16 +51,16 @@ export function Analyze() {
 
   return (
     <div className="flex flex-col gap-5">
-      <header>
-        <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
-          <ScanText className="size-5 text-primary" aria-hidden />
-          Analyze text
-        </h1>
-        <p className="mt-1 max-w-prose text-sm text-muted-foreground">
-          Sentence tokenisation and paragraph segmentation against the live Zolai tokenizer. The API
-          is the authority on what exists; panels that are not yet populated say so.
-        </p>
-      </header>
+      <PageHeader
+        title="Analyze text"
+        icon={<ScanText className="size-5" aria-hidden />}
+        description={
+          <>
+            Sentence tokenisation and paragraph segmentation against the live Zolai tokenizer. The API
+            is the authority on what exists; panels that are not yet populated say so.
+          </>
+        }
+      />
 
       <Card title="Input" subtitle="POST /analyze/sentence · POST /analyze/paragraph">
         <form onSubmit={onSubmit} className="flex flex-col gap-3">
@@ -174,7 +174,7 @@ function SentenceResult({ data }: { data: SentenceAnalysis }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <StatGrid columns={4}>
         <Metric label="Tokens" value={data.tokens.length} />
         <Metric label="POS tags" value={hasPos ? data.pos.length : '—'} hint={hasPos ? undefined : 'not populated'} />
         <Metric
@@ -187,7 +187,7 @@ function SentenceResult({ data }: { data: SentenceAnalysis }) {
           value={hasEntities ? data.entities.length : '—'}
           hint={hasEntities ? undefined : 'not populated'}
         />
-      </div>
+      </StatGrid>
 
       <section>
         <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Tokens</h3>
@@ -201,7 +201,10 @@ function SentenceResult({ data }: { data: SentenceAnalysis }) {
                 className="flex items-baseline gap-1 rounded-md border bg-muted/50 px-2 py-1"
               >
                 <span className="font-mono text-sm text-primary">{token}</span>
-                <span className="text-[10px] text-muted-foreground tabular-nums">{index}</span>
+                {/* Token ordinal in the sentence (1st, 2nd, …) — an ordinal,
+                    not a row identifier, so it does not follow the table's
+                    0-based `rowIndexLabel` convention. */}
+                <span className="text-xs text-muted-foreground tabular-nums">{index + 1}</span>
               </li>
             ))}
           </ol>
@@ -232,23 +235,26 @@ function ParagraphResult({ data }: { data: ParagraphAnalysis }) {
   const tokensPerSentence = Array.isArray(analysis.tokens_per_sentence)
     ? (analysis.tokens_per_sentence as unknown[]).map((n) => (typeof n === 'number' ? n : 0))
     : []
+  // Mean tokens per sentence. The raw division can be a repeating decimal
+  // (3.333…); Metric would truncate that to a misleading whole number, so the
+  // mean is rounded to one place for display. `null` means the server reported
+  // no per-sentence counts at all — that renders `—`, never `0`.
+  const meanTokens =
+    tokensPerSentence.length === 0
+      ? null
+      : tokensPerSentence.reduce((a, b) => a + b, 0) / tokensPerSentence.length
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <StatGrid columns={4}>
         <Metric label="Sentences" value={data.sentences.length} />
         <Metric
           label="Tokens/sentence"
-          value={
-            tokensPerSentence.length === 0
-              ? '—'
-              : tokensPerSentence.reduce((a, b) => a + b, 0) / tokensPerSentence.length
-          }
-          hint={tokensPerSentence.length === 0 ? 'not reported' : 'mean'}
+          value={meanTokens === null ? '—' : formatScore(meanTokens, 1)}
+          hint={meanTokens === null ? 'not reported' : 'mean'}
         />
         <Metric label="Status" value={String(analysis.status ?? '—')} />
-        <Metric label="Depth" value={isNonEmptyRecord(analysis) ? 'thin' : 'empty'} />
-      </div>
+      </StatGrid>
 
       <section>
         <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Sentences</h3>
@@ -261,10 +267,10 @@ function ParagraphResult({ data }: { data: ParagraphAnalysis }) {
                 key={index}
                 className="flex gap-2 rounded-lg border bg-muted/40 px-3 py-2"
               >
-                <span className="text-[10px] text-muted-foreground tabular-nums">{index + 1}</span>
+                <span className="text-xs text-muted-foreground tabular-nums">{index + 1}</span>
                 <span className="min-w-0 flex-1 text-xs leading-relaxed">{sentence}</span>
                 {tokensPerSentence[index] !== undefined && (
-                  <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+                  <span className="shrink-0 font-mono text-xs text-muted-foreground">
                     {tokensPerSentence[index]} tok
                   </span>
                 )}

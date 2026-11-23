@@ -1,0 +1,4 @@
+# Zolai Studio — studio.zolai.space, the public workbench for the Zolai Core API.
+# Served as a real file (public/ → dist/), never through the SPA fallback.
+User-agent: *
+Allow: /

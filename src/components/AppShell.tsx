@@ -4,6 +4,7 @@ import { Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { NAV_ITEMS, Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
 import { AuthBanner } from './AuthBanner'
+import { HealthObserver } from './HealthObserver'
 import { KeyDialog } from './KeyDialog'
 import { CommandPalette } from './CommandPalette'
 import { Button } from './ui/button'
@@ -44,6 +45,15 @@ export function AppShell() {
   // Never leave the drawer open across a navigation.
   useEffect(() => setMobileNavOpen(false), [location.pathname])
 
+  // A navigation that inherits the old scroll position lands the user in the
+  // middle of a page they have not read, with its `<h1>` above the fold behind
+  // the sticky bar (#19). The document is the scroller here — `html/body/#root`
+  // are `height:100%` and nothing wraps `<main>` in an overflow container, so
+  // the only `overflow-y-auto` in the shell is the sidebar's own nav list.
+  useEffect(() => {
+    globalThis.window.scrollTo({ top: 0 })
+  }, [location.pathname])
+
   // The rail is a pure `lg+` affordance; read the persisted choice after mount
   // so the server-free first paint always shows the full sidebar.
   useEffect(() => setCollapsed(readSidebarCollapsed(globalThis.localStorage)), [])
@@ -73,6 +83,12 @@ export function AppShell() {
 
   return (
     <div className="flex min-h-full bg-background">
+      {/* The single `/health` poll, hoisted into the shell so it runs
+          continuously at every viewport width — not only while the ⋯ menu that
+          holds the pill happens to be open (issue #7). Renders nothing; the pill
+          and the dashboard read its cache. Pausing (the ⋯ checkbox, a different
+          subtree) stops this loop too via the shared store. */}
+      <HealthObserver />
       {/* Persistent sidebar from lg up; collapsible to an icon rail. */}
       <aside
         data-collapsed={collapsed ? 'true' : 'false'}
@@ -90,7 +106,11 @@ export function AppShell() {
             onClick={toggleCollapsed}
             className="h-9 w-full justify-start gap-2 px-2 text-xs text-muted-foreground"
             aria-pressed={collapsed}
-            title={collapsed ? 'Expand the sidebar' : 'Collapse the sidebar to icons'}
+            // The icon-only form has no visible text, so the accessible name has
+            // to come from aria-label; the expanded form's label ("Collapse") is
+            // a substring of it, which keeps WCAG 2.5.3 satisfied. A native title
+            // would be invisible to keyboard and touch and fails 1.4.13.
+            aria-label={collapsed ? 'Expand the sidebar' : 'Collapse the sidebar to icons'}
           >
             {collapsed ? (
               <PanelLeftOpen className="size-4 shrink-0" aria-hidden />
@@ -109,7 +129,11 @@ export function AppShell() {
         </div>
       </aside>
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      {/* The content column is a query container so TopBar's tiers are keyed to
+          the width the header actually has — viewport minus this sidebar — rather
+          than to the viewport, which at `lg` reads 1024 before the 239px rail has
+          taken its share and includes the 15px scrollbar gutter. */}
+      <div className="@container flex min-w-0 flex-1 flex-col">
         <TopBar
           nav={
             <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
@@ -150,13 +174,17 @@ export function AppShell() {
           </div>
         </main>
 
-        <footer className="border-t px-4 py-4 text-[11px] leading-relaxed text-muted-foreground sm:px-6">
-          Zolai Explorer — read-mostly studio for the Zolai Core API; role-gated writes go through
-          your key. Language ground truth is ZVS 2018: SOV word order, ergative{' '}
-          <span className="font-mono">in</span>, <span className="font-mono">kei</span>{' '}
-          negation. Both the assistant and <span className="font-mono">/rag</span> name the
-          provider · model that wrote an answer; with no provider they return the retrieved
-          evidence and say so on the panel.
+        <footer className="border-t px-4 py-4 text-xs leading-relaxed text-muted-foreground sm:px-6">
+          {/* The rule spans the page; the sentence does not — uncapped it ran
+              the full desktop width as a single line. */}
+          <p className="max-w-prose">
+            Zolai Explorer — read-mostly studio for the Zolai Core API; role-gated writes go
+            through the credential you sign in with. Language ground truth is ZVS 2018: SOV word
+            order, ergative <span className="font-mono">in</span>,{' '}
+            <span className="font-mono">kei</span> negation. Both the assistant and{' '}
+            <span className="font-mono">/rag</span> name the provider · model that wrote an answer;
+            with no provider they return the retrieved evidence and say so on the panel.
+          </p>
         </footer>
       </div>
 

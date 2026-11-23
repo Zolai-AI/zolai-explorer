@@ -37,7 +37,6 @@ export function ThemeToggle() {
           // from `sm` up.
           className="max-lg:size-10"
           aria-label={`Theme: ${theme}`}
-          title={`Theme: ${theme}`}
         >
           {resolved === 'dark' ? <Moon className="size-4" aria-hidden /> : <Sun className="size-4" aria-hidden />}
         </Button>

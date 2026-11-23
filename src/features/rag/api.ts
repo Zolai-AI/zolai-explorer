@@ -9,7 +9,7 @@
  * because the client must not name a vendor.
  */
 import { useMutation } from '@tanstack/react-query'
-import { apiPost } from '../../lib/api'
+import { apiPost, LONG_RUNNING_TIMEOUT_MS } from '../../lib/api'
 import { endpointPath } from '../../lib/endpoints'
 import {
   RagSchema,
@@ -19,6 +19,10 @@ import {
 } from '../../lib/schemas'
 
 export const RAG_LIMITS = [3, 5, 10] as const
+
+/** Retrieval plus provider generation can consume the server's 60s budget. */
+export const RAG_TIMEOUT_MS = LONG_RUNNING_TIMEOUT_MS
+export const RAG_REQUEST_OPTIONS = { timeoutMs: RAG_TIMEOUT_MS } as const
 
 /** Pure body builder, so the override rules are unit-testable. */
 export function ragBody(
@@ -48,7 +52,7 @@ export function useRag() {
         await apiPost<unknown>(endpointPath('rag.ask'), ragBody(question, limit, selection), {
           // A model call plus retrieval; the default 15s is too tight once a
           // provider answers, which would surface as a fake timeout.
-          timeoutMs: 60_000,
+          ...RAG_REQUEST_OPTIONS,
         }),
         'rag',
       ),

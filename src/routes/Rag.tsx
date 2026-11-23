@@ -5,9 +5,11 @@ import { RAG_LIMITS, useRag } from '../features/rag/api'
 import { Card } from '../components/Card'
 import { ProviderModelSelect } from '../components/ProviderModelSelect'
 import { Empty } from '../components/Empty'
-import { ErrorState } from '../components/ErrorState'
+import { ErrorState, failureDetail } from '../components/ErrorState'
+import { PageHeader } from '../components/PageHeader'
 import { RawJson } from '../components/RawJson'
 import { Metric } from '../components/StatTile'
+import { StatGrid } from '../components/StatGrid'
 import { Skeleton } from '../components/Skeleton'
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert'
 import { Button } from '../components/ui/button'
@@ -94,9 +96,7 @@ export function Rag() {
       { question: clean, limit: RAG_LIMITS[1], selection },
       {
         onError: (error: unknown) =>
-          toast.error('Retrieval failed', {
-            description: error instanceof Error ? error.message : String(error),
-          }),
+          toast.error('Retrieval failed', { description: failureDetail(error) }),
       },
     )
   }
@@ -117,17 +117,17 @@ export function Rag() {
 
   return (
     <div className="flex flex-col gap-5">
-      <header>
-        <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
-          <MessageSquareQuote className="size-5 text-primary" aria-hidden />
-          RAG retrieval
-        </h1>
-        <p className="mt-1 max-w-prose text-sm text-muted-foreground">
-          Retrieval-augmented generation endpoint. The context and citations are real corpus rows;
-          the answer is written by the provider configured on the server, from those rows only.
-          With no provider the server returns the evidence itself and says so.
-        </p>
-      </header>
+      <PageHeader
+        title="RAG retrieval"
+        icon={<MessageSquareQuote className="size-5" aria-hidden />}
+        description={
+          <>
+            Retrieval-augmented generation endpoint. The context and citations are real corpus rows;
+            the answer is written by the provider configured on the server, from those rows only.
+            With no provider the server returns the evidence itself and says so.
+          </>
+        }
+      />
 
       {data &&
         (answerIsPlaceholderEcho ? (
@@ -142,7 +142,10 @@ export function Rag() {
         actions={<Sparkles className="text-muted-foreground/70" aria-hidden />}
       >
         <form onSubmit={submit} className="flex flex-col gap-3">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_auto_auto] sm:items-end">
+          {/* Top-aligned, not `items-end`: the Snippets cell is taller than the
+              input and would otherwise push the button and the two labels out
+              of line. Every cell starts on the same label line instead. */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_auto_auto] sm:items-start">
             <div className="min-w-0">
               <Label htmlFor="rag-question">Question or Zolai query</Label>
               <Input
@@ -161,17 +164,38 @@ export function Rag() {
                 so a dropdown here changed nothing while implying it did. The
                 fixed size is stated instead. */}
             <div className="sm:w-44">
-              <span className="text-sm font-medium">Snippets</span>
-              <p
-                className="mt-1.5 flex h-10 items-center rounded-lg border border-dashed px-2.5 text-xs text-muted-foreground"
-                title="The server returns 10 snippets regardless of the `limit` sent"
-              >
+              {/* `leading-none` matches the shadcn Label beside it; without it
+                  this line is 6px taller and the box starts below the input. */}
+              <span className="block text-sm leading-none font-medium">Snippets</span>
+              <p className="mt-1.5 flex h-10 items-center rounded-lg border border-dashed px-2.5 text-xs text-muted-foreground">
                 10 — fixed by the server
               </p>
+              {/* The reason is now on the page, not in a hover-only tooltip
+                  (WCAG 1.4.13): the box states the number, this states why it does
+                  not move. Matches how the endpoint's own note reads. */}
+              <p className="mt-1 text-xs text-muted-foreground">
+                The server returns 10 snippets regardless of the <code className="font-mono">limit</code>{' '}
+                sent.
+              </p>
             </div>
-            <Button type="submit" disabled={!question.trim() || rag.isPending} className="h-10">
-              {rag.isPending ? 'Retrieving…' : 'Retrieve'}
-            </Button>
+            <div className="flex flex-col">
+              {/* The two fields carry a label; the button does not. Reserve the
+                  same label line so its top matches the input and box instead
+                  of floating below them. Hidden when the cells stack. */}
+              <span
+                aria-hidden
+                className="invisible hidden text-sm leading-none font-medium sm:block"
+              >
+                Retrieve
+              </span>
+              <Button
+                type="submit"
+                disabled={!question.trim() || rag.isPending}
+                className="h-10 sm:mt-1.5"
+              >
+                {rag.isPending ? 'Retrieving…' : 'Retrieve'}
+              </Button>
+            </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
@@ -219,10 +243,10 @@ export function Rag() {
             title="Retrieval summary"
             actions={<BookOpen className="text-muted-foreground/70" aria-hidden />}
           >
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <StatGrid columns={4}>
               <Metric label="Retrieved" value={formatCount(data.retrieved_count)} hint="snippets" />
               <Metric label="Citations" value={data.citations.length} hint="returned" />
-              <Metric label="Context" value={`${data.context.length}`} hint="characters" />
+              <Metric label="Context" value={data.context.length} hint="characters" />
               <Metric
                 label="Answer"
                 value={answerIsPlaceholderEcho ? 'evidence' : 'generated'}
@@ -232,7 +256,7 @@ export function Rag() {
                     : data?.model || 'model-written'
                 }
               />
-            </div>
+            </StatGrid>
           </Card>
 
           {/* Titled from what the server reported, not from a fixed label. */}

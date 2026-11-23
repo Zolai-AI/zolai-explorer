@@ -9,8 +9,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   LEARNING_TASKS,
   LEARNING_TASK_IDS,
+  PUBLIC_LEARNING_LIMIT,
+  RESULT_ROWS,
   RESULT_SCALARS,
   bindingsPath,
+  clampsForRole,
   deleteLearningBinding,
   enabledAgentCount,
   fetchLearningAgents,
@@ -356,6 +359,35 @@ describe('pure helpers', () => {
       'validate_grammar',
       'correct_grammar',
     ])
+  })
+
+  it('names only the fields the agents actually return', () => {
+    // Each list mirrors the agent's own return dict. A field the server never
+    // sends is a blank cell; a missing one hides real output.
+    expect(RESULT_SCALARS.translate).toContain('confidence')
+    expect(RESULT_SCALARS.correct_grammar).toEqual(
+      expect.arrayContaining(['changes', 'is_valid']),
+    )
+    // `_correct_grammar` has no confidence — only validation does.
+    expect(RESULT_SCALARS.correct_grammar).not.toContain('confidence')
+    expect(RESULT_SCALARS.validate_grammar).toEqual(
+      expect.arrayContaining(['violations_before', 'violations_after', 'confidence']),
+    )
+    expect(RESULT_SCALARS.extract_collocations).toEqual(['total_collocations'])
+    expect(RESULT_ROWS.extract_collocations).toEqual({
+      field: 'top_collocations',
+      columns: ['word1', 'word2', 'frequency'],
+    })
+  })
+
+  it('warns about the anonymous ceiling only for a caller the server clamps', () => {
+    expect(PUBLIC_LEARNING_LIMIT).toBe(50)
+    expect(clampsForRole('anonymous', 500)).toBe(true)
+    expect(clampsForRole('anonymous', 50)).toBe(false)
+    // A recognised key's ceiling is 5000, so 500 is an ordinary request.
+    expect(clampsForRole('member', 500)).toBe(false)
+    expect(clampsForRole('admin', 5000)).toBe(false)
+    expect(clampsForRole('anonymous', Number.NaN)).toBe(false)
   })
 
   it('recounts the overview so the tiles cannot disagree with the roster', () => {

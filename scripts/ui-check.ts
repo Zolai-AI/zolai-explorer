@@ -35,13 +35,33 @@ const SHOTS = process.env.SCREENSHOT_DIR
 const VIEWPORTS = [
   { name: 'mobile', width: 390, height: 844 },
   { name: 'tablet', width: 768, height: 1024 },
+  // The two widths the header broke at, and the reason they are named here: at
+  // 768 the bar had 753px to live in (the 15px gutter) and overflowed by 3px; at
+  // 1024 the `lg` sidebar appears *in the same query* that shows the health pill
+  // and took 239px away from a bar that had just been promised 1009. Nothing
+  // between 768 and 1280 was ever measured before both of these failed.
+  { name: 'lg-edge', width: 1024, height: 900 },
+  { name: 'just-past-lg', width: 1100, height: 900 },
   { name: 'laptop', width: 1280, height: 900 },
   { name: 'wide', width: 1920, height: 1080 },
 ]
 
 /** Pages that exist for every role; the rest need a signed-in admin. */
-const PUBLIC_ROUTES = ['/', '/word', '/analyze', '/search', '/rag', '/assistant', '/data', '/links', '/login']
+// Includes `/word/:word` deep links: the detail page renders off a different
+// query pair than the index, and until now no automated check ever visited it.
+const PUBLIC_ROUTES = ['/', '/word', '/word/pasian', '/analyze', '/search', '/rag', '/assistant', '/data', '/links', '/orchestra', '/contribute', '/login']
 const ADMIN_ROUTES = ['/settings', '/review', '/agent']
+
+/**
+ * `STUDIO_ROUTES=/word/pasian` restricts the walk while iterating on one page —
+ * the full pass is ~15 minutes across six viewports. Unset (the default, and
+ * what CI should use) checks everything.
+ */
+const ONLY = process.env.STUDIO_ROUTES?.split(',')
+  .map((route) => route.trim())
+  .filter(Boolean)
+const selected = (routes: string[]) =>
+  ONLY && ONLY.length > 0 ? routes.filter((route) => ONLY.includes(route)) : routes
 
 /** Controls that must be reachable without scrolling on the page named. */
 const ABOVE_THE_FOLD: Record<string, string[]> = {
@@ -57,7 +77,16 @@ type Defect = { route: string; viewport: string; check: string; detail: string }
  * round trip — walking the DOM once is much cheaper than a query per element.
  */
 const PROBE = `(() => {
-  const vw = window.innerWidth;
+  // NOT window.innerWidth: that includes the ~15px vertical-scrollbar gutter, so
+  // every "does it fit" test below was measured against a box the page never
+  // had. For nine loops this checker reported a clean layout at 768 and at 1024
+  // while the header cluster stuck out 3px and 38px past the *client* edge — a
+  // real page-level horizontal scrollbar that the numbers said was absent.
+  const vw = document.documentElement.clientWidth;
+  // The one place the gutter-inclusive width is the right width: max-lg and
+  // friends are media queries, and media queries match against this, so the
+  // touch-target floor is keyed here while the fit tests are keyed to vw.
+  const dv = window.innerWidth;
   const problems = [];
   const label = (el) => {
     const id = el.id ? '#' + el.id : '';
@@ -137,7 +166,7 @@ const PROBE = `(() => {
 
   // 3. Real controls must have real size and be tappable on a phone; text
   // affordances are exempt (see isTextAffordance above).
-  const minTap = vw < 768 ? 32 : 24;
+  const minTap = dv < 768 ? 32 : 24;
   for (const el of document.querySelectorAll(
     'button, a[href], input, textarea, select, [role="button"], [role="combobox"], [role="switch"]')) {
     if (!visible(el) || srOnly(el) || isTextAffordance(el)) continue;
@@ -317,6 +346,43 @@ async function signIn(s: Session) {
   return true
 }
 
+async function checkThemesShipped(s: Session) {
+  // Both themes must ship in the built stylesheet — `.dark` lives in the same
+  // CSS file as `:root`, so a token-layer regression that drops either one (or
+  // the elevation/heading tokens the design system depends on) is invisible to
+  // every other check in this harness.
+  await s.goto(`${STUDIO}/`)
+  const hrefs = (await s.eval<string[]>(
+    `[...document.querySelectorAll('link[rel=stylesheet]')].map(l => l.href)`,
+  )) ?? []
+  if (hrefs.length === 0) {
+    failures.push('no stylesheet link found on the app shell — theme check did not run')
+    console.log('  ERROR  theme check: no stylesheet found')
+    return
+  }
+  let css = ''
+  for (const href of hrefs) {
+    try {
+      css += await (await fetch(href)).text()
+    } catch (err) {
+      failures.push(`stylesheet ${href} could not be fetched — theme check did not run`)
+      console.log(`  ERROR  theme check: cannot fetch ${href}`)
+      return
+    }
+  }
+  for (const needle of [':root', '.dark', '--elevation-modal', '--destructive-surface', 'Cormorant']) {
+    if (!css.includes(needle)) {
+      results.push({
+        route: '(css)',
+        viewport: 'all',
+        check: 'theme-tokens',
+        detail: `built stylesheet is missing "${needle}"`,
+      })
+    }
+  }
+  console.log(`  ${css.includes(':root') && css.includes('.dark') ? 'PASS' : 'FAIL'}  theme check (${hrefs.length} stylesheet(s))`)
+}
+
 const tab = await newTab()
 const session = new Session(tab)
 await session.open()
@@ -328,16 +394,17 @@ if (SHOTS) {
 
 try {
   console.log(`\nUI CHECK — ${STUDIO}\n`)
+  await checkThemesShipped(session)
   for (const viewport of VIEWPORTS) {
     console.log(`  --- ${viewport.name} (${viewport.width}x${viewport.height}) ---`)
-    for (const route of PUBLIC_ROUTES) await checkPage(session, route, viewport)
+    for (const route of selected(PUBLIC_ROUTES)) await checkPage(session, route, viewport)
   }
 
   const authed = await signIn(session)
   if (authed) {
     for (const viewport of VIEWPORTS) {
       console.log(`  --- ${viewport.name} (${viewport.width}x${viewport.height}) — signed in ---`)
-      for (const route of ADMIN_ROUTES) await checkPage(session, route, viewport, true)
+      for (const route of selected(ADMIN_ROUTES)) await checkPage(session, route, viewport, true)
     }
   }
 } finally {

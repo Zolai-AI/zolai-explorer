@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, XAxis, YAxis } from 'recharts'
 import { BarChart3, GitBranch, Layers3 } from 'lucide-react'
 import { ChartPanel } from './ChartPanel'
+import { Notice } from './Notice'
 import {
   assignSeriesKeys,
   corpusComposition,
@@ -10,6 +11,7 @@ import {
   type Stat,
 } from '../lib/charts'
 import { multiSeriesConfig } from '../lib/chartSeries'
+import { isApiError } from '../lib/api'
 import { formatCount } from '../lib/format'
 
 /**
@@ -142,8 +144,17 @@ export function PipelineChart({
 }
 
 /**
- * Curation counters from the optional `/foundation/stats`. Renders **nothing**
- * when the endpoint 404s — the panel is an addition, not a promise.
+ * Curation counters from the optional `/foundation/stats`.
+ *
+ * Three states, deliberately kept apart (an invisible panel reads as "this
+ * deployment has no curation data", which is a different claim from each of
+ * them):
+ * - **not exposed** — the endpoint only exists when the deployment registers the
+ *   foundation router, so a 404 renders one honest muted line instead of a
+ *   panel that quietly disappears. The panel is still an addition, not a promise.
+ * - **failed** — anything else (network, timeout, 5xx) goes through the shared
+ *   chart error surface with a retry, like every other chart here.
+ * - **answered with no counters** — the empty state, which names the endpoint.
  */
 export function CurationChart({
   stats,
@@ -161,7 +172,19 @@ export function CurationChart({
   const items = useMemo(() => curationPipeline(stats), [stats])
   const config = useMemo(() => multiSeriesConfig(items.map((item) => item.label)), [items])
 
-  if (isError || (!isPending && items.length === 0)) return null
+  if (isError && isApiError(error) && error.status === 404) {
+    return (
+      <Notice
+        tone="info"
+        icon={<Layers3 className="size-4" aria-hidden />}
+        title="Curation counters not exposed"
+      >
+        <span className="font-mono">GET /foundation/stats</span> answered 404 — this deployment does
+        not register the foundation router, so curation state is not served here at all. Nothing was
+        hidden: the panel is an addition, not a promise.
+      </Notice>
+    )
+  }
 
   return (
     <ChartPanel

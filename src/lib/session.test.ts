@@ -218,10 +218,55 @@ describe('signIn — verify, then store', () => {
 
     expect(queryClient.getQueryData(['sentinel'])).toBeUndefined()
   })
+
+  it('ends an active session — a key under a session is a key that is never sent', async () => {
+    // `credentials.ts` resolves **session wins, else key**. `signIn` used to
+    // store the key and leave the session alone: the dialog reported "stored",
+    // the role kept coming from the session, and the key only became the active
+    // credential when the tab closed. Password sign-in clears the key for the
+    // same reason; this is the mirror, and the server is told too.
+    sessionStorage.setItem(
+      SESSION_STORAGE_KEY,
+      JSON.stringify({ token: 'sess_live', expiresAt: Date.now() + 3600_000, username: 'alice', role: 'admin' }),
+    )
+    const fetchMock = vi.fn(async (url: unknown) =>
+      String(url).includes('/auth/logout') ? new Response('{}', { status: 200 }) : authMe('member', 'zolai_sk_abcdef'),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await signIn('zolai_sk_abcdefghijklmnop')
+
+    expect(result).toMatchObject({ ok: true, authSource: 'api-key' })
+    expect(getSession()).toBeNull()
+    expect(resolveAuthHeader()).toEqual({ type: 'api-key', key: 'zolai_sk_abcdefghijklmnop' })
+    // The session is revoked, not merely forgotten by this tab.
+    expect(lastUrl(fetchMock)).toContain('/auth/logout')
+    expect(lastHeaders(fetchMock).Authorization).toBe('Bearer sess_live')
+  })
+
+  it('keeps the key when the logout call fails — local state is written first', async () => {
+    sessionStorage.setItem(
+      SESSION_STORAGE_KEY,
+      JSON.stringify({ token: 'sess_live', expiresAt: Date.now() + 3600_000, username: 'alice', role: 'admin' }),
+    )
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: unknown) => {
+        if (String(url).includes('/auth/logout')) throw new Error('offline')
+        return authMe('member', 'zolai_sk_abcdef')
+      }),
+    )
+
+    const result = await signIn('zolai_sk_abcdefghijklmnop')
+
+    expect(result.ok).toBe(true)
+    expect(getApiKey()).toBe('zolai_sk_abcdefghijklmnop')
+    expect(getSession()).toBeNull()
+  })
 })
 
 describe('signOut', () => {
-  it('drops the key and the cache — there is no server session to end', () => {
+  it('drops the key and the cache when only a key is held', () => {
     storage.setItem(API_KEY_STORAGE_KEY, 'zolai_sk_abcdefghijklmnop')
     queryClient.setQueryData(['sentinel'], { value: 1 })
 

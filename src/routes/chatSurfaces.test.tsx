@@ -12,7 +12,8 @@ import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { describe, expect, it } from 'vitest'
 import { Login } from './Login'
-import { Assistant } from './Assistant'
+import { Assistant, answerFrameCopy, ToolsPanel } from './Assistant'
+import type { ChatResponse } from '../lib/schemas'
 
 function render(ui: React.ReactElement): string {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -78,5 +79,104 @@ describe('Assistant — the chatbox is the page', () => {
 
   it('tells the visitor no key is needed', () => {
     expect(html).toMatch(/No key needed/i)
+  })
+})
+
+describe('answerFrameCopy — what the answer card says it is', () => {
+  const response = (overrides: Partial<ChatResponse> = {}): ChatResponse => ({
+    answer: 'a',
+    citations: [],
+    tool_calls: [],
+    turns: 0,
+    provider: '',
+    model: '',
+    requested_provider: '',
+    requested_model: '',
+    requested_api_key: false,
+    requested_user_provider: false,
+    mode: 'rule',
+    retrieval_only: true,
+    generation_requires_auth: false,
+    latency_ms: 1,
+    zvs: {},
+    provider_error: '',
+    loop_error: '',
+    persisted_run_id: null,
+    ...overrides,
+  })
+
+  it('labels a retrieval answer as retrieval, never as generated', () => {
+    const copy = answerFrameCopy(response(), false, false)
+    expect(copy.title).toBe('Retrieval (no model)')
+    expect(copy.subtitle).toContain('no active provider')
+  })
+
+  it('names the credential as the missing piece when the server says so', () => {
+    // The flag means *a credential was missing*, not "signing in will
+    // generate": the deployment may also have no provider. So the copy names
+    // the anonymous gate and never claims a provider exists or is reachable.
+    const copy = answerFrameCopy(response({ generation_requires_auth: true }), false, false)
+    expect(copy.title).toBe('Retrieval (anonymous request)')
+    expect(copy.subtitle).toContain('anonymous request')
+    expect(copy.subtitle).toContain('signed-in credential')
+    expect(copy.subtitle).not.toContain('no active provider')
+    expect(copy.subtitle).not.toContain('sign in to generate')
+  })
+
+  it('names the provider and model that actually answered', () => {
+    const copy = answerFrameCopy(
+      response({ retrieval_only: false, provider: 'gemini', model: 'gemini-flash' }),
+      false,
+      false,
+    )
+    expect(copy.title).toBe('Answer')
+    expect(copy.subtitle).toBe('gemini · gemini-flash')
+  })
+
+  it('renders a dash rather than a label the payload did not carry', () => {
+    const copy = answerFrameCopy(response({ retrieval_only: false }), false, false)
+    expect(copy.subtitle).toBe('— · —')
+  })
+
+  it('describes the waiting, failed and empty states without a response', () => {
+    expect(answerFrameCopy(undefined, true, false).subtitle).toBe('waiting for the server')
+    expect(answerFrameCopy(undefined, false, true).subtitle).toBe(
+      'the last request did not complete',
+    )
+    expect(answerFrameCopy(undefined, false, false).subtitle).toBe('no question sent yet')
+  })
+})
+
+
+describe('ToolsPanel — the trace behind the answer', () => {
+  const calls = [
+    {
+      name: 'dictionary_lookup',
+      ok: true,
+      status: 'completed',
+      latency_ms: 4,
+      turn: 1,
+      input: { word: 'pasian' },
+      data: { word: 'pasian', meaning: 'God' },
+      error: '',
+      error_code: '',
+    },
+  ]
+
+  it('shows tool calls to a public caller, under a plain title', () => {
+    // The public assistant runs the retrieval tools too; hiding their trace
+    // made the calls invisible to the visitor who asked the question.
+    const html = renderToStaticMarkup(<ToolsPanel calls={calls} mode="public" />)
+    expect(html).toContain('Tools used')
+    expect(html).toContain('run by the assistant')
+    expect(html).toContain('dictionary_lookup')
+    expect(html).toContain('result — 2 fields')
+  })
+
+  it('names the admin trace as the inspector the same rows feed', () => {
+    const html = renderToStaticMarkup(<ToolsPanel calls={calls} mode="admin" />)
+    expect(html).toContain('Tool trace')
+    expect(html).toContain('admin inspector')
+    expect(html).toContain('dictionary_lookup')
   })
 })

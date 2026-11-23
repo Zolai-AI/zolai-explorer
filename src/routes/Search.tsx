@@ -6,8 +6,10 @@ import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 import { useSearch } from '../features/analyze/api'
 import { Card } from '../components/Card'
+import { DataTable, type Column } from '../components/DataTable'
 import { Empty } from '../components/Empty'
-import { ErrorState } from '../components/ErrorState'
+import { ErrorState, failureDetail } from '../components/ErrorState'
+import { PageHeader } from '../components/PageHeader'
 import { RawJson } from '../components/RawJson'
 import { Skeleton } from '../components/Skeleton'
 import { Badge } from '../components/ui/badge'
@@ -23,6 +25,7 @@ import {
   SelectValue,
 } from '../components/ui/select'
 import { formatScore } from '../lib/format'
+import { ENDPOINTS_BY_ID, publicPath } from '../lib/endpoints'
 import {
   DEFAULT_SEARCH_LIMIT,
   SEARCH_LIMIT_CHOICES,
@@ -36,6 +39,12 @@ import type { SearchHit } from '../lib/schemas'
 import { cn } from '../lib/utils'
 
 const LIMIT_CHOICES = SEARCH_LIMIT_CHOICES
+
+/**
+ * The versioned search endpoint, read from the registry so an empty panel names
+ * the address it asked (`/api/v1/search`) rather than a hand-typed literal.
+ */
+const SEARCH_PATH = publicPath(ENDPOINTS_BY_ID['search.query'])
 
 /** Split a `table:ref`-style id into a clickable source + reference pair. */
 function splitId(id: string): { source: string; ref: string } {
@@ -81,9 +90,7 @@ export function Search() {
     if (!payload.ok) return
     search.mutate(payload.value, {
       onError: (error: unknown) =>
-        toast.error('Search failed', {
-          description: error instanceof Error ? error.message : String(error),
-        }),
+        toast.error('Search failed', { description: failureDetail(error) }),
     })
   }
 
@@ -93,18 +100,92 @@ export function Search() {
     return acc
   }, {})
 
+  // The limit that actually produced these results comes from the mutation's
+  // variables — the request that ran — not the live `<Select>`, which the reader
+  // may have changed since. The response carries no limit and no total, so this
+  // is the only honest number to feed the table's `serverLimit` footer.
+  const requestedLimit = search.variables?.limit ?? null
+
+  const columns: Column<SearchHit>[] = [
+    {
+      key: 'rank',
+      header: '#',
+      align: 'right',
+      mono: true,
+      numeric: true,
+      // Displayed 1-based (rank); the row's array position stays 0-based.
+      cell: (_hit, index) => <span className="text-muted-foreground tabular-nums">{index + 1}</span>,
+    },
+    {
+      key: 'source',
+      header: 'Source',
+      cell: (hit) => (
+        <Badge variant="outline" className={cn('font-mono', sourceTone(hit.source))}>
+          {hit.source}
+        </Badge>
+      ),
+    },
+    {
+      key: 'reference',
+      header: 'Reference',
+      mono: true,
+      hideBelow: 'md',
+      sortValue: (hit) => splitId(hit.id).ref,
+      cell: (hit) => {
+        const { ref } = splitId(hit.id)
+        return ref ? (
+          <span className="truncate text-primary">{ref}</span>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        )
+      },
+    },
+    {
+      key: 'text',
+      header: 'Text',
+      cell: (hit) =>
+        hit.text ? (
+          <span className="break-words">{hit.text}</span>
+        ) : (
+          <span className="text-muted-foreground italic">empty text</span>
+        ),
+    },
+    {
+      key: 'score',
+      header: 'Score',
+      align: 'right',
+      mono: true,
+      numeric: true,
+      hideBelow: 'sm',
+      sortValue: (hit) => hit.score,
+      cell: (hit) => formatScore(hit.score),
+    },
+    {
+      key: 'open',
+      header: 'Open',
+      cell: (hit) => {
+        const { ref } = splitId(hit.id)
+        return (
+          <Button variant="link" size="xs" className="h-auto max-lg:h-10 px-0 text-xs" asChild>
+            <Link to={wordPath(ref || hit.id)}>Word explorer →</Link>
+          </Button>
+        )
+      },
+    },
+  ]
+
   return (
     <div className="flex flex-col gap-5">
-      <header>
-        <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
-          <SearchIcon className="size-5 text-primary" aria-hidden />
-          Corpus search
-        </h1>
-        <p className="mt-1 max-w-prose text-sm text-muted-foreground">
-          Lexical retrieval across the dictionary and Bible collections. Every hit reports its source
-          table and lexical score — this is exact/substring matching, not semantic search.
-        </p>
-      </header>
+      <PageHeader
+        title="Corpus search"
+        icon={<SearchIcon className="size-5" aria-hidden />}
+        description={
+          <>
+            Lexical retrieval across the dictionary and Bible collections. Every hit reports its source
+            table and lexical score — this is exact/substring matching, not semantic search.
+          </>
+        }
+      />
 
       <Card
         title="Query"
@@ -162,11 +243,7 @@ export function Search() {
 
       <Card
         title="Results"
-        subtitle={
-          search.data
-            ? `${results.length} hits for "${search.data.query}" · limit ${limit}`
-            : 'POST /search'
-        }
+        subtitle={search.data ? `Results for "${search.data.query}"` : 'POST /search'}
       >
         {search.isPending ? (
           <SearchSkeleton />
@@ -175,12 +252,12 @@ export function Search() {
         ) : !search.data ? (
           <Empty
             title="No search yet"
-            hint="Submit a query to retrieve matching rows from the live corpus."
+            hint={`Use Run search above to retrieve matching rows from POST ${SEARCH_PATH}.`}
           />
         ) : results.length === 0 ? (
           <Empty
             title="No matches"
-            hint={`The live search returned 0 rows for "${search.data.query}".`}
+            hint={`POST ${SEARCH_PATH} matched no rows for "${search.data.query}". Change the query and run it again.`}
           />
         ) : (
           <div className="flex flex-col gap-4">
@@ -197,11 +274,17 @@ export function Search() {
               ))}
             </div>
 
-            <ol className="flex flex-col gap-2">
-              {results.map((hit, index) => (
-                <HitRow key={`${hit.id}-${index}`} hit={hit} rank={index + 1} />
-              ))}
-            </ol>
+            {/* The honest row count and the requested limit are rendered by the
+                table footer (`rowsSummary`), never hand-spelled in the header —
+                the response carries no total, so anything else would invent one. */}
+            <DataTable
+              columns={columns}
+              rows={results}
+              rowKey={(hit, index) => `${hit.id}-${index}`}
+              caption="Corpus search hits with source, reference and lexical score"
+              serverLimit={requestedLimit}
+              rowsReach="limit"
+            />
 
             <RawJson data={search.data} label="raw /search" />
           </div>
@@ -211,37 +294,12 @@ export function Search() {
   )
 }
 
-function HitRow({ hit, rank }: { hit: SearchHit; rank: number }) {
-  const { ref } = splitId(hit.id)
-  return (
-    <li className="rounded-lg border bg-muted/40 p-3">
-      <header className="mb-1.5 flex flex-wrap items-center gap-2">
-        <span className="text-[10px] text-muted-foreground tabular-nums">#{rank}</span>
-        <Badge variant="outline" className={cn('font-mono', sourceTone(hit.source))}>
-          {hit.source}
-        </Badge>
-        {ref && <span className="font-mono text-[11px] text-primary">{ref}</span>}
-        <span className="ml-auto text-[11px] text-muted-foreground tabular-nums">
-          score {formatScore(hit.score)}
-        </span>
-      </header>
-      <p className="text-xs leading-relaxed break-words">{hit.text || <span className="text-muted-foreground italic">empty text</span>}</p>
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        <Button variant="link" size="xs" className="h-auto max-lg:h-10 px-0 text-xs" asChild>
-          <Link to={wordPath(ref || hit.id)}>Open in word explorer →</Link>
-        </Button>
-        <span className="font-mono text-[10px] text-muted-foreground">id={hit.id}</span>
-      </div>
-    </li>
-  )
-}
-
 function SearchSkeleton() {
   return (
     <div className="flex flex-col gap-2" aria-busy="true">
       {[0, 1, 2].map((i) => (
         <div key={i} className="rounded-lg border p-3">
-          <Skeleton className="mb-2 h-2.5 w-32" />
+          <Skeleton className="mb-2 h-2.5 w-1/3" />
           <Skeleton className="h-3 w-full" />
           <Skeleton className="mt-1.5 h-3 w-3/4" />
         </div>

@@ -9,11 +9,19 @@
  * state plus the wiring the browser needs for implicit submission.
  */
 import { renderToStaticMarkup } from 'react-dom/server'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { describe, expect, it } from 'vitest'
+import { ENDPOINTS_BY_ID, publicPath } from '../lib/endpoints'
 import { searchSubmitDisabled, submitSearch } from '../lib/forms'
 import { Search } from './Search'
+
+/** Comment-stripped source: prose must neither fail nor satisfy a code guard. */
+const CODE = readFileSync(fileURLToPath(new URL('./Search.tsx', import.meta.url)), 'utf8')
+  .replace(/\/\*[\s\S]*?\*\//g, '')
+  .replace(/\/\/.*$/gm, '')
 
 function render(ui: React.ReactElement): string {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -77,5 +85,40 @@ describe('Search — the form the keyboard drives', () => {
     expect(searchSubmitDisabled('a', false)).toBe(false)
     expect(submitSearch({ query: 'a', limit: '10' }).ok).toBe(false)
     expect(submitSearch({ query: 'pa', limit: '10' }).ok).toBe(true)
+  })
+})
+
+/**
+ * Candidate #10 — the Search empties name the address they asked.
+ *
+ * "No search yet" and "No matches" used to describe the action but never the
+ * endpoint. The rule for an empty panel in this app: name the endpoint
+ * (`/api/v1/search`) and the single control that changes the answer, without
+ * inventing a total the bare-array response never returned.
+ */
+describe('Search empties name their endpoint', () => {
+  const rendered = render(<Search />)
+
+  it('the versioned path the copy interpolates is /api/v1/search', () => {
+    expect(publicPath(ENDPOINTS_BY_ID['search.query'])).toBe('/api/v1/search')
+  })
+
+  it('the no-search-yet empty names the endpoint and the submit control', () => {
+    // Initial render (no data, not pending, no error) is the empty branch.
+    expect(rendered).toContain('No search yet')
+    expect(rendered).toContain('POST /api/v1/search')
+    expect(rendered).toContain('Use Run search above')
+  })
+
+  it('the no-matches empty names the endpoint and never advises raising the limit', () => {
+    // A 0-row result cannot become non-empty by raising the limit, so the copy
+    // must not offer it — and it must not hand-spell a total the server never
+    // returned. Pinned against the source because `search.data` cannot be forced
+    // in a static render.
+    expect(CODE).toContain('No matches')
+    expect(CODE).toContain('POST ${SEARCH_PATH} matched no rows')
+    expect(CODE).not.toMatch(/raise the limit/i)
+    expect(CODE).not.toMatch(/of \d+ rows/)
+    expect(CODE).not.toMatch(/of \$\{[^}]*\} rows/)
   })
 })

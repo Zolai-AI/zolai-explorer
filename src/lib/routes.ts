@@ -27,6 +27,14 @@
  * copy of a role that disagrees with this file.
  */
 
+import {
+  WORD_SUB_RESOURCES,
+  coerceWordLimit,
+  defaultWordLimit,
+  wordLimitChoices,
+  type WordSubResource,
+} from '../features/word/api'
+import { RECORDS_WHITELIST, type TableName } from '../features/review/api'
 import type { Role } from './schemas'
 
 /** Icon key — `Sidebar.tsx` owns the lucide mapping. */
@@ -43,6 +51,7 @@ export type RouteIconName =
   | 'settings'
   | 'key'
   | 'file-text'
+  | 'shield-check'
 
 export type RouteSpec = {
   /** Stable id. The command palette exposes these as `nav-{id}`. */
@@ -99,7 +108,7 @@ export const ROUTES = [
     id: 'login',
     path: '/login',
     label: 'Sign in',
-    description: 'Verify an API key, replace or clear the stored one',
+    description: 'Sign in with a key or an account, replace or clear the stored credential',
     minRole: 'anonymous',
     icon: 'key',
     keywords: 'login sign in api key credential auth session sign out logout username password',
@@ -116,7 +125,7 @@ export const ROUTES = [
     description: 'Word entry with sub-resources',
     minRole: 'anonymous',
     icon: 'book',
-    keywords: 'word headword entry lexicon forms contexts collocations patterns evidence',
+    keywords: 'word headword entry lexicon forms contexts collocations patterns evidence related',
     nav: true,
   },
   {
@@ -222,6 +231,21 @@ export const ROUTES = [
     minRole: 'anonymous',
     icon: 'file-text',
     keywords: 'contribute submit word meaning usage correction suggestion dictionary',
+    nav: true,
+  },
+  {
+    // `member`, not `superadmin`, even though the *queue* is a superadmin surface:
+    // the ask is what the page is for, and an item hidden below superadmin is an
+    // ask nobody holding `admin` could find. One page, two halves, each rendered
+    // on the role the **server** reported — `RequireRole` gets the member minimum
+    // from this record and the queue section gates itself on `can(role, 'superadmin')`.
+    id: 'requests',
+    path: '/requests',
+    label: 'Requests',
+    description: 'Ask for a role, and decide the queue',
+    minRole: 'member',
+    icon: 'shield-check',
+    keywords: 'requests role admin superadmin approve reject queue ask promote contribution attribution',
     nav: true,
   },
   {
@@ -398,4 +422,277 @@ export function safeReturnPath(candidate: string | null | undefined): string {
   if (trimmed.startsWith('//')) return DASHBOARD_PATH
   if (/[\r\n\t]/.test(trimmed)) return DASHBOARD_PATH
   return trimmed
+}
+
+/**
+ * The Word panel's state, encoded in the query string.
+ *
+ * The tab and the six server-side `limit` values used to live only in
+ * `useState`, so "the evidence tab at 200 rows" could not be pasted to a
+ * colleague and a reload dropped it. These codecs are pure — the node test
+ * suite cannot mount hooks, and the page derives its state from the URL on
+ * every render rather than keeping a second copy that could drift.
+ *
+ * Decoding clamps through `coerceWordLimit` (the endpoint registry's bounds),
+ * so a hostile `?limit_evidence=500000` can never 422; the change is *reported*
+ * in `clamped` so the page can say the URL asked for something else instead of
+ * silently showing a different number.
+ */
+
+/** The tab `/word/{w}` opens with when the URL does not name one. */
+export const DEFAULT_WORD_TAB: WordSubResource = 'contexts'
+
+/**
+ * One value the decoder changed on its way to the server.
+ *
+ * `cap` means the server bound lowered it (`evidence` 200, `related` 50, the
+ * rest 100); `choice` means it parsed but is not a size the page offers.
+ */
+export type WordLimitClamp = {
+  sub: WordSubResource
+  /** The integer the URL asked for. */
+  requested: number
+  /** The value actually sent as `limit`. */
+  applied: number
+  reason: 'cap' | 'choice'
+}
+
+export type WordPanelState = {
+  /** The named tab, or `undefined` for absent/unknown — the caller keeps its default. */
+  tab?: WordSubResource
+  /** Only the sub-resources the URL names; an empty record means no overrides. */
+  limits: Partial<Record<WordSubResource, number>>
+  /** Every value the decoder changed, in `WORD_SUB_RESOURCES` order. */
+  clamped: WordLimitClamp[]
+}
+
+/** Whether a raw string is one of the six sub-resource keys. */
+function isWordSubResource(value: string): value is WordSubResource {
+  return WORD_SUB_RESOURCES.some((resource) => resource.key === value)
+}
+
+/** The query parameter carrying one sub-resource's `limit`: `limit_evidence=200`. */
+const wordLimitParam = (sub: WordSubResource): string => `limit_${sub}`
+
+/**
+ * Decode `?tab=` / `?limit_evidence=200` into panel state.
+ *
+ * Unknown sub-resource keys and malformed values are dropped rather than
+ * guessed at; an absent or unknown `tab` stays `undefined`. Repeated
+ * parameters follow `URLSearchParams` order — the last one wins.
+ */
+export function wordPanelFromSearch(search: string | URLSearchParams): WordPanelState {
+  const params = typeof search === 'string' ? new URLSearchParams(search) : search
+
+  const rawTab = (params.get('tab') ?? '').trim()
+  const tab = isWordSubResource(rawTab) ? rawTab : undefined
+
+  const limits: Partial<Record<WordSubResource, number>> = {}
+  const clamped: WordLimitClamp[] = []
+
+  for (const resource of WORD_SUB_RESOURCES) {
+    // Digits only: `5abc`, `-5` and an empty value are malformed, not limits.
+    const raw = params.getAll(wordLimitParam(resource.key)).at(-1)?.trim()
+    if (raw === undefined || !/^\d+$/.test(raw)) continue
+    const requested = Number.parseInt(raw, 10)
+    if (!Number.isFinite(requested)) continue
+
+    const sub = resource.key
+    const applied = coerceWordLimit(requested, sub)
+    limits[sub] = applied
+    if (applied === requested) continue
+    // The largest offered choice is the server's documented cap for the tab,
+    // so a value above it was lowered by the bound, not rejected as a size the
+    // page does not offer.
+    const cap = Math.max(...wordLimitChoices(sub))
+    clamped.push({ sub, requested, applied, reason: requested > cap ? 'cap' : 'choice' })
+  }
+
+  return { tab, limits, clamped }
+}
+
+/**
+ * Build the minimal query string for a Word panel.
+ *
+ * Defaults are omitted (`tab=contexts`, and any limit equal to its tab's
+ * default) because a URL that restates every default is noise in a pasted
+ * link.
+ */
+export function wordSearch({
+  tab,
+  limits = {},
+}: {
+  tab?: WordSubResource
+  limits?: Partial<Record<WordSubResource, number>>
+} = {}): string {
+  const params = new URLSearchParams()
+  if (tab !== undefined && tab !== DEFAULT_WORD_TAB) params.set('tab', tab)
+  for (const resource of WORD_SUB_RESOURCES) {
+    const value = limits[resource.key]
+    if (value === undefined || !Number.isFinite(value)) continue
+    if (value === defaultWordLimit(resource.key)) continue
+    params.set(wordLimitParam(resource.key), String(value))
+  }
+  // One parameter per sub-resource, named and valued from closed sets, because
+  // the page writes through `setSearchParams`, which re-serializes through
+  // `URLSearchParams` and escapes everything outside `A-Za-z0-9*._-`. A packed
+  // `limit=evidence:200` therefore reached the address bar as
+  // `limit=evidence%3A200` — decodable, but no longer the link a person reads.
+  return params.toString()
+}
+
+/**
+ * The review queue's state, encoded in the query string.
+ *
+ * The same defect as the Word panel: the tab, the table and the text filter
+ * lived only in `useState`, so "the audit log for `phrases` filtered to `hiam`"
+ * could not be pasted to a colleague and a reload dropped it. These codecs are
+ * pure (the node suite cannot mount hooks) and the page derives its state from
+ * the URL on every render instead of holding a second copy that could drift.
+ *
+ * **What is deliberately left out: the cursor.** `Review.tsx` keeps the
+ * `WHERE id > ?` stack in local state and the cursor stack is not in the URL —
+ * a cursor is a position into *live* rows, so a pasted one is stale the moment
+ * the queue moves, and it would hand a colleague page 4 of a result set that no
+ * longer exists. The filter is shareable; the walk through it is not.
+ *
+ * Grammar — the rule the Word codecs established: one parameter per fact
+ * (`?tab=audit&table=phrases&q=hiam`), names and values drawn only from closed
+ * sets of `[a-z_]`, and defaults omitted so a pasted link stays short. `q` is
+ * the one exception, because it is free text an operator typed: it is built
+ * through `URLSearchParams`, which escapes `&`, `#`, `:` and `%` correctly, and
+ * read back with `getAll(...).at(-1)` — never hand-concatenated.
+ */
+
+/** The tabs the queue offers — the only values `?tab=` accepts. */
+export const REVIEW_TABS = ['browse', 'audit'] as const
+
+export type ReviewTab = (typeof REVIEW_TABS)[number]
+
+/** The view `/review` opens with when the URL does not name one. */
+export const DEFAULT_REVIEW_TAB: ReviewTab = 'browse'
+
+/**
+ * The table `/review` browses when the URL does not name one.
+ *
+ * It is never `undefined`: `records.list` declares `requiredQuery: ['table']`,
+ * so a URL that cleared the table would ask the API for a table it refuses to
+ * guess. "Clear all" resets to this value rather than removing it.
+ */
+export const DEFAULT_REVIEW_TABLE: TableName = 'dictionary'
+
+export type ReviewPanelState = {
+  /** The named tab, or `undefined` for absent/unknown — the caller keeps its default. */
+  tab?: ReviewTab
+  /** The named table, or `undefined` for absent/unknown — the caller keeps its default. */
+  table?: TableName
+  /** The operator's filter exactly as the URL carries it; `''` when there is none. */
+  q: string
+}
+
+/** Whether a raw string is one of the queue's tab keys. */
+function isReviewTab(value: string): value is ReviewTab {
+  return REVIEW_TABS.some((tab) => tab === value)
+}
+
+/** Whether a raw string is one of the server's whitelisted tables. */
+function isTableName(value: string): value is TableName {
+  return RECORDS_WHITELIST.some((table) => table === value)
+}
+
+/**
+ * The last occurrence of a key, or `''`.
+ *
+ * Repeated parameters follow `URLSearchParams` order and the last one wins —
+ * the same rule the Word limits decoder applies, so a link that carries both
+ * `?table=dictionary&table=phrases` resolves to one table rather than either.
+ */
+function lastSearchValue(params: URLSearchParams, key: string): string {
+  return params.getAll(key).at(-1) ?? ''
+}
+
+/**
+ * Decode `?tab=` / `?table=` / `?q=` into queue state.
+ *
+ * A value outside the closed sets is dropped rather than guessed at, so a
+ * hand-edited `?table=secret_table` falls back to the page's default instead of
+ * sending a table the server 400s on. An unknown `tab` stays `undefined`.
+ */
+export function reviewPanelFromSearch(search: string | URLSearchParams): ReviewPanelState {
+  const params = typeof search === 'string' ? new URLSearchParams(search) : search
+
+  const tab = lastSearchValue(params, 'tab')
+  const table = lastSearchValue(params, 'table')
+
+  return {
+    tab: isReviewTab(tab) ? tab : undefined,
+    table: isTableName(table) ? table : undefined,
+    // Returned exactly as the URL carries it. The URL only ever holds the
+    // trimmed form, because the builder trims; the transport trims again on the
+    // way to the wire (`recordsPath`), so nothing here depends on that.
+    q: lastSearchValue(params, 'q'),
+  }
+}
+
+/**
+ * Build the minimal query string for the review queue.
+ *
+ * Defaults are omitted (`tab=browse`, `table=dictionary`) and so is a blank or
+ * whitespace-only filter, because a URL that restates every default is noise in
+ * a pasted link. The filter is stored trimmed — the trimmed form is what the
+ * transport actually sends, so the link states the request that was made.
+ */
+export function reviewSearch({
+  tab,
+  table,
+  q,
+}: {
+  tab?: ReviewTab
+  table?: TableName
+  q?: string
+} = {}): string {
+  const params = new URLSearchParams()
+  if (tab !== undefined && tab !== DEFAULT_REVIEW_TAB) params.set('tab', tab)
+  if (table !== undefined && table !== DEFAULT_REVIEW_TABLE) params.set('table', table)
+  if (q !== undefined && q.trim() !== '') params.set('q', q.trim())
+  return params.toString()
+}
+
+/**
+ * One agent run's address: `?run=412`.
+ *
+ * The review and Word codecs put a *view* in the URL; this puts a **record**
+ * there. `Agent.tsx` held the id in `useState`, so a finished run was
+ * unshareable and vanished on reload — the operator could describe "run #412"
+ * but could not link it. The goal is deliberately **not** encoded: it is an
+ * input, not a view, and a paragraph of prose in an address bar is noise (and a
+ * pasted goal invites running it again by accident).
+ *
+ * Grammar — digits only, so the serializer cannot touch it: `run` is the one
+ * parameter whose whole value space is `[0-9]+`, which is exactly the set
+ * `URLSearchParams` leaves unescaped.
+ */
+export const AGENT_RUN_PARAM = 'run'
+/**
+ * The run id the URL asks for, or `null` for absent/unparseable.
+ *
+ * Last occurrence wins, as everywhere else here. `?run=0` and `?run=-3` are
+ * `null` rather than an id: `useAgentRun` treats `<= 0` as "no query", so the
+ * page falls back to its own empty state instead of fetching a run the server
+ * cannot have.
+ */
+export function agentRunFromSearch(search: string | URLSearchParams): number | null {
+  const params = typeof search === 'string' ? new URLSearchParams(search) : search
+  const raw = lastSearchValue(params, AGENT_RUN_PARAM).trim()
+  if (!/^\d+$/.test(raw)) return null
+  const id = Number(raw)
+  return id > 0 ? id : null
+}
+
+/** `run=412`, or `''` when there is no run to point at. */
+export function agentSearch(runId: number | null | undefined): string {
+  if (runId === null || runId === undefined || runId <= 0) return ''
+  const params = new URLSearchParams()
+  params.set(AGENT_RUN_PARAM, String(runId))
+  return params.toString()
 }

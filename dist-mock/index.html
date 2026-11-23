@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      Declares both schemes; the pre-paint script below narrows it to the
+      resolved theme so the browser does not paint a light form-control theme
+      under a dark page (or the reverse). Mirrored by `applyThemeDocument()` in
+      `src/lib/theme.ts`.
+    -->
+    <meta name="color-scheme" content="light dark" />
+    <!--
+      Theme bootstrap — runs BEFORE first paint, so there is no flash of the
+      wrong theme. Keep these rules in sync with `resolveTheme()` /
+      `applyThemeDocument()` in `src/lib/theme.ts`; `theme.test.ts` guards it.
+    -->
+    <script>
+      ;(function () {
+        try {
+          var stored = localStorage.getItem('zolai.theme')
+          var pref =
+            stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'system'
+          var dark =
+            pref === 'dark' ||
+            (pref === 'system' &&
+              window.matchMedia('(prefers-color-scheme: dark)').matches)
+          document.documentElement.classList.toggle('dark', dark)
+          document.documentElement.style.colorScheme = dark ? 'dark' : 'light'
+          var meta = document.querySelector('meta[name="color-scheme"]')
+          if (meta) meta.setAttribute('content', dark ? 'dark light' : 'light dark')
+        } catch (e) {
+          /* storage or matchMedia blocked — fall through to the light default */
+        }
+      })()
+    </script>
+    <meta
+      name="description"
+      content="Zolai Explorer — a studio workbench for the Zolai Core knowledge API: word explorer, sentence analysis, search and RAG retrieval."
+    />
+    <title>Zolai Explorer</title>
+    <script type="module" crossorigin src="/assets/index-CoPzMG9l.js"></script>
+    <link rel="modulepreload" crossorigin href="/assets/rolldown-runtime-hePW80VL.js">
+    <link rel="modulepreload" crossorigin href="/assets/charts-BYS7np8U.js">
+    <link rel="modulepreload" crossorigin href="/assets/react-CD9Arp5h.js">
+    <link rel="modulepreload" crossorigin href="/assets/radix-DgoHeOY2.js">
+    <link rel="modulepreload" crossorigin href="/assets/tanstack-D0ONbYIC.js">
+    <link rel="modulepreload" crossorigin href="/assets/forms-CvvwGHyJ.js">
+    <link rel="modulepreload" crossorigin href="/assets/endpoints-CdabR4vW.js">
+    <link rel="modulepreload" crossorigin href="/assets/triangle-alert-d86i7d-f.js">
+    <link rel="modulepreload" crossorigin href="/assets/x-BQNY6JeM.js">
+    <link rel="stylesheet" crossorigin href="/assets/index-DxFW-pXV.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>

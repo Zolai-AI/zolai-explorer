@@ -15,20 +15,18 @@ import type { Collocation } from '../lib/schemas'
  * actually scored, and otherwise falls back to the real `frequency`. The
  * subtitle always says which one is plotted — the same rule the table's
  * "0 (not scored)" cell follows.
+ *
+ * It takes only resolved rows: the parent `CollocationsPanel` renders the
+ * skeleton and error states before this draws, so loading/error props here
+ * would only ever be constants.
+ *
+ * The row rhythm — label size, value-label gutter, plot height — matches the
+ * `BarList` charts in `Charts.tsx` (tick/label `fontSize: 11`, right margin
+ * `56`, the panel's default height) rather than the smaller ad-hoc values it
+ * once carried, which made these rows read cramped next to every other chart
+ * in the app (issue #23, item 3).
  */
-export function CollocationChart({
-  rows,
-  isPending,
-  isError,
-  error,
-  onRetry,
-}: {
-  rows: readonly Collocation[]
-  isPending: boolean
-  isError: boolean
-  error: unknown
-  onRetry: () => void
-}) {
+export function CollocationChart({ rows }: { rows: readonly Collocation[] }) {
   const metric = useMemo(() => collocationMetric(rows), [rows])
   const points = useMemo(() => collocationSeries(rows, metric, 8), [rows, metric])
   const config = useMemo(() => multiSeriesConfig(points.map((point) => point.label)), [points])
@@ -43,14 +41,9 @@ export function CollocationChart({
       title="Top collocations"
       subtitle={subtitle}
       config={config}
-      isPending={isPending}
-      isError={isError}
-      error={error}
-      onRetry={onRetry}
       isEmpty={points.length === 0}
       emptyTitle="No collocations to plot"
       emptyHint="The live endpoint returned an empty collocation list for this word."
-      height={220}
       ariaLabel={`Top collocations by ${metric === 'pmi' ? 'PMI' : 'frequency'}: ${points
         .map(
           (point) =>
@@ -63,7 +56,7 @@ export function CollocationChart({
       <BarChart
         data={points as { label: string; value: number }[]}
         layout="vertical"
-        margin={{ top: 4, right: 48, bottom: 4, left: 4 }}
+        margin={{ top: 4, right: 56, bottom: 4, left: 4 }}
         barCategoryGap="22%"
       >
         <CartesianGrid horizontal={false} strokeDasharray="3 3" />
@@ -74,7 +67,7 @@ export function CollocationChart({
           width={104}
           tickLine={false}
           axisLine={false}
-          tick={{ fontSize: 10 }}
+          tick={{ fontSize: 11 }}
           interval={0}
         />
         <Bar dataKey="value" radius={[0, 4, 4, 0]} isAnimationActive={false}>
@@ -86,7 +79,7 @@ export function CollocationChart({
             position="right"
             className="tabular-nums"
             fill="currentColor"
-            fontSize={10}
+            fontSize={11}
             formatter={(value: unknown) =>
               metric === 'pmi' ? formatScore(Number(value)) : formatCount(Number(value))
             }

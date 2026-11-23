@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { ChevronRight } from 'lucide-react'
 import { cn } from '../lib/utils'
+import { CopyValue } from './CopyValue'
 
 /**
  * Collapsible raw-JSON disclosure for power users. Rich panels render semantic
@@ -48,8 +49,14 @@ export function RawJson({
         />
         {label}
       </summary>
+      {/* Copy strip, inside the disclosure: it only exists when the payload is
+          open, so the collapsed summary keeps its exact behaviour. The border
+          moved here from the `<pre>` — one hairline either way. */}
+      <div className="flex items-center justify-end border-t border-border px-1.5 py-1">
+        <CopyValue value={text} label="the raw JSON" />
+      </div>
       <pre
-        className="scrollbar-thin overflow-auto border-t border-border px-3 py-3 font-mono text-[11px] leading-relaxed text-foreground"
+        className="scrollbar-thin overflow-auto px-3 py-3 font-mono text-[11px] leading-relaxed text-foreground"
         style={{ maxHeight }}
       >
         {text}

@@ -27,6 +27,106 @@ export function hideBelowClass(hideBelow: HideBelow | undefined): string {
 }
 
 /**
+ * The Tailwind 4 default `min-width` (in rem) at which a `hideBelow` tier
+ * reveals its column: `sm` 40rem, `md` 48rem, `lg` 64rem, `xl` 80rem.
+ *
+ * These two maps are **one contract with two halves** — `HIDE_BELOW_CLASS` is
+ * the CSS that hides/reveals a cell, and `HIDE_BELOW_QUERY` is the media query
+ * a runtime check asks to know whether that same CSS is currently hiding it.
+ * They are keyed off this single breakpoint table so a value cannot drift
+ * between the class and the query (which would make the footer lie about which
+ * columns are off-screen). No `rem` number is written anywhere else.
+ */
+export const HIDE_BELOW_MIN_WIDTH_REM = {
+  sm: 40,
+  md: 48,
+  lg: 64,
+  xl: 80,
+} as const satisfies Record<HideBelow, number>
+
+/** The `(min-width: …)` media query that reveals a `hideBelow` tier. */
+export const HIDE_BELOW_QUERY: Record<HideBelow, string> = {
+  sm: `(min-width: ${HIDE_BELOW_MIN_WIDTH_REM.sm}rem)`,
+  md: `(min-width: ${HIDE_BELOW_MIN_WIDTH_REM.md}rem)`,
+  lg: `(min-width: ${HIDE_BELOW_MIN_WIDTH_REM.lg}rem)`,
+  xl: `(min-width: ${HIDE_BELOW_MIN_WIDTH_REM.xl}rem)`,
+}
+
+/** The `hideBelow` tiers, ordered smallest → largest breakpoint. */
+export const HIDE_BELOW_TIERS: readonly HideBelow[] = ['sm', 'md', 'lg', 'xl']
+
+/**
+ * The tiers a viewport of `widthRem` is currently clipping: a column marked
+ * `hideBelow: T` is off-screen while the viewport is under T's breakpoint.
+ *
+ * Pure, so the breakpoint arithmetic is unit tested in plain Node. The
+ * component derives the same answer live from `matchMedia` (against
+ * `HIDE_BELOW_QUERY`) so it tracks the browser's real viewport, including zoom.
+ */
+export function hiddenTiersAtWidth(widthRem: number): HideBelow[] {
+  return HIDE_BELOW_TIERS.filter((tier) => widthRem < HIDE_BELOW_MIN_WIDTH_REM[tier])
+}
+
+/** The shape `hiddenColumnsAt` reads off a caller's column list. */
+export type HiddenColumnSpec = {
+  key: string
+  /** A header the caller passed. It is a ReactNode, so never assume a string. */
+  header: unknown
+  hideBelow?: HideBelow
+}
+
+/** Cap on how many hidden columns the marker names before collapsing to "+N more". */
+export const HIDDEN_COLUMN_LABEL_LIMIT = 3
+
+/** A hidden-column finding, ready for the footer. */
+export type HiddenColumns = {
+  /** Total `hideBelow` columns off-screen at this width. */
+  count: number
+  /** Up to `HIDDEN_COLUMN_LABEL_LIMIT` labels, in spec order. */
+  labels: string[]
+  /** Hidden columns beyond the named ones (`count - labels.length`). */
+  more: number
+  /** The footer sentence, or `''` when nothing is hidden. */
+  text: string
+}
+
+/**
+ * A hidden column's label: its header when that is a string, else its key. The
+ * key is always a string the caller supplied, so a ReactNode header (a badge,
+ * a sort-icon wrapper) can never print as `[object Object]` in the footer.
+ */
+function hiddenColumnLabel(spec: HiddenColumnSpec): string {
+  return typeof spec.header === 'string' ? spec.header : spec.key
+}
+
+/**
+ * Which of a caller's columns are off-screen at the current width, given an
+ * `isHidden` answer per breakpoint tier.
+ *
+ * The hidden-set is an **input** (this never calls `matchMedia`) so a node spec
+ * can drive it. The copy says **hidden at this width** — the data is in the
+ * payload and the endpoint returns it, only the viewport is clipping it — so it
+ * must never read as "unavailable", "not returned" or "no data". It names only
+ * labels the caller's specs carry, and caps the list so five hidden columns
+ * cannot produce a paragraph (the remainder collapses to `(+N more)`).
+ */
+export function hiddenColumnsAt(
+  specs: readonly HiddenColumnSpec[],
+  isHidden: (tier: HideBelow) => boolean,
+): HiddenColumns {
+  const named: string[] = []
+  for (const spec of specs) {
+    if (spec.hideBelow && isHidden(spec.hideBelow)) named.push(hiddenColumnLabel(spec))
+  }
+  const count = named.length
+  if (count === 0) return { count: 0, labels: [], more: 0, text: '' }
+  const labels = named.slice(0, HIDDEN_COLUMN_LABEL_LIMIT)
+  const more = count - labels.length
+  const head = `${count} column${count === 1 ? '' : 's'} hidden at this width: ${labels.join(', ')}`
+  return { count, labels, more, text: more > 0 ? `${head} (+${more} more)` : head }
+}
+
+/**
  * Ascending comparator for a column's sort value. Numbers compare
  * numerically; everything else compares as a locale-aware string with numeric
  * chunks (`item2` before `item10`), and nullish values sort last.
@@ -111,22 +211,58 @@ export type RowsSummary = {
 }
 
 /**
+ * How a truncated table can reach the rows it did not get — which decides what
+ * the truncation notice is allowed to *tell the user to do*.
+ *
+ * - `limit` — the page offers a limit control, so raising it is a real action;
+ * - `cursor` — more rows come from the next page, never from a bigger limit;
+ * - `none` — nothing on this surface fetches more, so say only that the cap
+ *   was reached. Advising "raise the limit" here (as an earlier copy did on the
+ *   cursor-paginated review queue) is a footer instructing an action that does
+ *   not exist.
+ */
+export type RowsReach = 'limit' | 'cursor' | 'none'
+
+const TRUNCATION_NOTICE: Record<RowsReach, string> = {
+  limit: 'That is exactly the limit — more rows may exist. Raise the limit to see them.',
+  cursor: 'That is exactly the limit — more rows may exist. Load the next page to see them.',
+  none: 'That is exactly the limit — the fetch stopped here, and more rows may exist beyond these.',
+}
+
+/**
  * The honest footer for a table backed by a **server-side limit**.
+ *
+ * `shown` is how many rows are on screen, `fetched` is how many the server
+ * actually returned. They differ whenever the table also paginates on the
+ * client, and conflating them is how a table ends up claiming "showing 20
+ * rows" while ten are visible.
  *
  * `limit === null` means the route returns everything it has, so the count is
  * simply the number of rows on screen.
  */
-export function rowsSummary(shown: number, limit: number | null): RowsSummary {
+export function rowsSummary(
+  shown: number,
+  limit: number | null,
+  fetched: number = shown,
+  reach: RowsReach = 'none',
+): RowsSummary {
   const count = Math.max(0, Math.trunc(Number.isFinite(shown) ? shown : 0))
+  const total = Math.max(0, Math.trunc(Number.isFinite(fetched) ? fetched : count))
   if (limit === null || limit <= 0) {
-    return { text: `${count} row${count === 1 ? '' : 's'}`, truncated: false, notice: '' }
+    if (count === total) {
+      return { text: `${count} row${count === 1 ? '' : 's'}`, truncated: false, notice: '' }
+    }
+    return {
+      text: `showing ${count} of ${total} rows fetched`,
+      truncated: false,
+      notice: '',
+    }
   }
-  const truncated = count >= limit
+  const truncated = total >= limit
+  const head = count === total ? `showing ${count} row${count === 1 ? '' : 's'}` : `showing ${count} of ${total} rows fetched`
   return {
-    text: `showing ${count} row${count === 1 ? '' : 's'} (limit ${limit})`,
+    text: `${head} (limit ${limit})`,
     truncated,
-    notice: truncated
-      ? `That is exactly the limit — more rows may exist. Raise the limit to see them.`
-      : '',
+    notice: truncated ? TRUNCATION_NOTICE[reach] : '',
   }
 }

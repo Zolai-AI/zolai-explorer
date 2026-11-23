@@ -153,7 +153,7 @@ describe('postAssistantChat', () => {
     // Regression guard: a slow retrieval answer must not surface as a
     // client-side timeout at the 15s default.
     expect(ASSISTANT_TIMEOUT_MS).toBeGreaterThan(15_000)
-    expect(ASSISTANT_TIMEOUT_MS).toBeLessThanOrEqual(60_000)
+    expect(ASSISTANT_TIMEOUT_MS).toBeGreaterThan(60_000)
   })
 
   it('keeps retrieval_only=true through parsing so the UI can label honestly', async () => {

@@ -8,6 +8,7 @@ import {
   ENDPOINTS,
   ENDPOINTS_BY_ID,
   clampLimit,
+  documentedPath,
   endpointPath,
   publicPath,
   queryLimitPath,
@@ -152,6 +153,30 @@ describe('publicPath', () => {
   it('renders the documented /api/v1 path', () => {
     expect(publicPath(ENDPOINTS_BY_ID['identity.me'])).toBe('/api/v1/auth/me')
     expect(publicPath(ENDPOINTS_BY_ID['word.contexts'])).toBe('/api/v1/word/{word}/contexts')
+  })
+})
+
+describe('documentedPath', () => {
+  it('is publicPath with the parameters filled in', () => {
+    expect(documentedPath('identity.me')).toBe(publicPath(ENDPOINTS_BY_ID['identity.me']))
+    expect(documentedPath('agent.run.read', { run_id: 412 })).toBe('/api/v1/agent/runs/412')
+    expect(documentedPath('word.contexts', { word: 'pasian' })).toBe('/api/v1/word/pasian/contexts')
+  })
+
+  it('still refuses to build a half path', () => {
+    expect(() => documentedPath('agent.run.read')).toThrow(/missing the 'run_id'/)
+  })
+
+  it('is what the prose in a panel prints', () => {
+    // The registry template is relative to API_BASE, so `endpointPath` alone puts
+    // `/agent/runs/412` on screen — a path that is not a URL anyone can paste,
+    // and one that contradicted the Dashboard's `/api/v1/...` for the same call.
+    for (const { path, text } of SOURCES) {
+      for (const match of text.matchAll(/(?:GET|POST|PUT|PATCH|DELETE) \$\{(endpointPath)\(/g)) {
+        throw new Error(`${path}: visible copy prints the prefix-less ${match[1]}() path`)
+      }
+    }
+    expect(documentedPath('agent.run.create')).toBe('/api/v1/agent/runs')
   })
 })
 

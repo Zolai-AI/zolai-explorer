@@ -11,9 +11,12 @@
  * environment (no jsdom dependency).
  */
 
+import { RoleSchema, type Role } from './schemas'
+
 export const SESSION_STORAGE_KEY = 'zolai.session'
 
-export type SessionRole = 'anonymous' | 'member' | 'admin'
+/** The server's own role vocabulary — never a second list spelled here. */
+export type SessionRole = Role
 
 export type SessionPayload = {
   /** Opaque session token issued by the server. */
@@ -108,7 +111,9 @@ export function getSession(): SessionPayload | null {
       token: parsed.token,
       expiresAt,
       username: parsed.username ?? '',
-      role: (parsed.role ?? 'anonymous') as SessionRole,
+      // Tolerant, not cast: a stored value this build does not know reads as the
+      // lowest privilege instead of being trusted because TypeScript looked away.
+      role: RoleSchema.parse(parsed.role ?? 'anonymous'),
     }
   } catch {
     return null

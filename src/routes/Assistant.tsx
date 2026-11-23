@@ -16,10 +16,13 @@ import { useAssistantChat, type AssistantMode } from '../features/assistant/api'
 import { useProviderCatalog } from '../features/providers/api'
 import { Card } from '../components/Card'
 import { Empty } from '../components/Empty'
-import { ErrorState } from '../components/ErrorState'
+import { describeError, ErrorState, failureDetail } from '../components/ErrorState'
+import { MetaList, type MetaItem } from '../components/MetaList'
+import { Notice } from '../components/Notice'
+import { PageHeader } from '../components/PageHeader'
 import { ProviderModelSelect } from '../components/ProviderModelSelect'
 import { Skeleton } from '../components/Skeleton'
-import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert'
+import { ToolCallList } from '../components/ToolCallList'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
@@ -29,7 +32,7 @@ import { Field, FieldDescription, FieldLabel } from '../components/ui/field'
 import { can, useRole } from '../lib/auth'
 import { formatCount, formatScore } from '../lib/format'
 import { apiPost } from '../lib/api'
-import { endpointPath } from '../lib/endpoints'
+import { documentedPath, endpointPath } from '../lib/endpoints'
 import type { ChatResponse, ProviderSelection } from '../lib/schemas'
 
 type Exchange = {
@@ -37,6 +40,28 @@ type Exchange = {
   text: string
   mode: AssistantMode
   response?: ChatResponse
+}
+
+/**
+ * Toast copy for a failed request.
+ *
+ * `String(error)` from network internals ("Failed to fetch", a raw AbortError)
+ * tells a user nothing about what to do, so the toast takes the exact
+ * classification the panel surface renders — one taxonomy, exported from
+ * `ErrorState`. Only the *title* of a plain HTTP failure is the route's own
+ * ("Message failed to send"), because "Request failed (HTTP 500)" says nothing
+ * about what the user was doing.
+ */
+function toastFailure(error: unknown, fallbackTitle: string): { title: string; description?: string } {
+  const d = describeError(error)
+  // Branch on the classifier's stable `code`, not its prose — rewording
+  // "Request failed (HTTP …)" must not silently change which title the toast
+  // carries.
+  const plainHttp = d.code === 'http'
+  return {
+    title: plainHttp ? fallbackTitle : d.title,
+    description: failureDetail(error),
+  }
 }
 
 /**
@@ -57,10 +82,26 @@ type Exchange = {
  *
  * Honesty rules (AGENTS.md):
  * - a `retrieval_only` answer is labelled **"Retrieval (no model)"** — never
- *   "generated", never "AI answer";
+ *   "generated", never "AI answer" — and when the server also set
+ *   `generation_requires_auth` it says **"Retrieval (anonymous request)"**
+ *   instead: a credential was what the request lacked, and the deployment may
+ *   also have no provider — so the copy names the gate, never promises that
+ *   signing in will produce a generated answer;
+ * - the provider/model line names what the payload reports, and renders `—` for
+ *   a provider or model the payload did not carry — the copy never promises that
+ *   every answer arrives labelled;
  * - the admin↔public switch renders only for an admin role, because the admin
  *   route is strict role + scope gated server-side;
- * - admin mode shows the tool trace; public mode shows citations only.
+ * - tool calls are shown for **both** modes: the public route runs the
+ *   retrieval tools too, and a trace that appears only after signing in makes
+ *   those calls invisible to the visitor who asked the question. Admin mode
+ *   names its card as the inspector; the rows are the same component the run
+ *   page uses (arguments, result, error), so the two traces cannot drift.
+ *
+ * Structure: the answer panel has **one frame**. Pending, failed, nothing-asked
+ * and an answered exchange all render inside the same `Card` with the same
+ * header vocabulary, so the panel cannot change shape as the request moves
+ * through its states.
  */
 export function Assistant() {
   const role = useRole()
@@ -126,10 +167,10 @@ export function Assistant() {
             ])
             setMessage('')
           },
-          onError: (error: unknown) =>
-            toast.error('Chat failed', {
-              description: error instanceof Error ? error.message : String(error),
-            }),
+          onError: (error: unknown) => {
+            const failure = toastFailure(error, 'Chat failed')
+            toast.error(failure.title, { description: failure.description })
+          },
           onSettled: () => {
             submitting.current = false
             // Return focus to the composer so the next question is one keystroke away.
@@ -161,9 +202,25 @@ export function Assistant() {
     [message, send],
   )
 
-  // Label the latest answer with the mode it was actually produced under —
-  // the toggle only describes what the *next* send will use.
-  const last = [...history].reverse().find((entry) => entry.role === 'assistant')
+  // The answered exchange the frame shows, with the question it answered (the
+  // feedback POST needs it) and the mode it was produced under — the toggle only
+  // describes what the *next* send will use.
+  const lastAnswerIndex = history.reduce(
+    (found, entry, index) => (entry.role === 'assistant' && entry.response ? index : found),
+    -1,
+  )
+  const lastExchange = lastAnswerIndex < 0 ? undefined : history[lastAnswerIndex]
+  const lastQuestion =
+    lastAnswerIndex <= 0 || history[lastAnswerIndex - 1]?.role !== 'user'
+      ? ''
+      : (history[lastAnswerIndex - 1]?.text ?? '')
+  // A pending or failed send has no answer to show: the frame carries that state
+  // instead, and the transcript below keeps whatever was answered before it.
+  const response = chat.isPending || chat.isError ? undefined : lastExchange?.response
+  const answeredMode: AssistantMode = lastExchange?.mode ?? activeMode
+  const retrievalOnly = response?.retrieval_only === true
+  const authGated = response?.generation_requires_auth === true
+  const frame = answerFrameCopy(response, chat.isPending, chat.isError)
 
   // The pasted key is only ever used by the catalog row the selector is on, so
   // the label names that row — never a vendor chosen by the client.
@@ -195,55 +252,62 @@ export function Assistant() {
       )
       toast.success(score === 1 ? 'Thanks for the feedback!' : 'Feedback recorded')
     } catch (error) {
-      toast.error('Feedback failed', { description: String(error) })
+      const failure = toastFailure(error, 'Feedback failed')
+      toast.error(failure.title, { description: failure.description })
     }
   }, [])
 
   return (
     <div className="flex min-w-0 flex-col gap-5">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
-            <MessageSquareQuote className="size-5 text-primary" aria-hidden />
-            Assistant
-          </h1>
-          <p className="mt-1 max-w-prose text-sm text-muted-foreground">
-            Retrieval-grounded chat over the knowledge base. Type a question and send — the AI
-            provider configured for this deployment answers it, and every answer names the model
-            that wrote it alongside its citations.
-          </p>
-        </div>
-
-        {isAdmin && (
-          <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2">
-            <ShieldCheck className="size-4 text-primary" aria-hidden />
-            <span className="text-xs font-medium">Admin mode</span>
-            <Switch
-              checked={mode === 'admin'}
-              onCheckedChange={(next) => setMode(next ? 'admin' : 'public')}
-              aria-label="Use the admin assistant route"
-            />
-          </div>
-        )}
-      </header>
+      <PageHeader
+        title="Assistant"
+        icon={<MessageSquareQuote className="size-5" aria-hidden />}
+        description={
+          <>
+            {/* The composer is the page, so nothing above it may push it off a
+                phone screen. The long provenance explanation waits for `sm`. */}
+            Retrieval-grounded chat over the knowledge base. Type a question and send.
+            <span className="hidden sm:inline">
+              {' '}
+              The AI provider configured for this deployment answers it, with citations back to the
+              corpus. When the payload reports the provider and model that wrote an answer this panel
+              names them; when it does not, it says so instead of inventing a label.
+            </span>
+          </>
+        }
+        actions={
+          isAdmin ? (
+            <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2">
+              <ShieldCheck className="size-4 text-primary" aria-hidden />
+              <span className="text-xs font-medium">Admin mode</span>
+              <Switch
+                checked={mode === 'admin'}
+                onCheckedChange={(next) => setMode(next ? 'admin' : 'public')}
+                aria-label="Use the admin assistant route"
+              />
+            </div>
+          ) : undefined
+        }
+      />
 
       {!isAdmin && (
-        <Alert>
-          <ShieldCheck aria-hidden />
-          <AlertTitle>Public assistant</AlertTitle>
-          <AlertDescription>
-            Posting to <span className="font-mono">/assistant/chat</span> — anonymous-safe in every
-            auth mode. No key needed: the server answers with the AI provider configured on it. An
-            admin key additionally unlocks <span className="font-mono">/admin/assistant/chat</span>{' '}
-            with the full tool set and trace.
-          </AlertDescription>
-        </Alert>
+        <Notice tone="info" title="Public assistant" icon={<ShieldCheck className="size-4" aria-hidden />}>
+          Anonymous-safe in every auth mode — no key needed, the server answers with the AI provider
+          configured on it.
+          <span className="hidden sm:inline">
+            {' '}
+            Posting to <span className="font-mono">{documentedPath('assistant.chat.public')}</span>.
+            An admin key additionally unlocks{' '}
+            <span className="font-mono">{documentedPath('assistant.chat.admin')}</span> with the full
+            tool set and trace.
+          </span>
+        </Notice>
       )}
 
       {/* The composer is the page. Provider overrides live inside it, collapsed. */}
       <Card
         title="Chat"
-        subtitle={`POST ${activeMode === 'admin' ? '/admin/assistant/chat' : '/assistant/chat'}`}
+        subtitle={`POST ${documentedPath(activeMode === 'admin' ? 'assistant.chat.admin' : 'assistant.chat.public')}`}
       >
         <form onSubmit={submit} className="flex flex-col gap-3">
           <Field>
@@ -357,8 +421,42 @@ export function Assistant() {
         </form>
       </Card>
 
-      {chat.isPending ? (
-        <Card title="Answer" subtitle="pending">
+      {/* The answer frame: one Card for all four states, so the panel does not
+          change shape as the request moves from waiting to answered. */}
+      <Card
+        title={frame.title}
+        subtitle={frame.subtitle}
+        tone={response !== undefined && !retrievalOnly ? 'accent' : 'muted'}
+        actions={
+          response ? (
+            <>
+              {retrievalOnly ? (
+                <Badge variant="outline">retrieval_only</Badge>
+              ) : (
+                <Badge>generated</Badge>
+              )}
+              {authGated && <Badge variant="secondary">sign-in required</Badge>}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="max-lg:h-10"
+                onClick={() => handleCopy(response.answer)}
+                aria-label="Copy answer"
+              >
+                <Copy className="size-4" aria-hidden />
+              </Button>
+            </>
+          ) : undefined
+        }
+      >
+        {response ? (
+          <AnswerBody
+            response={response}
+            mode={answeredMode}
+            userMessage={lastQuestion}
+            onFeedback={handleFeedback}
+          />
+        ) : chat.isPending ? (
           <div className="flex flex-col gap-2" aria-busy="true">
             <Skeleton className="h-4 w-2/3" />
             <Skeleton className="h-4" />
@@ -370,23 +468,26 @@ export function Assistant() {
             </p>
             <span className="sr-only">Waiting for the assistant…</span>
           </div>
-        </Card>
-      ) : chat.isError ? (
-        <ErrorState error={chat.error} compact />
-      ) : !last?.response ? (
-        <Empty
-          title="No conversation yet"
-          hint="Ask a question in the box above. Answers carry citations back to the corpus and name the model that wrote them; with no active provider the server says so instead of inventing text."
-        />
-      ) : (
-        <AnswerPanel
-          response={last.response}
-          mode={last.mode}
-          userMessage={history[history.length - 2]?.text || ''}
-          onCopy={handleCopy}
-          onFeedback={handleFeedback}
-        />
-      )}
+        ) : chat.isError ? (
+          <ErrorState
+            error={chat.error}
+            compact
+            // Retry only when there is still a message to retry — the composer
+            // keeps its text on a failure, so this re-sends exactly what failed.
+            onRetry={message.trim() === '' ? undefined : () => send(message)}
+          />
+        ) : (
+          <Empty
+            compact
+            title="No conversation yet"
+            hint="Ask a question in the box above. Answers carry citations back to the corpus; when the server reports the model that wrote an answer this panel names it, and when no model wrote it the card says so — retrieval, never generated text — naming whether a credential or a provider was missing."
+          />
+        )}
+      </Card>
+
+      {response && <CitationsPanel citations={response.citations ?? []} />}
+
+      {response && <ToolsPanel calls={response.tool_calls} mode={answeredMode} />}
 
       {history.length > 0 && (
         <Card title="Transcript" subtitle={`${history.length} messages`} tone="muted">
@@ -403,7 +504,7 @@ export function Assistant() {
                       : 'max-w-[85%] rounded-lg border bg-muted/40 px-3 py-2 text-sm'
                   }
                 >
-                  <p className="mb-1 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+                  <p className="mb-1 text-xs font-medium tracking-wider text-muted-foreground uppercase">
                     {entry.role === 'user' ? 'You' : `Assistant · ${entry.mode}`}
                   </p>
                   <p className="break-words whitespace-pre-wrap">{entry.text}</p>
@@ -417,171 +518,181 @@ export function Assistant() {
   )
 }
 
-function AnswerPanel({
+/**
+ * Copy for the answer frame's header, kept pure so the honesty rules are
+ * pinned without a DOM.
+ *
+ * A `retrieval_only` answer is never "generated". And `generation_requires_auth`
+ * means *a credential was missing* — the server sets it on any anonymous
+ * request, whether or not the deployment also has a provider. So the frame
+ * names the anonymous gate without promising that signing in will generate;
+ * "no active provider" is reserved for the flag-absent case, where signing in
+ * genuinely would not help.
+ */
+export function answerFrameCopy(
+  response: ChatResponse | undefined,
+  pending: boolean,
+  failed: boolean,
+): { title: string; subtitle: string } {
+  if (!response) {
+    return {
+      title: 'Answer',
+      subtitle: pending
+        ? 'waiting for the server'
+        : failed
+          ? 'the last request did not complete'
+          : 'no question sent yet',
+    }
+  }
+  if (response.retrieval_only) {
+    return response.generation_requires_auth
+      ? {
+          // The flag means *a credential was missing*, not "signing in will
+          // generate": the deployment may also have no provider. So the copy
+          // names the gate without promising the provider.
+          title: 'Retrieval (anonymous request)',
+          subtitle:
+            'retrieval_only: true — anonymous request; generation needs a signed-in credential',
+        }
+      : {
+          title: 'Retrieval (no model)',
+          subtitle: 'retrieval_only: true — no active provider, answered from the corpus',
+        }
+  }
+  return {
+    title: 'Answer',
+    subtitle: `${response.provider || '—'} · ${response.model || '—'}`,
+  }
+}
+
+/**
+ * Body of the answer frame — the prose, the feedback controls, and only the
+ * facts the payload actually carries. The `Card` itself lives in `Assistant`,
+ * so loading / error / empty / answer all share one frame.
+ */
+function AnswerBody({
   response,
   mode,
   userMessage,
-  onCopy,
   onFeedback,
 }: {
   response: ChatResponse
   mode: AssistantMode
   userMessage: string
-  onCopy: (text: string) => void
   onFeedback: (response: ChatResponse, userMessage: string, score: 1 | -1) => void
 }) {
-  const retrievalOnly = response.retrieval_only
-  const citations = response.citations ?? []
+  const meta: MetaItem[] = [
+    { label: 'Latency', value: `${formatCount(Math.round(response.latency_ms))} ms` },
+    { label: 'Turns', value: formatCount(response.turns) },
+    // What the caller *asked* for travels apart from what answered; an override
+    // that was never sent is not a fact worth a row.
+    ...(response.requested_provider !== '' || response.requested_model !== ''
+      ? [
+          {
+            label: 'Requested',
+            value: `${response.requested_provider || 'server default'}${
+              response.requested_model ? ` · ${response.requested_model}` : ''
+            }`,
+          },
+        ]
+      : []),
+    ...(response.requested_api_key ? [{ label: 'Key', value: 'user-provided' }] : []),
+    ...(mode === 'admin' ? [{ label: 'Route', value: documentedPath('assistant.chat.admin') }] : []),
+  ]
 
   return (
     <>
-      <Card
-        title={retrievalOnly ? 'Retrieval (no model)' : 'Answer'}
-        subtitle={
-          retrievalOnly
-            ? 'retrieval_only: true — no active provider, answered from the corpus'
-            : `${response.provider || 'provider unset'} · ${response.model || 'model unset'}`
-        }
-        tone={retrievalOnly ? 'muted' : 'accent'}
-        actions={
-          <>
-            {retrievalOnly ? (
-              <Badge variant="outline">retrieval_only</Badge>
-            ) : (
-              <Badge>generated</Badge>
-            )}
-            <Button
-              variant="ghost"
-              size="sm"
-              className="max-lg:h-10"
-              onClick={() => onCopy(response.answer)}
-              aria-label="Copy answer"
-            >
-              <Copy className="size-4" aria-hidden />
-            </Button>
-          </>
-        }
-      >
-        <p className="text-sm leading-relaxed whitespace-pre-wrap">{response.answer}</p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            className="max-lg:h-10"
-            onClick={() => onFeedback(response, userMessage, 1)}
-            aria-label="Helpful"
-          >
-            <ThumbsUp className="size-4" aria-hidden />
-            Helpful
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="max-lg:h-10"
-            onClick={() => onFeedback(response, userMessage, -1)}
-            aria-label="Not helpful"
-          >
-            <ThumbsDown className="size-4" aria-hidden />
-            Not helpful
-          </Button>
-        </div>
-        <dl className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
-          <div>
-            <dt className="inline">Latency </dt>
-            <dd className="inline font-mono">{formatCount(Math.round(response.latency_ms))} ms</dd>
-          </div>
-          <div>
-            <dt className="inline">Turns </dt>
-            <dd className="inline font-mono">{formatCount(response.turns)}</dd>
-          </div>
-          {(response.requested_provider || response.requested_model) !== '' && (
-            <div>
-              <dt className="inline">Requested </dt>
-              <dd className="inline font-mono">
-                {response.requested_provider || 'server default'}
-                {response.requested_model ? ` · ${response.requested_model}` : ''}
-              </dd>
-            </div>
-          )}
-          {response.requested_api_key && (
-            <div>
-              <dt className="inline">Key </dt>
-              <dd className="inline font-mono text-primary">user-provided</dd>
-            </div>
-          )}
-          {mode === 'admin' && (
-            <div>
-              <dt className="inline">Route </dt>
-              <dd className="inline font-mono">/admin/assistant/chat</dd>
-            </div>
-          )}
-        </dl>
-      </Card>
-
-      <Card title="Citations" subtitle={`${citations.length} source${citations.length === 1 ? '' : 's'}`}>
-        {citations.length === 0 ? (
-          <Empty
-            compact
-            title="No citations"
-            hint="The server returned no citable evidence for this message."
-          />
-        ) : (
-          <ol className="flex flex-col gap-2">
-            {citations.map((citation, index) => (
-              <li
-                key={`${citation.source}-${citation.ref}-${index}`}
-                className="rounded-lg border bg-muted/40 p-3"
-              >
-                <div className="mb-1 flex flex-wrap items-center gap-2 text-[11px]">
-                  <Badge variant="secondary">{citation.source}</Badge>
-                  {citation.ref && (
-                    <span className="font-mono text-muted-foreground">{citation.ref}</span>
-                  )}
-                  {citation.score > 0 && (
-                    <span className="ml-auto font-mono text-muted-foreground">
-                      {formatScore(citation.score)}
-                    </span>
-                  )}
-                </div>
-                <p className="break-words text-xs leading-relaxed">{citation.text}</p>
-              </li>
-            ))}
-          </ol>
-        )}
-      </Card>
-
-      {mode === 'admin' && (
-        <Card
-          title="Tool trace"
-          subtitle={`${response.tool_calls.length} call${response.tool_calls.length === 1 ? '' : 's'} · admin inspector`}
-          actions={<Wrench className="text-muted-foreground/70" aria-hidden />}
+      <p className="text-sm leading-relaxed whitespace-pre-wrap">{response.answer}</p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          className="max-lg:h-10"
+          onClick={() => onFeedback(response, userMessage, 1)}
+          aria-label="Helpful"
         >
-          {response.tool_calls.length === 0 ? (
-            <Empty
-              compact
-              title="No tool calls"
-              hint="The model answered directly, or the run fell back before calling a tool."
-            />
-          ) : (
-            <ul className="flex flex-col gap-2">
-              {response.tool_calls.map((call, index) => (
-                <li
-                  key={`${call.name}-${index}`}
-                  className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/30 px-3 py-2 text-xs"
-                >
-                  <span className="font-mono font-medium">{call.name}</span>
-                  <Badge variant={call.ok ? 'secondary' : 'destructive'}>
-                    {call.status || (call.ok ? 'ok' : 'failed')}
-                  </Badge>
-                  <span className="ml-auto font-mono text-muted-foreground">
-                    {formatCount(Math.round(call.latency_ms))} ms · turn {formatCount(call.turn)}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
-      )}
+          <ThumbsUp className="size-4" aria-hidden />
+          Helpful
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="max-lg:h-10"
+          onClick={() => onFeedback(response, userMessage, -1)}
+          aria-label="Not helpful"
+        >
+          <ThumbsDown className="size-4" aria-hidden />
+          Not helpful
+        </Button>
+      </div>
+      <MetaList items={meta} className="mt-3" />
     </>
+  )
+}
+
+/** Citations — the same Card vocabulary as the answer frame, empty is still labelled. */
+function CitationsPanel({ citations }: { citations: ChatResponse['citations'] }) {
+  return (
+    <Card
+      title="Citations"
+      subtitle={`${citations.length} source${citations.length === 1 ? '' : 's'} named by the server`}
+    >
+      {citations.length === 0 ? (
+        <Empty
+          compact
+          title="No citations"
+          hint="The server returned no citable evidence for this message."
+        />
+      ) : (
+        <ol className="flex flex-col gap-2">
+          {citations.map((citation, index) => (
+            <li
+              key={`${citation.source}-${citation.ref}-${index}`}
+              className="rounded-lg border bg-muted/40 p-3"
+            >
+              <div className="mb-1 flex flex-wrap items-center gap-2 text-[11px]">
+                <Badge variant="secondary">{citation.source}</Badge>
+                {citation.ref && (
+                  <span className="font-mono text-muted-foreground">{citation.ref}</span>
+                )}
+                {citation.score > 0 && (
+                  <span className="ml-auto font-mono text-muted-foreground">
+                    {formatScore(citation.score)}
+                  </span>
+                )}
+              </div>
+              <p className="break-words text-xs leading-relaxed">{citation.text}</p>
+            </li>
+          ))}
+        </ol>
+      )}
+    </Card>
+  )
+}
+
+/**
+ * Tool calls made on the way to the answer. Every call is rendered by the
+ * shared `ToolCallList` — name, arguments, status, latency, turn, and the
+ * result or error. Public callers see the same rows under a plainer title; the
+ * admin route additionally runs the admin tool set, which its title names.
+ */
+export function ToolsPanel({
+  calls,
+  mode,
+}: {
+  calls: ChatResponse['tool_calls']
+  mode: AssistantMode
+}) {
+  const admin = mode === 'admin'
+  return (
+    <Card
+      title={admin ? 'Tool trace' : 'Tools used'}
+      subtitle={`${calls.length} call${calls.length === 1 ? '' : 's'}${
+        admin ? ' · admin inspector' : ' · run by the assistant'
+      }`}
+      actions={<Wrench className="text-muted-foreground/70" aria-hidden />}
+    >
+      <ToolCallList calls={calls} />
+    </Card>
   )
 }

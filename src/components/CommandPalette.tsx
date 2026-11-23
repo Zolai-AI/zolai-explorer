@@ -18,6 +18,7 @@ import {
   Search,
   SearchIcon,
   Settings2,
+  ShieldCheck,
   Sun,
   type LucideIcon,
 } from 'lucide-react'
@@ -76,6 +77,7 @@ const ROUTE_ICONS: Record<string, LucideIcon> = {
   'nav-settings': Settings2,
   'nav-review': FileText,
   'nav-contribute': FileText,
+  'nav-requests': ShieldCheck,
 }
 
 const THEME_ICONS: Record<Theme, LucideIcon> = {
@@ -218,7 +220,7 @@ export function CommandPalette({
                     <Icon aria-hidden />
                     <span className="min-w-0 truncate">{action.label}</span>
                     {action.kind === 'theme' && action.theme === theme && (
-                      <span className="ml-auto text-[10px] tracking-wider text-muted-foreground uppercase">
+                      <span className="ml-auto text-xs tracking-wider text-muted-foreground uppercase">
                         current
                       </span>
                     )}
@@ -292,13 +294,16 @@ export function CommandPaletteTrigger({ onOpen }: { onOpen: () => void }) {
       // 40px minimum touch target on phones; the hint is decoration, the
       // button and its icon are what a phone user actually taps.
       className="max-lg:h-10 max-lg:w-10 max-lg:justify-center max-lg:px-0 sm:w-44 lg:w-56"
-      title="Command palette (⌘K)"
+      // Accessible name, not a tooltip: below `sm` the label and the ⌘K hint are
+      // both hidden, and a native `title` is hover-only content (WCAG 1.4.13)
+      // that a touch or keyboard user never sees.
+      aria-label="Open the command palette"
     >
       <Search aria-hidden />
       <span className="hidden min-w-0 flex-1 truncate text-left text-muted-foreground sm:inline">
         Search commands…
       </span>
-      <kbd className="hidden rounded border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground sm:inline">
+      <kbd className="hidden rounded border bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground sm:inline">
         ⌘K
       </kbd>
     </Button>

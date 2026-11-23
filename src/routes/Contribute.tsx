@@ -21,17 +21,28 @@
  */
 
 import { useState, type FormEvent } from 'react'
-import { AlertCircle, CheckCircle2, FileText, Info, Send } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
+import { AlertCircle, CheckCircle2, FileText, Inbox, Info, Send } from 'lucide-react'
 import { toast } from 'sonner'
-import { apiPost, isApiError } from '../lib/api'
+import { apiPost } from '../lib/api'
 import { endpointPath } from '../lib/endpoints'
+import { ErrorState, failureDetail } from '../components/ErrorState'
 import { Card } from '../components/Card'
+import { Empty } from '../components/Empty'
+import { Skeleton } from '../components/Skeleton'
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert'
+import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Field, FieldDescription, FieldError, FieldLabel } from '../components/ui/field'
 import { Input } from '../components/ui/input'
 import { Textarea } from '../components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
+import { useAuthMe } from '../lib/auth'
+import { formatCount, formatTimestamp } from '../lib/format'
+import { pathOf } from '../lib/routes'
+import { ContributionReceiptSchema, parseOrThrow } from '../lib/schemas'
+import { useMyContributions } from '../features/contributions/api'
 
 type ContributionType = 'new_word' | 'improve_meaning' | 'add_usage' | 'fix_typo' | 'add_grammar' | 'other'
 
@@ -46,10 +57,19 @@ type FormState = {
   email: string
 }
 
-interface ContributionResponse {
-  id: number
-  status: string
+/**
+ * What a submission costs the visitor, and what it earns them.
+ *
+ * `attributed_to` is the server's answer, not a client guess: it is the username
+ * (or key label) derived from the credential that submitted, and `null` for an
+ * anonymous one. The page never sends an identity field, so there is nothing here
+ * a visitor can type.
+ */
+type SubmissionResult = {
+  success: boolean
   message: string
+  id?: number
+  attributedTo?: string | null
 }
 
 type Errors = Partial<Record<keyof FormState, string>>
@@ -183,12 +203,36 @@ export function validateContribution(state: FormState, type: ContributionType): 
   return errors
 }
 
+/**
+ * The **durable** notice for a failed submit — the sentence the inline Alert
+ * carries until the next submission.
+ *
+ * The raw exception is never the copy: `failureDetail` runs the failure through
+ * the app's single classifier (a refused credential, a timeout, a 422 the server
+ * actually returned), so a screenshot-able string cannot leak request internals.
+ * The suffix gives the record its own role — it states plainly that nothing was
+ * saved and points at the way to fix it. The toast beside it is only the
+ * transient "it failed" notice, so one failure is never announced as the same
+ * sentence twice.
+ */
+export function submissionFailureNotice(error: unknown): string {
+  return `${failureDetail(error)} Your contribution was not recorded — fix the details and submit again.`
+}
+
 export function Contribute() {
   const [type, setType] = useState<ContributionType>('new_word')
   const [form, setForm] = useState<FormState>(EMPTY)
   const [errors, setErrors] = useState<Errors>({})
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [result, setResult] = useState<{ success: boolean; message: string; id?: number } | null>(null)
+  const [result, setResult] = useState<SubmissionResult | null>(null)
+  // `/contributions/mine` belongs to an account, so the read-back only mounts for
+  // a session credential. An API key is refused by the route (`_person()`), and
+  // rendering that 403 where the truth is "this key is not an account" would be
+  // the panel inventing a failure.
+  const me = useAuthMe()
+  const isSession = me.auth_source === 'session'
+  const mine = useMyContributions(isSession)
+  const client = useQueryClient()
 
   const spec = typeOf(type)
 
@@ -219,58 +263,95 @@ export function Contribute() {
 
     setIsSubmitting(true)
     try {
-      const response = await apiPost<ContributionResponse>(endpointPath('contributions.create'), {
-        type,
-        word: form.word.trim(),
-        field: spec.field,
-        current_value: form.current_value.trim(),
-        suggested_value: form.suggested_value.trim(),
-        context: form.context.trim(),
-        source: form.source.trim(),
-        email: form.email.trim(),
+      // Parsed, not cast: `attributed_to` is what this page is about to promise
+      // the visitor, and a body that does not carry it says so here rather than
+      // rendering `undefined` as if it were an anonymous submission.
+      const response = parseOrThrow(
+        ContributionReceiptSchema,
+        await apiPost<unknown>(endpointPath('contributions.create'), {
+          type,
+          word: form.word.trim(),
+          field: spec.field,
+          current_value: form.current_value.trim(),
+          suggested_value: form.suggested_value.trim(),
+          context: form.context.trim(),
+          source: form.source.trim(),
+          email: form.email.trim(),
+        }),
+        'contribution receipt',
+      )
+      setResult({
+        success: true,
+        message: response.message,
+        id: response.id,
+        attributedTo: response.attributed_to ?? null,
       })
-      setResult({ success: true, message: response.message, id: response.id })
       toast.success('Contribution submitted', { description: `Reference ${response.id}` })
       setForm({ ...EMPTY, field: spec.field })
       setErrors({})
+      // The read-back under the form just gained a row; the queue did not.
+      if (isSession) client.invalidateQueries({ queryKey: ['contributions'] })
     } catch (error: unknown) {
-      const message = isApiError(error)
-        ? error.message
-        : error instanceof Error
-          ? error.message
-          : 'Submission failed. Please try again.'
-      setResult({ success: false, message })
-      toast.error('Submission failed', { description: message })
+      // One failure, two channels, two roles — never the same sentence twice:
+      // the inline Alert is the durable, classified record; the toast is only
+      // the transient notice that points at it.
+      setResult({ success: false, message: submissionFailureNotice(error) })
+      toast.error('Submission failed', {
+        description: 'See the notice above the form for what went wrong.',
+      })
     } finally {
       setIsSubmitting(false)
     }
   }
 
   return (
-    <div className="flex max-w-3xl flex-col gap-5">
-      <header>
+    /* Full-bleed on desktop: the shell already spans the viewport (#25), so
+       this page must not re-cap itself — the form and its reference cards sit
+       side by side from `xl` rather than one narrow column centred in space. */
+    <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+      <header className="xl:col-span-2">
         <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
           <FileText className="size-5 text-primary" aria-hidden />
           Contribute to the dictionary
         </h1>
         <p className="mt-1 max-w-prose text-sm text-muted-foreground">
           Help improve the Tedim Zolai (ZVS 2018) dictionary. Submissions go to the editorial review
-          queue before publication. No account required.
+          queue before publication. No account required, and no role either — a role is what the API
+          lets your account read and write, never the price of a suggestion. If you want the
+          privileges,{' '}
+          <Link to={pathOf('requests')} className="underline underline-offset-2">
+            ask for one
+          </Link>
+          .
         </p>
       </header>
 
       {result && (
-        <Alert variant={result.success ? 'default' : 'destructive'}>
+        <Alert variant={result.success ? 'default' : 'destructive'} className="xl:col-span-2">
           {result.success ? <CheckCircle2 aria-hidden /> : <AlertCircle aria-hidden />}
           <AlertTitle>{result.success ? 'Received' : 'Not submitted'}</AlertTitle>
           <AlertDescription>
             {result.message}
             {result.id !== undefined && <span className="ml-1 font-mono text-xs">Ref: {result.id}</span>}
+            {/* Attribution is the server's sentence about the credential, not a
+                badge this page earned: an anonymous submission is credited to
+                nobody, and saying so is the honest half of "signed-in work is
+                credited". */}
+            {result.success && result.attributedTo ? (
+              <span className="mt-1 block">
+                Recorded as coming from <span className="font-medium">{result.attributedTo}</span>.{' '}
+                {isSession
+                  ? 'Your own submissions, with their review state, are listed below.'
+                  : 'A key submits under its own label, which is what the editorial queue sees.'}
+              </span>
+            ) : null}
           </AlertDescription>
         </Alert>
       )}
 
-      <Card>
+      {/* Spans the tall left column: the reference cards stack beside it, so
+          the form's row span keeps them aligned without a wrapper element. */}
+      <Card className="xl:row-span-2">
         <form onSubmit={handleSubmit} className="flex flex-col gap-5" noValidate>
           <Field>
             <FieldLabel htmlFor="contrib-type">
@@ -283,11 +364,14 @@ export function Contribute() {
               {/* `position="popper"` gives the panel the trigger's width and a real
                   min-width, so the two-line items (label + description) are not
                   squeezed. `max-h-[22rem]` is the Radix scroll container — six items
-                  fit on a laptop, and a short viewport scrolls instead of clipping. */}
+                  fit on a laptop, and a short viewport scrolls instead of clipping.
+                  The min-width is clamped to the viewport (`calc(100vw-3rem)`) rather
+                  than a flat `20rem`: on a 375–390px phone the trigger is narrower than
+                  320px, and a fixed floor is what put the panel off-screen. */}
               <SelectContent
                 position="popper"
                 align="start"
-                className="max-h-[22rem] w-[var(--radix-select-trigger-width)] min-w-[20rem]"
+                className="max-h-[22rem] w-[var(--radix-select-trigger-width)] min-w-[min(20rem,calc(100vw-3rem))] max-w-[calc(100vw-3rem)]"
               >
                 {CONTRIBUTION_TYPES.map((entry) => (
                   <SelectItem
@@ -307,7 +391,7 @@ export function Contribute() {
             </Select>
             <FieldDescription>
               Sets which column the proposal targets — sent as{' '}
-              <code className="font-mono">{spec.field}</code>.
+              <code className="break-words font-mono">{spec.field}</code>.
             </FieldDescription>
           </Field>
 
@@ -424,10 +508,15 @@ export function Contribute() {
         </form>
       </Card>
 
+      {isSession ? <MySubmissions query={mine} /> : null}
+
       <Card tone="muted">
         <div className="flex gap-3">
           <Info className="mt-0.5 size-5 shrink-0 text-primary" aria-hidden />
-          <div className="space-y-2 text-sm">
+          {/* `min-w-0`: without it this flex column refuses to shrink below its
+              content width, and a long `<code>` run pushed the card sideways at
+              390px. */}
+          <div className="min-w-0 space-y-2 text-sm">
             <p>
               <strong>ZVS 2018 orthography:</strong> SOV word order, ergative{' '}
               <code className="bg-muted px-1">in</code>, <code className="bg-muted px-1">kei</code>{' '}
@@ -445,9 +534,73 @@ export function Contribute() {
               <strong>Review:</strong> submissions queue for an editor. Nothing here writes the
               dictionary directly.
             </p>
+            <p>
+              <strong>Attribution:</strong> signed-in work is credited to your account, and the
+              address you offered is never sent back to this browser — the{' '}
+              <code className="bg-muted px-1">contributions</code> rows you can read carry no{' '}
+              <code className="bg-muted px-1">email</code> column.
+            </p>
           </div>
         </div>
       </Card>
     </div>
+  )
+}
+
+/**
+ * What this account has submitted, and where each one stands.
+ *
+ * The row is the server's fixed projection: `type`, `word`, `field`, `status`,
+ * the timestamps, and **no `email`**. Nothing here re-derives a review state —
+ * `status` is the editorial queue's own word, shown as it arrived, because this
+ * page does not own that vocabulary.
+ */
+function MySubmissions({ query }: { query: ReturnType<typeof useMyContributions> }) {
+  const items = query.data?.items ?? []
+  return (
+    <Card
+      title="Your submissions"
+      subtitle={`GET /contributions/mine · ${formatCount(items.length)} shown`}
+      bodyClassName="flex flex-col gap-3"
+    >
+      {query.isPending ? (
+        <div className="flex flex-col gap-3" aria-busy="true">
+          <Skeleton className="h-10" />
+          <Skeleton className="h-10" />
+          <span className="sr-only">Loading your submissions…</span>
+        </div>
+      ) : query.isError ? (
+        <ErrorState error={query.error} compact onRetry={() => void query.refetch()} />
+      ) : items.length === 0 ? (
+        <Empty
+          compact
+          title="Nothing submitted from this account yet"
+          icon={<Inbox className="size-5" aria-hidden />}
+          hint="Anything you send with this sign-in appears here, with the review state the editors left on it."
+        />
+      ) : (
+        <ul className="flex flex-col gap-2">
+          {items.map((row) => (
+            <li key={row.id} className="flex flex-col gap-1 rounded-lg border border-border p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline">{row.type}</Badge>
+                <span className="font-medium break-words">{row.word}</span>
+                <code className="bg-muted px-1 text-xs">{row.field}</code>
+                <Badge variant="secondary" className="ml-auto">
+                  {row.status}
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Submitted {formatTimestamp(row.created_at)}
+                {row.reviewed_at
+                  ? ` · reviewed ${formatTimestamp(row.reviewed_at)}${row.reviewed_by ? ` by ${row.reviewed_by}` : ''}`
+                  : ' · not yet reviewed'}
+                {` · reference ${row.id}`}
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
   )
 }

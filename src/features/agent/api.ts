@@ -3,7 +3,7 @@
  *
  * - `postAgentRun` — `POST /runs` runs the agent **synchronously** server-side
  *   (≤60s budget), so the client asks for a 65s timeout instead of the default
- *   15s; the server also rate-limits to 5 runs/min/key (429).
+ *   15s; the server also rate-limits to 5 runs/min/credential (429).
  * - `fetchAgentRun` — `GET /runs/{id}`; the hook polls it while the row is
  *   still `running` and settles on the final state.
  * - `postRunFeedback` — `POST /runs/{id}/feedback`, thumbs `-1 | 1`
@@ -11,7 +11,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { apiGet, apiPost } from '../../lib/api'
+import { apiGet, apiPost, LONG_RUNNING_TIMEOUT_MS } from '../../lib/api'
 import { endpointPath } from '../../lib/endpoints'
 import {
   AgentRunSchema,
@@ -25,7 +25,7 @@ import {
 const BASE = endpointPath('agent.run.create')
 
 /** Server runs up to 60s; give the wire a little headroom. */
-export const RUN_TIMEOUT_MS = 65_000
+export const RUN_TIMEOUT_MS = LONG_RUNNING_TIMEOUT_MS
 
 /** Thumbs vocabulary the UI sends; the server accepts -1..1 (`score >= 1` = learn). */
 export type FeedbackScore = -1 | 0 | 1

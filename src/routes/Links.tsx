@@ -68,7 +68,7 @@ export function Links() {
         </h1>
         <p className="mt-1 max-w-prose text-sm text-muted-foreground">
           Every endpoint this app actually calls, generated from one registry
-          (<code className="font-mono">src/lib/endpoints.ts</code>) that also builds the request URLs —
+          that also builds the request URLs —
           plus the server-rendered pages that are link-out only, and an honest list of what the
           deployment does not do yet.
         </p>
@@ -207,7 +207,15 @@ function EndpointRow({ spec }: { spec: EndpointSpec }) {
           {spec.method}
         </Badge>
       </TableCell>
-      <TableCell className="max-w-0">
+      {/* The path column is the page's payload, so it must never be capped or
+          clipped: `max-w-0` here collapsed the column to its padding in the
+          auto table layout, and a `truncate`d inline `<code>` cannot clip at
+          all (overflow has no effect on an inline box) — long route text bled
+          under the Scope column (issue #14). Instead the cell keeps a
+          whitespace-normal track that absorbs the free table width and breaks
+          mid-token on demand (`break-anywhere` shrinks the column's min-content
+          so the fixed Method/Scope/Copy columns can never squeeze it out). */}
+      <TableCell className="whitespace-normal align-top break-anywhere">
         {/* Only GET routes become links. A write method in an `href` would be a
             dead link at best and an invitation to fire a state-changing request
             from a browser GET at worst, so those stay plain text and carry the
@@ -220,17 +228,19 @@ function EndpointRow({ spec }: { spec: EndpointSpec }) {
             href={href}
             target="_blank"
             rel="noreferrer noopener"
-            className="inline-flex min-w-0 items-center gap-1 font-mono text-xs hover:underline focus-visible:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            className="inline-flex items-start gap-1 font-mono text-xs hover:underline focus-visible:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           >
-            <span className="min-w-0 truncate">{path}</span>
-            <ExternalLink className="size-3 shrink-0 opacity-60" aria-hidden />
+            {path}
+            <ExternalLink className="mt-0.5 size-3 shrink-0 opacity-60" aria-hidden />
             <span className="sr-only">(opens in a new tab)</span>
           </a>
         ) : (
-          <code className="min-w-0 truncate font-mono text-xs">{path}</code>
+          <code className="font-mono text-xs">
+            {path}
+          </code>
         )}
       </TableCell>
-      <TableCell className="hidden lg:table-cell">
+      <TableCell className="hidden align-top lg:table-cell">
         {spec.scope ? (
           <code className="font-mono text-[11px] text-muted-foreground">{spec.scope}</code>
         ) : (
@@ -238,11 +248,11 @@ function EndpointRow({ spec }: { spec: EndpointSpec }) {
         )}
         {/* The registry's grouping key, so a narrow screen still shows which
             panel owns the route. */}
-        <span className="block text-[10px] text-muted-foreground/80">
+        <span className="block text-xs text-muted-foreground/80">
           {AREA_LABELS[spec.area]}
         </span>
       </TableCell>
-      <TableCell className="hidden xl:table-cell text-xs text-muted-foreground">
+      <TableCell className="hidden align-top break-words whitespace-normal text-xs text-muted-foreground xl:table-cell">
         {spec.note}
       </TableCell>
       <TableCell>

@@ -48,7 +48,10 @@ export function Card({
       {(title || actions || subtitle) && (
         <CardHeader className="border-b">
           <div className="min-w-0">
-            {title && <CardTitle className="truncate">{title}</CardTitle>}
+            {/* Wraps rather than truncates: a clipped panel title reads as a
+                broken label, and the header is narrow whenever the panel
+                carries an action in the corner. */}
+            {title && <CardTitle className="text-pretty">{title}</CardTitle>}
             {subtitle && <CardDescription>{subtitle}</CardDescription>}
           </div>
           {actions && <CardAction>{actions}</CardAction>}

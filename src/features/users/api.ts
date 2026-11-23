@@ -7,6 +7,16 @@
  * dual-accept an absent credential here, and the UI additionally mounts the
  * panel behind the admin role.
  *
+ * **Changing a role is a separate privilege from managing accounts.** The
+ * guards live in the writer (`set_user_role`), not in the decorator, so:
+ * only a superadmin moves a role at all, nobody moves their own, an actor below
+ * superadmin cannot touch an admin-or-above account, and the last enabled
+ * superadmin is neither demoted nor disabled. Creating an account that *starts*
+ * as `admin`/`superadmin` is the same power, so `POST /admin/users` answers 403
+ * `role_change_requires_superadmin` for it. Each refusal is a 403 (409 for the
+ * last superadmin) naming its reason — never a silently disabled control, and
+ * never a UI-only guess about who can click what.
+ *
  * Credential rules: a password travels **only** in the request body of the call
  * the user typed it into — it is never stored in state after submit, never
  * logged, never toasted, and the server never returns one (responses are
@@ -25,6 +35,7 @@ import {
   AdminUserEnvelopeSchema,
   AdminUserListSchema,
   RevokeSessionsSchema,
+  ACCOUNT_ROLE_VALUES,
   parseOrThrow,
   type AdminUser,
   type AdminUserList,
@@ -42,7 +53,7 @@ import {
 export const ADMIN_USERS_KEY = ['admin', 'users'] as const
 
 /** Server vocabulary for `role` (`VALID_ROLES` in zolai-core). */
-export const USER_ROLES = ['member', 'admin'] as const
+export const USER_ROLES = ACCOUNT_ROLE_VALUES
 export type UserRole = (typeof USER_ROLES)[number]
 
 export type AdminUserCreateInput = {

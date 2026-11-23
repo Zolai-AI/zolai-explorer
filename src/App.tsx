@@ -28,9 +28,11 @@ const Agent = lazy(() => import('./routes/Agent').then((m) => ({ default: m.Agen
 const Orchestra = lazy(() => import('./routes/Orchestra').then((m) => ({ default: m.Orchestra })))
 const Review = lazy(() => import('./routes/Review').then((m) => ({ default: m.Review })))
 const Contribute = lazy(() => import('./routes/Contribute').then((m) => ({ default: m.Contribute })))
+const Requests = lazy(() => import('./routes/Requests').then((m) => ({ default: m.Requests })))
 const NotFound = lazy(() => import('./routes/NotFound').then((m) => ({ default: m.NotFound })))
 import { KeyDialog } from './components/KeyDialog'
 import { Empty } from './components/Empty'
+import { ErrorState } from './components/ErrorState'
 import { Button } from './components/ui/button'
 import { Toaster } from './components/ui/sonner'
 import { TooltipProvider } from './components/ui/tooltip'
@@ -80,6 +82,16 @@ export function RequireRole({ minimum, children }: { minimum: Role; children: Re
     )
   }
 
+  // The check *failed* — the server never answered (network, timeout, 5xx) or
+  // the body did not parse. That is neither "you are anonymous" nor "still in
+  // flight": showing the access wall here would blame a key that was never
+  // actually refused, so the failure gets its own honest, retryable surface.
+  if (identity.isError) {
+    return (
+      <ErrorState error={identity.error} onRetry={() => void identity.refetch()} />
+    )
+  }
+
   const needed = roleBadge(minimum)
   // Reached only once the server has answered and the role falls short; the
   // least-privileged role stands in while the answer is in flight.
@@ -89,12 +101,13 @@ export function RequireRole({ minimum, children }: { minimum: Role; children: Re
     <div className="flex flex-col gap-4">
       <Empty
         title={`${needed.label} access required`}
-        hint={`This area needs the ${needed.label.toLowerCase()} role on the server. You are currently ${have.label.toLowerCase()} — sign in with a key that carries it.`}
+        hint={`This area needs the ${needed.label.toLowerCase()} role on the server. You are currently ${have.label.toLowerCase()} — sign in with a credential that carries it.`}
         icon={<KeyRound className="size-5" aria-hidden />}
       >
         <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
-          {/* Sign in first: it verifies the key before storing it, so a rejected
-              paste cannot leave the browser in a half-authenticated state. */}
+          {/* Sign in first: it verifies the credential before storing it, so a
+              rejected paste cannot leave the browser in a half-authenticated
+              state. */}
           <Button className="h-10" asChild>
             <Link to={signInPath(location.pathname)}>
               <KeyRound aria-hidden />
@@ -142,6 +155,7 @@ const PAGES: Record<RoutePath, ReactNode> = {
   '/links': <Links />,
   '/review': <Review />,
   '/contribute': <Contribute />,
+  '/requests': <Requests />,
   '/settings': <Settings />,
 }
 

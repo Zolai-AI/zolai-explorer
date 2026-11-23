@@ -28,9 +28,24 @@ describe('failedTitle', () => {
   })
 
   it('keeps the credential and budget branches distinct', () => {
-    expect(failedTitle(http(401))).toBe('API key required')
-    expect(failedTitle(http(403))).toBe('Not allowed for this key')
+    expect(failedTitle(http(401))).toBe('Credential refused')
+    expect(failedTitle(http(403))).toBe('Not allowed for this credential')
     expect(failedTitle(http(429))).toBe('Run budget reached')
+  })
+
+  it('never blames a key — a session may be the credential in play', () => {
+    // `credentials.ts` resolves session wins, else key, and the server's 403/429
+    // cannot say which one it looked at. Copy that names the API key is wrong for
+    // every password-signed operator.
+    for (const text of [failedTitle(http(403)), failedDetail(http(403), 65), failedDetail(http(429), 65)]) {
+      expect(text.toLowerCase()).not.toContain('key')
+    }
+    expect(failedDetail(http(403), 65)).toBe(
+      'The credential this request carried lacks a member+ role on the server.',
+    )
+    expect(failedDetail(http(429), 65)).toBe(
+      'Five runs per minute per credential — wait a moment and try again.',
+    )
   })
 
   it('distinguishes a client-side timeout from any HTTP status', () => {

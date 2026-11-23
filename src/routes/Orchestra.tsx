@@ -13,8 +13,10 @@ import {
 import { toast } from 'sonner'
 import {
   LEARNING_TASKS,
+  PUBLIC_LEARNING_LIMIT,
   RESULT_ROWS,
   RESULT_SCALARS,
+  clampsForRole,
   enabledAgentCount,
   learningTask,
   roleLabel,
@@ -34,7 +36,10 @@ import {
 import { Card } from '../components/Card'
 import { DataTable, type Column } from '../components/DataTable'
 import { Empty } from '../components/Empty'
-import { ErrorPanel } from '../components/ErrorState'
+import { ErrorPanel, failureDetail } from '../components/ErrorState'
+import { Notice } from '../components/Notice'
+import { PageHeader } from '../components/PageHeader'
+import { StatGrid } from '../components/StatGrid'
 import { StatTile } from '../components/StatTile'
 import { RawJson } from '../components/RawJson'
 import { Skeleton } from '../components/Skeleton'
@@ -51,8 +56,9 @@ import {
 } from '../components/ui/select'
 import { Switch } from '../components/ui/switch'
 import { Textarea } from '../components/ui/textarea'
+import { TruncatedValue } from '../components/TruncatedValue'
 import { isApiError } from '../lib/api'
-import { can, useRole } from '../lib/auth'
+import { can, useRole, type Role } from '../lib/auth'
 import { formatCount, formatScore } from '../lib/format'
 import type { HideBelow } from '../lib/datatable'
 import type { LearningAgent, LearningAssistant, LearningBinding, LearningRun } from '../lib/schemas'
@@ -73,9 +79,9 @@ import type { LearningAgent, LearningAssistant, LearningBinding, LearningRun } f
  *   caller at 50 and says so in the response; the run panel reports both the
  *   requested and the applied budget instead of implying it produced the page it
  *   asked for.
- * - **Assignments may not exist.** `/learning/assistants` and `/learning/bindings`
- *   are absent from this deployment (404), so that panel says so in words
- *   instead of rendering an empty list that reads as "no assistants exist".
+ * - **Assignments distinguish empty from missing.** A 200 with `assistants: []`
+ *   is "No assistant surfaces yet". A 404 means the routes are absent on that
+ *   deployment and gets a separate "not available" state -- never conflate them.
  */
 export function Orchestra() {
   const role = useRole()
@@ -95,7 +101,7 @@ export function Orchestra() {
 
       <SkillsSection skills={skills} />
 
-      <RunSection />
+      <RunSection role={role} />
 
       <AssignmentsSection isAdmin={isAdmin} />
     </div>
@@ -104,19 +110,19 @@ export function Orchestra() {
 
 function OrchestraHeader({ isAdmin }: { isAdmin: boolean }) {
   return (
-    <header>
-      <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
-        <Network className="size-5 text-primary" aria-hidden />
-        Orchestra
-      </h1>
-      <p className="mt-1 max-w-prose text-sm text-muted-foreground">
-        The learning agent team: who is registered, what each agent is tuned to, a live run of any
-        orchestrator task, and which assistants those agents are assigned to. Reads are public;
-        {isAdmin
-          ? ' your admin session can enable agents, retune thresholds and change assignments.'
-          : ' changing the team needs an admin key, so the roster below is read-only.'}
-      </p>
-    </header>
+    <PageHeader
+      title="Orchestra"
+      icon={<Network className="size-5" aria-hidden />}
+      description={
+        <>
+          The learning agent team: who is registered, what each agent is tuned to, a live run of any
+          orchestrator task, and which assistants those agents are assigned to. Reads are public;
+          {isAdmin
+            ? ' your admin session can enable agents, retune thresholds and change assignments.'
+            : ' changing the team needs an admin key, so the roster below is read-only.'}
+        </>
+      }
+    />
   )
 }
 
@@ -145,19 +151,20 @@ function OverviewSection({ overview }: { overview: ReturnType<typeof useLearning
   return (
     <div className="flex flex-col gap-3">
       {/* Two columns on a phone, three at `sm`, five from `lg` — the base layout
-          is the small screen and every step up is additive. */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        <StatTile label="Agents" value={data?.agents_total ?? 0} hint="registered in the registry" />
+          is the small screen and every step up is additive. A nullish count
+          renders `—` (StatTile owns this), never a forced `0`. */}
+      <StatGrid columns={5}>
+        <StatTile label="Agents" value={data?.agents_total} hint="registered in the registry" />
         <StatTile
           label="Enabled"
-          value={data?.agents_enabled ?? 0}
+          value={data?.agents_enabled}
           hint="taking part in runs"
           accent
         />
-        <StatTile label="Disabled" value={data?.agents_disabled ?? 0} hint="kept but idle" />
-        <StatTile label="Skills" value={data?.skills_total ?? 0} hint="in the catalog" />
+        <StatTile label="Disabled" value={data?.agents_disabled} hint="kept but idle" />
+        <StatTile label="Skills" value={data?.skills_total} hint="in the catalog" />
         <StatTile label="Roles" value={roles.length} hint="distinct agent roles" />
-      </div>
+      </StatGrid>
 
       {roles.length > 0 && (
         <Card title="Roles" subtitle="GET /learning/overview · agents per role" tone="muted">
@@ -267,7 +274,7 @@ function AgentCard({ agent, isAdmin }: { agent: LearningAgent; isAdmin: boolean 
         onSuccess: () => toast.success(`${agent.name} ${enabled ? 'enabled' : 'disabled'}.`),
         onError: (error: unknown) =>
           toast.error(`Could not ${enabled ? 'enable' : 'disable'} ${agent.name}`, {
-            description: isApiError(error) ? error.message : String(error),
+            description: failureDetail(error),
           }),
       },
     )
@@ -282,7 +289,7 @@ function AgentCard({ agent, isAdmin }: { agent: LearningAgent; isAdmin: boolean 
           toast.success(`${agent.name} threshold set to ${formatScore(parsed)}.`),
         onError: (error: unknown) =>
           toast.error('Could not change the threshold', {
-            description: isApiError(error) ? error.message : String(error),
+            description: failureDetail(error),
           }),
       },
     )
@@ -299,7 +306,7 @@ function AgentCard({ agent, isAdmin }: { agent: LearningAgent; isAdmin: boolean 
         </Badge>
       </div>
 
-      <p className="font-mono text-[10px] break-all text-muted-foreground">{agent.agent_id}</p>
+      <p className="font-mono text-xs break-all text-muted-foreground">{agent.agent_id}</p>
 
       <div className="flex flex-wrap gap-1.5">
         {agent.skills.length === 0 ? (
@@ -461,10 +468,7 @@ const FIELD_LABELS: Record<LearningFieldId, string> = {
   min_frequency: 'Minimum frequency',
 }
 
-/** The server's documented anonymous ceiling — stated, not silently applied. */
-const PUBLIC_LIMIT = 50
-
-function RunSection() {
+function RunSection({ role }: { role: Role }) {
   const run = useRunLearningTask()
   const [task, setTask] = useState<LearningTaskId>('translate')
   const [text, setText] = useState('')
@@ -477,7 +481,9 @@ function RunSection() {
   const spec = learningTask(task)
   const textRequired = spec.text && text.trim() === ''
   const requested = Number.parseInt(limit, 10)
-  const wouldClamp = Number.isFinite(requested) && requested > PUBLIC_LIMIT
+  // Only an anonymous caller is clamped; a recognised key's ceiling is 5000,
+  // so warning it about 50 would invent a limit the server does not apply.
+  const wouldClamp = clampsForRole(role, requested)
 
   const submit = (event: FormEvent) => {
     event.preventDefault()
@@ -495,7 +501,7 @@ function RunSection() {
       {
         onError: (error: unknown) =>
           toast.error('The learning task failed', {
-            description: isApiError(error) ? error.message : String(error),
+            description: failureDetail(error),
           }),
       },
     )
@@ -505,7 +511,7 @@ function RunSection() {
     <>
       <Card
         title="Run a task"
-        subtitle="POST /learning/run · public · anonymous callers are clamped to limit 50"
+        subtitle={`POST /learning/run · public · anonymous callers are clamped to limit ${PUBLIC_LEARNING_LIMIT}`}
       >
       <form onSubmit={submit} className="flex flex-col gap-3">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -590,19 +596,27 @@ function RunSection() {
         )}
 
         {wouldClamp && (
-          <p className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 py-1.5 text-[11px] leading-relaxed text-amber-700 dark:text-amber-300">
-            <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-            <span>
-              Anonymous callers are clamped to <span className="font-mono">limit {PUBLIC_LIMIT}</span>{' '}
-              by the server. It will answer with what it actually ran.
-            </span>
-          </p>
+          <Notice
+            tone="warning"
+            title="The server will clamp this run"
+            icon={<Info className="size-4" aria-hidden />}
+          >
+            Anonymous callers are clamped to{' '}
+            <span className="font-mono">limit {PUBLIC_LEARNING_LIMIT}</span> by the server. It will
+            answer with what it actually ran — sign in with a key to ask for more.
+          </Notice>
         )}
 
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-[11px] text-muted-foreground">
-            Only the fields this task reads are sent — an empty box is never sent as{' '}
-            <span className="font-mono">&quot;&quot;</span>.
+            {textRequired ? (
+              <>{spec.label} needs a source sentence before it can run.</>
+            ) : (
+              <>
+                Only the fields this task reads are sent — an empty box is never sent as{' '}
+                <span className="font-mono">&quot;&quot;</span>.
+              </>
+            )}
           </p>
           <Button type="submit" disabled={run.isPending || textRequired} className="h-10 w-full sm:w-auto">
             <Play aria-hidden />
@@ -628,29 +642,47 @@ function RunSection() {
   )
 }
 
-function RunResult({ result }: { result: LearningRun }) {
-  const scalars = RESULT_SCALARS[result.task as LearningTaskId] ?? []
-  const rows = RESULT_ROWS[result.task as LearningTaskId]
+/** Whether the server answered 200 with a task-level `error` instead of a result. */
+function runResultError(payload: Record<string, unknown>): string | null {
+  return typeof payload.error === 'string' && payload.error.trim() !== ''
+    ? payload.error
+    : null
+}
+
+/** Rendered on its own by the render tests: no hooks, no query client needed. */
+export function RunResult({ result }: { result: LearningRun }) {
+  const taskId = result.task as LearningTaskId
+  const scalars = RESULT_SCALARS[taskId] ?? []
+  const rows = RESULT_ROWS[taskId]
   const payload = result.result
+  const taskError = runResultError(payload)
 
   return (
     <Card
       title="Result"
-      subtitle={`${result.task} · limit ${formatCount(result.limit_applied)} applied`}
+      subtitle={`${learningTask(taskId).label} · limit ${formatCount(result.limit_applied)} applied`}
       tone={result.limit_clamped ? 'muted' : 'default'}
     >
       {result.limit_clamped && (
-        <p className="mb-3 flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 py-1.5 text-[11px] leading-relaxed text-amber-700 dark:text-amber-300">
-          <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-          <span>
-            The server clamped the budget for your role — this result is what
-            <span className="font-mono"> limit {formatCount(result.limit_applied)}</span> produced,
-            not the page the request asked for.
-          </span>
-        </p>
+        <Notice
+          tone="warning"
+          className="mb-3"
+          title="The server clamped the budget"
+          icon={<Info className="size-4" aria-hidden />}
+        >
+          This result is what{' '}
+          <span className="font-mono">limit {formatCount(result.limit_applied)}</span> produced, not
+          the page the request asked for.
+        </Notice>
       )}
 
-      {Object.keys(payload).length === 0 ? (
+      {taskError !== null ? (
+        <Notice tone="danger" title="The task answered with an error">
+          <span className="font-mono">{taskError}</span> — the server returned HTTP 200 with an{' '}
+          <span className="font-mono">error</span> field rather than a result. The request reached
+          the task; check the input above and retry.
+        </Notice>
+      ) : Object.keys(payload).length === 0 ? (
         <Empty
           compact
           title="The task returned no fields"
@@ -663,7 +695,7 @@ function RunResult({ result }: { result: LearningRun }) {
               .filter((key) => key in payload)
               .map((key) => (
                 <div key={key} className="min-w-0 rounded-lg border bg-muted/30 px-3 py-2">
-                  <dt className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+                  <dt className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
                     {key.replace(/_/g, ' ')}
                   </dt>
                   <dd className="mt-0.5 text-sm break-words">
@@ -674,12 +706,18 @@ function RunResult({ result }: { result: LearningRun }) {
           </dl>
 
           {rows && Array.isArray(payload[rows.field]) && (
-            <ResultRows rows={rows} data={payload[rows.field] as Record<string, unknown>[]} />
+            <ResultRows
+              rows={rows}
+              data={payload[rows.field] as Record<string, unknown>[]}
+              limitApplied={result.limit_applied}
+            />
           )}
-
-          <RawJson data={result} label="raw learning run" />
         </>
       )}
+
+      <div className="mt-3">
+        <RawJson data={result} label="raw learning run" />
+      </div>
     </Card>
   )
 }
@@ -687,7 +725,11 @@ function RunResult({ result }: { result: LearningRun }) {
 function renderScalar(value: unknown): string {
   if (value === null || value === undefined || value === '') return '—'
   if (typeof value === 'boolean') return value ? 'yes' : 'no'
-  if (typeof value === 'number') return formatCount(value)
+  // Counts stay integers; a score keeps its decimals (formatCount would turn
+  // `confidence: 0.85` into "0").
+  if (typeof value === 'number') {
+    return Number.isInteger(value) ? formatCount(value) : formatScore(value)
+  }
   if (typeof value === 'string') return value
   return JSON.stringify(value)
 }
@@ -695,9 +737,12 @@ function renderScalar(value: unknown): string {
 function ResultRows({
   rows,
   data,
+  limitApplied,
 }: {
   rows: NonNullable<(typeof RESULT_ROWS)[LearningTaskId]>
   data: Record<string, unknown>[]
+  /** The server-applied budget for this run, passed straight to `DataTable`. */
+  limitApplied: number
 }) {
   const columns = useMemo<Column<Record<string, unknown>>[]>(() => {
     const priority: HideBelow[] = ['md', 'lg', 'xl']
@@ -709,11 +754,11 @@ function ResultRows({
       // only place the row's identity appears.
       hideBelow: index < 2 ? undefined : priority[Math.min(index - 2, priority.length - 1)],
       sortValue: (row) => (typeof row[column] === 'number' ? row[column] : String(row[column] ?? '')),
-      cell: (row) => (
-        <span className="block max-w-[22rem] truncate" title={String(row[column] ?? '')}>
-          {renderScalar(row[column])}
-        </span>
-      ),
+      // The full value used to live only in a native `title=` — hover-only, no
+      // keyboard route, gone on touch (WCAG 1.4.13). `renderScalar` already turns
+      // an absent cell into `—`; the shared disclosure keeps the prefix honest and
+      // puts the whole value one keystroke away, with no tooltip to regress to.
+      cell: (row) => <TruncatedValue text={renderScalar(row[column])} limit={120} />,
     }))
   }, [rows])
 
@@ -734,6 +779,11 @@ function ResultRows({
         rows={data}
         rowKey={(row, index) => `${String(row[rows.columns[0]] ?? rows.field)}-${index}`}
         caption={`${formatCount(data.length)} ${rows.field} returned by the task`}
+        serverLimit={limitApplied}
+        // The page's own Limit input feeds the next run, and this card's empty
+        // state already advises it, so raising the limit is a real action here
+        // — the same shape as Search.
+        rowsReach="limit"
       />
     </div>
   )
@@ -745,16 +795,15 @@ function AssignmentsSection({ isAdmin }: { isAdmin: boolean }) {
   const assistants = useLearningAssistants()
   const bindings = useLearningBindings()
 
-  // The two routes are absent from some deployments: a 404 here is a **missing
-  // route**, not "this deployment has no assistants", and the two must not be
-  // rendered with the same words.
+  // A 404 is a **missing route** on an older deployment -- not an empty list.
+  // Live today both routes answer 200 with empty arrays and fall through below.
   const missing = isMissingAssignments(assistants.error, bindings.error)
   if (missing) {
     return (
       <Card title="Assignments" subtitle="GET /learning/assistants · GET /learning/bindings">
         <Empty
           title="Assistant assignments are not available on this deployment"
-          hint="Both /learning/assistants and /learning/bindings answer 404 here — they exist in the zolai-core router but are not registered on this server, so no assistant, binding, or assignment control is shown. The agent roster and the task runner above are unaffected."
+          hint='Both /learning/assistants and /learning/bindings answered 404 — the routes are not registered on this server. An empty 200 list would say "no assistants yet" instead; those two states must not share copy. The agent roster and the task runner above are unaffected.'
           icon={<Cable className="size-5" aria-hidden />}
         />
       </Card>
@@ -875,7 +924,7 @@ function BindingRow({ binding, isAdmin }: { binding: LearningBinding; isAdmin: b
       </span>
       <Badge variant="outline">{roleLabel(binding.role)}</Badge>
       {binding.agent_role && (
-        <span className="text-[10px] tracking-wider text-muted-foreground uppercase">
+        <span className="text-xs tracking-wider text-muted-foreground uppercase">
           {roleLabel(binding.agent_role)}
         </span>
       )}
@@ -901,7 +950,7 @@ function BindingRow({ binding, isAdmin }: { binding: LearningBinding; isAdmin: b
                   toast.success(`Unbound ${binding.agent_name || binding.agent_id}.`),
                 onError: (error: unknown) =>
                   toast.error('Could not unbind', {
-                    description: isApiError(error) ? error.message : String(error),
+                    description: failureDetail(error),
                   }),
               },
             )
@@ -950,7 +999,7 @@ function BindForm({
         },
         onError: (error: unknown) =>
           toast.error('Could not bind the agent', {
-            description: isApiError(error) ? error.message : String(error),
+            description: failureDetail(error),
           }),
       },
     )

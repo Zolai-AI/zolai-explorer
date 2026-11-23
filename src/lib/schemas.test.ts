@@ -2,14 +2,24 @@ import { describe, expect, it } from 'vitest'
 import {
   AgentRunSchema,
   ChatResponseSchema,
+  ContributionReceiptSchema,
   FeedbackSchema,
   HealthSchema,
   KnowledgeVersionSchema,
+  MyContributionListSchema,
+  MyContributionSchema,
   ParagraphAnalysisSchema,
   ProviderListSchema,
   ProviderSchema,
   ProviderTestSchema,
   RagSchema,
+  RoleDecisionInputSchema,
+  RoleRequestCreatedSchema,
+  RoleRequestDecisionSchema,
+  RoleRequestInputSchema,
+  RoleRequestListSchema,
+  RoleRequestQueueSchema,
+  RoleRequestSchema,
   SearchSchema,
   SentenceAnalysisSchema,
   StatisticsSchema,
@@ -18,6 +28,7 @@ import {
   WordContextsSchema,
   WordEvidenceSchema,
   WordFormsSchema,
+  WordRelatedSchema,
   WordPatternsSchema,
   WordSchema,
   parseOrThrow,
@@ -31,20 +42,28 @@ import {
 
 describe('health', () => {
   it('parses the live /health payload', () => {
+    // Verbatim shape of `GET https://api.zolai.space/health` on 2026-10-30: no
+    // `data_root` — the public probe dropped the container path (core#16).
     const parsed = HealthSchema.parse({
       status: 'ok',
-      version: '1.0.0',
-      data_root: '/app/data',
+      version: '2.0.0',
       uptime_s: 607.545,
+      engine_mode: 'hybrid',
+      llm_allowed: true,
     })
     expect(parsed.status).toBe('ok')
     expect(parsed.uptime_s).toBeCloseTo(607.545)
+    expect(parsed.engine_mode).toBe('hybrid')
+    expect(parsed.llm_allowed).toBe(true)
+    expect(parsed).not.toHaveProperty('data_root')
   })
 
   it('falls back rather than throwing when fields are missing', () => {
     const parsed = HealthSchema.parse({})
     expect(parsed.status).toBe('')
     expect(parsed.uptime_s).toBe(0)
+    expect(parsed.engine_mode).toBe('')
+    expect(parsed.llm_allowed).toBe(false)
   })
 })
 
@@ -223,12 +242,31 @@ describe('word', () => {
     expect(parsed.evidence[0].metadata).toMatchObject({ definition: 'God' })
   })
 
+  it('parses /word/{w}/related neighbours', () => {
+    const parsed = WordRelatedSchema.parse({
+      word: 'pasian',
+      related: [
+        {
+          word: 'pasiante',
+          pos: null,
+          frequency: 163,
+          relation: 'prefix',
+          shared_prefix: 6,
+        },
+      ],
+    })
+    expect(parsed.related[0].word).toBe('pasiante')
+    expect(parsed.related[0].pos).toBeNull()
+    expect(parsed.related[0].relation).toBe('prefix')
+  })
+
   it('collapses missing sub-resource arrays to []', () => {
     expect(WordFormsSchema.parse({ word: 'x' }).forms).toEqual([])
     expect(WordContextsSchema.parse({ word: 'x' }).contexts).toEqual([])
     expect(WordCollocationsSchema.parse({ word: 'x' }).collocations).toEqual([])
     expect(WordPatternsSchema.parse({ word: 'x' }).patterns).toEqual([])
     expect(WordEvidenceSchema.parse({ word: 'x' }).evidence).toEqual([])
+    expect(WordRelatedSchema.parse({ word: 'x' }).related).toEqual([])
   })
 })
 
@@ -433,6 +471,62 @@ describe('assistant chat response', () => {
     expect(parsed.retrieval_only).toBe(false)
   })
 
+  it('keeps the anonymous generation gate — why retrieval ran matters', () => {
+    const gated = ChatResponseSchema.parse({
+      answer: 'a',
+      retrieval_only: true,
+      generation_requires_auth: true,
+    })
+    expect(gated.generation_requires_auth).toBe(true)
+    // Absent means "no credential was the blocker", not "sign in to generate".
+    expect(ChatResponseSchema.parse({ answer: 'a' }).generation_requires_auth).toBe(false)
+  })
+
+  it('keeps a list result intact — rag_search returns rows, not a dict', () => {
+    // Regression: `data` was typed `record` (a dict with a `.catch({})`
+    // fallback), so every list payload — which is what a search returns — was
+    // silently collapsed to `{}` and the trace could never show a result.
+    const parsed = ChatResponseSchema.parse({
+      answer: 'a',
+      tool_calls: [
+        {
+          name: 'rag_search',
+          ok: true,
+          status: 'completed',
+          latency_ms: 12,
+          turn: 1,
+          input: { query: 'pasian', limit: 5 },
+          data: [{ ref: 'kb/1', text: 'God' }],
+          error: '',
+          error_code: '',
+        },
+      ],
+    })
+    expect(parsed.tool_calls[0].data).toEqual([{ ref: 'kb/1', text: 'God' }])
+    expect(parsed.tool_calls[0].input).toEqual({ query: 'pasian', limit: 5 })
+  })
+
+  it('keeps the failure class of a failed call', () => {
+    const parsed = ChatResponseSchema.parse({
+      answer: 'a',
+      tool_calls: [
+        {
+          name: 'verse_lookup',
+          ok: false,
+          status: 'failed',
+          latency_ms: 3,
+          turn: 2,
+          input: { reference: 'gen 1:1' },
+          data: undefined,
+          error: 'no such verse',
+          error_code: 'not_found',
+        },
+      ],
+    })
+    expect(parsed.tool_calls[0].error).toBe('no such verse')
+    expect(parsed.tool_calls[0].error_code).toBe('not_found')
+  })
+
   it('keeps an absent persisted_run_id null-ish rather than a bogus id', () => {
     // `nullableNum`: absent → undefined, explicit null → null. Both are
     // falsy, which is all the UI needs to hide the "persisted" hint.
@@ -499,5 +593,271 @@ describe('agent run', () => {
     expect(parsed.feedback_score).toBe(1)
     expect(parsed.run.status).toBe('succeeded')
     expect(parsed.learn.created_hypothesis_id).toBe(12)
+  })
+})
+
+/* --------------------------------------------------------------------------
+ * Role requests + contributions.
+ *
+ * Shapes are read off the server, not invented: `_ROLE_REQUEST_COLUMNS` in
+ * `zolai/api/session_auth.py` is the column list every role-request route
+ * returns, `MINE_COLUMNS` is the fixed projection of
+ * `GET /contributions/mine`, and the envelopes come from the `return`
+ * statements of `role_requests_router.py`.
+ * ----------------------------------------------------------------------- */
+
+/** Verbatim `SELECT` list, as a pending ask looks before anyone decides it. */
+const PENDING_ASK = {
+  id: 3,
+  user_id: 7,
+  username: 'peter',
+  requested_role: 'superadmin',
+  reason: 'I maintain the provider settings for the studio and need to clear contributor asks.',
+  status: 'pending',
+  created_at: '2026-10-30T09:12:44.318Z',
+  decided_by: null,
+  decided_at: null,
+  note: null,
+}
+
+const APPROVED_ASK = {
+  ...PENDING_ASK,
+  status: 'approved',
+  decided_by: 'admin-peter',
+  decided_at: '2026-10-30T11:02:09.771Z',
+  note: 'Approved — you have the provider lane.',
+}
+
+describe('role request (read)', () => {
+  it('parses a pending ask with its audit columns empty', () => {
+    const parsed = RoleRequestSchema.parse(PENDING_ASK)
+    expect(parsed.id).toBe(3)
+    expect(parsed.username).toBe('peter')
+    expect(parsed.requested_role).toBe('superadmin')
+    expect(parsed.status).toBe('pending')
+    expect(parsed.decided_by ?? null).toBeNull()
+    expect(parsed.decided_at ?? null).toBeNull()
+    expect(parsed.note ?? null).toBeNull()
+  })
+
+  it('keeps the decision trail of a decided ask', () => {
+    const parsed = RoleRequestSchema.parse(APPROVED_ASK)
+    expect(parsed.status).toBe('approved')
+    // `decided_by` is the resolved identity the server wrote, not a caller field.
+    expect(parsed.decided_by).toBe('admin-peter')
+    expect(parsed.note).toMatch(/provider lane/)
+  })
+
+  it('reads an unrecognised status as still pending', () => {
+    // `.catch('pending')` is the conservative direction: a row whose status this
+    // build cannot read stays visible in the queue instead of disappearing with
+    // no decision ever made.
+    expect(RoleRequestSchema.parse({ ...PENDING_ASK, status: 'withdrawn' }).status).toBe('pending')
+    expect(RoleRequestSchema.parse({ ...PENDING_ASK, status: null }).status).toBe('pending')
+  })
+
+  it('drops the reason rather than the row when it arrives wrongly typed', () => {
+    const parsed = parseOrThrow(RoleRequestSchema, { ...PENDING_ASK, reason: 42 }, 'role-requests')
+    expect(parsed.reason).toBe('')
+    expect(parsed.id).toBe(3)
+  })
+})
+
+describe('role request lists (mine + the queue)', () => {
+  it('parses /mine as {items, count} newest first', () => {
+    const parsed = RoleRequestListSchema.parse({
+      items: [APPROVED_ASK, PENDING_ASK],
+      count: 2,
+    })
+    expect(parsed.count).toBe(2)
+    expect(parsed.items.map((r) => r.status)).toEqual(['approved', 'pending'])
+  })
+
+  it('parses an empty queue on a store with no asks yet', () => {
+    const parsed = RoleRequestQueueSchema.parse({ status: 'pending', items: [], count: 0 })
+    expect(parsed.status).toBe('pending')
+    expect(parsed.items).toEqual([])
+  })
+
+  it('answers "all" when the queue carries no filter', () => {
+    // The server sends `resolved or "all"`, so an unset filter is the word
+    // `all` — and a filter string this build does not know degrades to the
+    // same, i.e. the widest view, which is what the queue is for.
+    expect(RoleRequestQueueSchema.parse({ items: [], count: 0 }).status).toBe('all')
+    expect(RoleRequestQueueSchema.parse({ status: 'awaiting', items: [], count: 0 }).status).toBe(
+      'all',
+    )
+  })
+
+  it('survives a malformed items array instead of failing the page', () => {
+    const parsed = parseOrThrow(RoleRequestListSchema, { items: 'nope', count: 0 }, 'role-requests')
+    expect(parsed.items).toEqual([])
+  })
+})
+
+describe('role request writes (the input schemas refuse, they never guess)', () => {
+  it('accepts the two requestable roles', () => {
+    expect(RoleRequestInputSchema.parse({ requested_role: 'admin', reason: 'x'.repeat(10) })).toEqual(
+      { requested_role: 'admin', reason: 'x'.repeat(10) },
+    )
+    expect(RoleRequestInputSchema.safeParse({ requested_role: 'superadmin', reason: 'y' }).success).toBe(
+      true,
+    )
+  })
+
+  it('refuses a role that is not an ask', () => {
+    // Every account starts as `member`, so asking for it is a server 400
+    // (`role_not_requestable`); there is no fallback value that would not be a
+    // privilege invented from a parse failure.
+    expect(RoleRequestInputSchema.safeParse({ requested_role: 'member', reason: 'x'.repeat(10) }).success).toBe(
+      false,
+    )
+    expect(RoleRequestInputSchema.safeParse({ reason: 'x'.repeat(10) }).success).toBe(false)
+    expect(RoleRequestInputSchema.safeParse({ requested_role: 'overlord', reason: 'x' }).success).toBe(
+      false,
+    )
+  })
+
+  it('degrades an over-long reason to empty rather than throwing', () => {
+    // The form caps the reason before submit; the server states its own refusal
+    // for one that is too short, so an unreadable value must not become a
+    // sentence the applicant never wrote.
+    const parsed = RoleRequestInputSchema.parse({ requested_role: 'admin', reason: 'z'.repeat(1001) })
+    expect(parsed.reason).toBe('')
+    expect(parsed.requested_role).toBe('admin')
+  })
+
+  it('requires the decision word and tolerates a blank note', () => {
+    expect(RoleDecisionInputSchema.parse({ decision: 'approve' })).toEqual({
+      decision: 'approve',
+      note: '',
+    })
+    expect(RoleDecisionInputSchema.safeParse({ decision: 'maybe' }).success).toBe(false)
+    expect(RoleDecisionInputSchema.safeParse({}).success).toBe(false)
+  })
+})
+
+describe('role request envelopes (created + decided)', () => {
+  const USER_ROW = {
+    id: 7,
+    username: 'peter',
+    display_name: null,
+    role: 'superadmin',
+    enabled: 1,
+    created_at: '2026-10-28T06:31:02.004Z',
+    updated_at: '2026-10-30T11:02:09.771Z',
+    last_login: '2026-10-30T09:10:00.000Z',
+  }
+
+  it('parses the 201 body of a new ask', () => {
+    const parsed = RoleRequestCreatedSchema.parse({
+      request: PENDING_ASK,
+      message: "Request #3 for 'superadmin' is queued for a superadmin.",
+    })
+    expect(parsed.request.status).toBe('pending')
+    expect(parsed.message).toMatch(/queued for a superadmin/)
+  })
+
+  it('parses an approval carrying the promoted account', () => {
+    const parsed = RoleRequestDecisionSchema.parse({
+      request: APPROVED_ASK,
+      user: USER_ROW,
+      message: "Request #3 approved; 'peter' is now 'superadmin'.",
+    })
+    expect(parsed.user?.role).toBe('superadmin')
+    // The server stores `enabled` as 0 | 1; the panel must not branch on a number.
+    expect(parsed.user?.enabled).toBe(true)
+    expect(parsed.message).toMatch(/approved/)
+  })
+
+  it('reads a rejection as no row changed', () => {
+    // `user` is null on a rejection because nothing was written — and an absent
+    // key parses the same way, so the UI has one state to render.
+    const rejected = RoleRequestDecisionSchema.parse({
+      request: { ...PENDING_ASK, status: 'rejected', note: 'Not yet — the studio lane is enough.' },
+      user: null,
+      message: 'Request #3 rejected.',
+    })
+    expect(rejected.user).toBeNull()
+    // Absent → `undefined`, present-but-null → `null`; `?? null` is the house
+    // read-site idiom, and both mean the same thing here: nothing was written.
+    expect(RoleRequestDecisionSchema.parse({ request: PENDING_ASK, message: 'x' }).user ?? null).toBeNull()
+  })
+
+  it('strips a credential column if a server regression ever adds one', () => {
+    // `sanitize_user` removes `password_hash` before the response is built. zod
+    // drops unknown keys, so even a regression cannot carry a hash into state.
+    const parsed = RoleRequestDecisionSchema.parse({
+      request: APPROVED_ASK,
+      user: { ...USER_ROW, password_hash: 'NOT-A-REAL-HASH-PLACEHOLDER' },
+      message: 'x',
+    })
+    expect(parsed.user).not.toHaveProperty('password_hash')
+  })
+})
+
+describe('contributions (own rows + the submit receipt)', () => {
+  /** Verbatim `MINE_COLUMNS` projection from `contributions_router.py`. */
+  const MINE_ROW = {
+    id: 41,
+    type: 'dictionary',
+    word: 'zomi',
+    field: 'definition',
+    status: 'pending',
+    created_at: '2026-10-29T18:02:11.402Z',
+    reviewed_at: null,
+    reviewed_by: null,
+  }
+
+  it('parses the fixed projection and never an email', () => {
+    const parsed = MyContributionSchema.parse(MINE_ROW)
+    expect(parsed.word).toBe('zomi')
+    expect(parsed.status).toBe('pending')
+    expect(parsed.reviewed_at ?? null).toBeNull()
+    // Privacy property, not an oversight: an address offered for editorial
+    // contact is not this route's to give away, so it is absent from the SELECT
+    // and stripped from the parsed object even if a future server leaks it.
+    expect(MyContributionSchema.parse({ ...MINE_ROW, email: 'someone@example.invalid' })).not.toHaveProperty(
+      'email',
+    )
+  })
+
+  it('keeps the review trail of an accepted row', () => {
+    const parsed = MyContributionSchema.parse({
+      ...MINE_ROW,
+      status: 'accepted',
+      reviewed_at: '2026-10-30T08:00:00.000Z',
+      reviewed_by: 'editor',
+    })
+    expect(parsed.status).toBe('accepted')
+    expect(parsed.reviewed_by).toBe('editor')
+  })
+
+  it('parses {items, count} and survives a malformed page', () => {
+    expect(MyContributionListSchema.parse({ items: [MINE_ROW], count: 1 }).count).toBe(1)
+    expect(parseOrThrow(MyContributionListSchema, { items: null, count: 0 }, 'contributions/mine').items).toEqual(
+      [],
+    )
+  })
+
+  it('reads the receipt attribution as the server wrote it', () => {
+    // `attributed_to` is derived from the resolved credential — a username for a
+    // session, a key label for a key, null for an anonymous submission. The
+    // client never sends an identity field, so this is read-back only.
+    expect(
+      ContributionReceiptSchema.parse({
+        id: 42,
+        status: 'pending',
+        message: 'Contribution received and queued for editorial review.',
+        attributed_to: 'peter',
+      }).attributed_to,
+    ).toBe('peter')
+    expect(
+      ContributionReceiptSchema.parse({ id: 42, status: 'pending', message: 'x', attributed_to: null })
+        .attributed_to,
+    ).toBeNull()
+    expect(
+      ContributionReceiptSchema.parse({ id: 42, status: 'pending', message: 'x' }).attributed_to ?? null,
+    ).toBeNull()
   })
 })

@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { ROLES, can, roleBadge, type Role } from './auth'
 import { COMMAND_ACTIONS, ROUTE_COMMANDS, filterCommands, routeCommandsFor } from './commands'
@@ -95,6 +97,71 @@ describe('sign-in is discoverable from the top bar, the sidebar and ⌘K — eve
       expect(entry.keyPrefix, role).toBe('zl_ab12')
     }
   })
+
+  it('promises only what pressing Sign out really ends', () => {
+    // Two credentials, two consequences: ending a session leaves the stored key
+    // alone, clearing a key ends the key. One sentence for both told a session
+    // user their key was going away, which it is not.
+    const session = signInFooterEntry({ role: 'admin', authSource: 'session' })
+    expect(session.title).toMatch(/ends this session/i)
+    expect(session.title).not.toMatch(/clears the stored key/)
+
+    const keyed = signInFooterEntry({ role: 'member', keyPrefix: 'zl_ab12', authSource: 'api_key' })
+    expect(keyed.title).toMatch(/clears the stored key/i)
+
+    // An MCP token is not something this browser holds, so the control must not
+    // promise to clear it.
+    const oauth = signInFooterEntry({ role: 'member', authSource: 'oauth' })
+    expect(oauth.title).toMatch(/MCP access token/)
+    expect(oauth.title).not.toMatch(/clears the stored key/i)
+
+    // With no source reported, the control must not claim either specific act.
+    const unknown = signInFooterEntry({ role: 'member' })
+    expect(unknown.title).not.toMatch(/ends this session/i)
+    expect(unknown.title).not.toMatch(/clears the stored key/i)
+  })
+
+  it('offers the session card’s Sign out only while a session is active', () => {
+    // Node has no DOM here, so this is a source guard — the same reason the
+    // shell surfaces are asserted as text: a control that renders for an
+    // anonymous visitor is invisible to every other check in this file.
+    const login = readFileSync(fileURLToPath(new URL('../routes/Login.tsx', import.meta.url)), 'utf8')
+    expect(login.match(/onClick=\{leaveSession\}/g) ?? []).toHaveLength(1)
+    const gate = login.indexOf("me.auth_source === 'session'")
+    const button = login.indexOf('onClick={leaveSession}')
+    expect(gate).toBeGreaterThan(-1)
+    expect(button).toBeGreaterThan(gate)
+    // Nothing closed the conditional between the gate and the control — the gate
+    // wraps this button rather than merely sitting earlier in the file.
+    expect(login.slice(gate, button)).not.toContain(')}')
+  })
+
+  it('offers the key card’s Sign out only while a key is the credential in play', () => {
+    // `leaveKey` calls `signOut()`, and `signOut()` ends a *session* first when
+    // one exists. Gated on the local `hasKey` alone, a tab signed in with an
+    // account was handed a key-card button that signed it out of something else.
+    const login = readFileSync(fileURLToPath(new URL('../routes/Login.tsx', import.meta.url)), 'utf8')
+    expect(login.match(/onClick=\{leaveKey\}/g) ?? []).toHaveLength(1)
+    const gate = login.indexOf('{canLeaveKey && (')
+    const button = login.indexOf('onClick={leaveKey}')
+    expect(gate).toBeGreaterThan(-1)
+    expect(button).toBeGreaterThan(gate)
+    expect(login.slice(gate, button)).not.toContain(')}')
+    // The derivation itself: the server's word decides, a stored key may still
+    // warn, and a session is never signed out from this card.
+    expect(login).toMatch(
+      /const canLeaveKey =\s*me\.auth_source === 'api_key' \|\| \(hasKey && me\.auth_source !== 'session'\)/,
+    )
+  })
+
+  it('feeds the identity panel the auth source the server reported', () => {
+    // `hasKey` alone hid the panel from an account-signed tab — the page had no
+    // way to say anything about the credential it had just accepted.
+    const login = readFileSync(fileURLToPath(new URL('../routes/Login.tsx', import.meta.url)), 'utf8')
+    expect(login).toMatch(
+      /identitySummary\(\s*\{[^}]*authSource: me\.auth_source[^}]*username: me\.username[^}]*\}/s,
+    )
+  })
 });
 
 describe('the top-bar control — honest, and role-aware from the server only', () => {
@@ -175,7 +242,7 @@ describe('signInSurfaces refuses an affordance it cannot honestly claim', () => 
   })
 })
 
-describe('identitySummary — what the /login page reports about a stored key', () => {
+describe('identitySummary — what the /login page reports about the credential in play', () => {
   it('says nothing when no key is stored', () => {
     const summary = identitySummary({ role: 'anonymous' }, false)
     expect(summary.show).toBe(false)
@@ -208,5 +275,40 @@ describe('identitySummary — what the /login page reports about a stored key', 
     const summary = identitySummary({ role: 'member' }, true)
     expect(summary.scopes).toEqual([])
     expect(summary.tone).toBe('ok')
+  })
+
+  it('reports the identity a session earned, with no key in the browser', () => {
+    // The only reason the panel had for appearing was "there is a stored key",
+    // and password sign-in *clears* the key — so the page went silent on the
+    // credential the server had just accepted.
+    const summary = identitySummary(
+      { role: 'member', keyPrefix: null, scopes: ['rag:read'], authSource: 'session', username: 'alice' },
+      false,
+    )
+    expect(summary.show).toBe(true)
+    expect(summary.tone).toBe('ok')
+    expect(summary.detail).toContain('alice')
+    expect(summary.scopes).toEqual(['rag:read'])
+    // A session role does not come from a key's scopes, and the page that says
+    // where its numbers came from must not imply otherwise.
+    expect(summary.source).toMatch(/auth_source=session/)
+    expect(summary.source).not.toMatch(/from the key’s scopes/)
+  })
+
+  it('names the browser, not an invented username, when the server sends none', () => {
+    const summary = identitySummary({ role: 'admin', authSource: 'session', username: '   ' }, false)
+    expect(summary.detail).toContain('this browser')
+    expect(summary.detail).not.toContain('   ')
+  })
+
+  it('keeps warning about a stored key the server refuses', () => {
+    // `anonymous` is also what the tolerant schema answers for a server that
+    // reports no source at all, so the key branch still needs the local fact.
+    const summary = identitySummary(
+      { role: 'anonymous', keyPrefix: null, scopes: [], authSource: 'anonymous' },
+      true,
+    )
+    expect(summary.tone).toBe('warn')
+    expect(summary.title).toMatch(/not recognised/i)
   })
 })

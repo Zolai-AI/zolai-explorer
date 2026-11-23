@@ -22,8 +22,15 @@ const nullableNum = z.number().nullish().catch(null)
 export const HealthSchema = z.object({
   status: str,
   version: str,
-  data_root: str,
   uptime_s: num,
+  /**
+   * Live deployment reports these; absent older payloads fall back safely.
+   * `data_root` is gone: the public `/health` dropped the container path
+   * (core#16), and a schema field that can never be true only invites the UI
+   * to render an empty row for it.
+   */
+  engine_mode: str,
+  llm_allowed: bool,
 })
 export type Health = z.infer<typeof HealthSchema>
 
@@ -45,8 +52,8 @@ export type KnowledgeVersion = z.infer<typeof KnowledgeVersionSchema>
  * `/foundation/stats` — curation counters for the knowledge pipeline.
  *
  * Optional surface: it 404s on deployments that do not register the foundation
- * router, so the dashboard treats a failure as "this card does not render"
- * rather than an error the user has to read.
+ * router, so the curation panel says *"not exposed on this deployment"* on a
+ * 404 — an explicit state, not a silent absence and not a zeroed chart.
  */
 export const FoundationStatsSchema = z.object({
   raw_count: num,
@@ -154,6 +161,22 @@ export const WordEvidenceSchema = z.object({
 })
 export type WordEvidence = z.infer<typeof WordEvidenceSchema>
 
+/** One neighbour from `GET /word/{w}/related`. */
+export const RelatedWordSchema = z.object({
+  word: str,
+  pos: z.string().nullish().catch(null),
+  frequency: num,
+  relation: str,
+  shared_prefix: num,
+})
+export type RelatedWord = z.infer<typeof RelatedWordSchema>
+
+export const WordRelatedSchema = z.object({
+  word: str,
+  related: z.array(RelatedWordSchema).catch([]),
+})
+export type WordRelated = z.infer<typeof WordRelatedSchema>
+
 /* ----------------------------------------------------------------- analyze */
 
 export const SentenceAnalysisSchema = z.object({
@@ -225,18 +248,61 @@ export type RagResult = z.infer<typeof RagSchema>
 /* ------------------------------------------------------------------ auth */
 
 /**
- * `GET /auth/me` — public identity probe. `role` is
- * `anonymous | member | admin`; anything unrecognised collapses to
- * `anonymous` (the least-privileged reading) instead of failing the gate.
+ * The role vocabulary as `zolai.api.rbac.ROLES` serves it, least → greatest.
+ * `superadmin` is the fourth value the 4-role model added (it is what
+ * `role:manage` makes a credential); `role` gains it rather than replacing one,
+ * so every role enum below keeps its `.catch()` on the *lowest* value — an
+ * unrecognised answer degrades to the least-privileged reading instead of
+ * failing the gate.
+ */
+export const ROLE_VALUES = ['anonymous', 'member', 'admin', 'superadmin'] as const
+
+/** Roles a stored account can hold (`VALID_ROLES`) — `anonymous` is never a row. */
+export const ACCOUNT_ROLE_VALUES = ['member', 'admin', 'superadmin'] as const
+
+/** Roles an account may *ask* for (`REQUESTABLE_ROLES`) — nobody asks to be a member. */
+export const REQUESTABLE_ROLE_VALUES = ['admin', 'superadmin'] as const
+
+/** An account row's role — every `Role` except the one that is not a row. */
+export type AccountRole = (typeof ACCOUNT_ROLE_VALUES)[number]
+/** The two roles the request queue can hand out. */
+export type RequestableRole = (typeof REQUESTABLE_ROLE_VALUES)[number]
+
+/**
+ * `auth_source` as the **server** spells it: which credential it actually
+ * resolved. This is the wire contract, not the client's own vocabulary —
+ * `credentials.ts` says `session | api-key | none` about which *header this
+ * browser sends*, with a hyphen and a different word for "nothing". Keeping the
+ * two apart matters: `api_key` is underscored, `anonymous` is the server's word
+ * for "no credential accepted" (it is not `none`), and `oauth` is a fourth
+ * source a client that only knew about keys would have misread.
+ */
+export const AUTH_SOURCE_VALUES = ['anonymous', 'api_key', 'session', 'oauth'] as const
+export type MeAuthSource = (typeof AUTH_SOURCE_VALUES)[number]
+
+/**
+ * The tolerant role field: a value this build does not know reads as the
+ * **lowest** privilege rather than throwing, which is why one object owns it
+ * instead of each schema re-spelling the fallback.
+ */
+export const RoleSchema = z.enum(ROLE_VALUES).catch('anonymous')
+
+/**
+ * `GET /auth/me` — public identity probe. When the caller authenticated with a
+ * username session the payload also carries `username` (and, server-side,
+ * `display_name` / `user_id` / `expires_at`); `key_prefix` stays `null` because a
+ * session has no prefix.
  */
 export const AuthMeSchema = z.object({
-  role: z.enum(['anonymous', 'member', 'admin']).catch('anonymous'),
+  role: RoleSchema,
   key_prefix: z.string().nullish().catch(null),
   scopes: strArray,
   mode: str,
   // Additive fields (tolerant): may be added by the server without breaking clients.
   username: z.string().nullish().catch(null),
-  auth_source: z.enum(['api-key', 'session', 'none']).catch('none'),
+  // `.catch('anonymous')`, not `api_key`: a source this build cannot read must
+  // never read as "a key worked".
+  auth_source: z.enum(AUTH_SOURCE_VALUES).catch('anonymous'),
 })
 export type AuthMe = z.infer<typeof AuthMeSchema>
 
@@ -254,7 +320,7 @@ export const LoginResponseSchema = z.object({
   token: z.string().catch(''),
   expires_at: z.number().catch(0),
   username: z.string().catch(''),
-  role: z.enum(['anonymous', 'member', 'admin']).catch('anonymous'),
+  role: RoleSchema,
 })
 export type LoginResponse = z.infer<typeof LoginResponseSchema>
 
@@ -430,7 +496,7 @@ export const AdminUserSchema = z.object({
   id: num,
   username: str,
   display_name: z.string().nullish().catch(null),
-  role: z.enum(['member', 'admin']).catch('member'),
+  role: z.enum(ACCOUNT_ROLE_VALUES).catch('member'),
   enabled: z
     .union([z.boolean(), z.number()])
     .catch(false)
@@ -460,6 +526,139 @@ export const RevokeSessionsSchema = z.object({
 })
 export type RevokeSessionsResult = z.infer<typeof RevokeSessionsSchema>
 
+/* ----------------------------------------------------------- role requests */
+
+/** The `role_requests.status` domain (`ROLE_REQUEST_STATUSES` in zolai-core). */
+export const ROLE_REQUEST_STATUS_VALUES = ['pending', 'approved', 'rejected'] as const
+
+/** One queue state — the filter adds `all`, which is a query, not a row. */
+export type RoleRequestStatus = (typeof ROLE_REQUEST_STATUS_VALUES)[number]
+
+/**
+ * One ask in the queue, as every role-request route serves it.
+ *
+ * The row carries `username` and `user_id` **by design**: the queue exists for
+ * the decider to read. `/mine` cannot be pointed at another account — the
+ * server filters on the `user_id` the session proves, so there is no identity
+ * parameter for this UI to get wrong. Timestamps are the canonical UTC ISO
+ * strings from `zolai.shared.clock.stamp`; `decided_by` / `decided_at` / `note`
+ * are `null` while an ask is pending.
+ */
+export const RoleRequestSchema = z.object({
+  id: num,
+  user_id: num,
+  username: str,
+  /** Verbatim: the server only ever writes `admin` or `superadmin` here. */
+  requested_role: str,
+  reason: str,
+  status: z.enum(ROLE_REQUEST_STATUS_VALUES).catch('pending'),
+  created_at: str,
+  decided_by: z.string().nullish().catch(null),
+  decided_at: z.string().nullish().catch(null),
+  note: z.string().nullish().catch(null),
+})
+export type RoleRequest = z.infer<typeof RoleRequestSchema>
+
+/** `GET /role-requests/mine` — `{items, count}`, newest first. */
+export const RoleRequestListSchema = z.object({
+  items: z.array(RoleRequestSchema).catch([]),
+  count: num,
+})
+export type RoleRequestList = z.infer<typeof RoleRequestListSchema>
+
+/** `GET /role-requests` (the queue) — the same list plus the resolved filter. */
+export const RoleRequestQueueSchema = RoleRequestListSchema.extend({
+  status: z.enum([...ROLE_REQUEST_STATUS_VALUES, 'all']).catch('all'),
+})
+export type RoleRequestQueue = z.infer<typeof RoleRequestQueueSchema>
+
+/**
+ * `POST /role-requests` body.
+ *
+ * The `reason` is tolerant because an empty one is a refusal the server states
+ * itself (it enforces 10–1000 characters); the `requested_role` is not, because
+ * there is no value to fall back to that would not be a privilege guess. The
+ * form validates both before enabling submit.
+ */
+export const RoleRequestInputSchema = z.object({
+  // No `.catch()` here, unlike the read schemas: a role this client cannot name
+  // must not be sent at all, and defaulting it to `admin` would invent a
+  // privilege out of a parse failure.
+  requested_role: z.enum(REQUESTABLE_ROLE_VALUES),
+  reason: z.string().trim().max(1000).catch(''),
+})
+export type RoleRequestInput = z.infer<typeof RoleRequestInputSchema>
+
+/** `POST /role-requests` → 201 `{request, message}`. */
+export const RoleRequestCreatedSchema = z.object({
+  request: RoleRequestSchema,
+  message: str,
+})
+export type RoleRequestCreated = z.infer<typeof RoleRequestCreatedSchema>
+
+/**
+ * `POST /role-requests/{id}/decision` → `{request, user, message}`.
+ * `user` is the promoted account (`sanitize_user`, so no hash) — `null` on a
+ * rejection, because no row changed.
+ */
+export const RoleRequestDecisionSchema = z.object({
+  request: RoleRequestSchema,
+  user: AdminUserSchema.nullish().catch(null),
+  message: str,
+})
+export type RoleRequestDecision = z.infer<typeof RoleRequestDecisionSchema>
+
+/** `POST /role-requests/{id}/decision` body — `decision` is one of two words. */
+export const RoleDecisionInputSchema = z.object({
+  // No `.catch()`, same reasoning as `requested_role`: a decision this client
+  // could not read must not silently become one on the applicant's behalf.
+  decision: z.enum(['approve', 'reject']),
+  note: z.string().trim().max(1000).catch(''),
+})
+export type RoleDecisionInput = z.infer<typeof RoleDecisionInputSchema>
+
+/* ---------------------------------------------------------- contributions */
+
+/**
+ * One row of `GET /contributions/mine`.
+ *
+ * The projection is fixed **server-side** (`MINE_COLUMNS`) and has no `email`:
+ * an address offered for editorial contact is not this route's to give away, so
+ * the absence here is a privacy property, not a field nobody got round to.
+ */
+export const MyContributionSchema = z.object({
+  id: num,
+  type: str,
+  word: str,
+  field: str,
+  /** Review state, verbatim — the editorial queue owns its vocabulary. */
+  status: str,
+  created_at: str,
+  reviewed_at: z.string().nullish().catch(null),
+  reviewed_by: z.string().nullish().catch(null),
+})
+export type MyContribution = z.infer<typeof MyContributionSchema>
+
+export const MyContributionListSchema = z.object({
+  items: z.array(MyContributionSchema).catch([]),
+  count: num,
+})
+export type MyContributionList = z.infer<typeof MyContributionListSchema>
+
+/**
+ * `POST /contributions` response (`ContributionOut`). `attributed_to` is the
+ * username or key label the server derived from the resolved credential —
+ * `null` for an anonymous submission, which is the honest "nobody is credited"
+ * state and not an error. The client never sends an identity field.
+ */
+export const ContributionReceiptSchema = z.object({
+  id: num,
+  status: str,
+  message: str,
+  attributed_to: z.string().nullish().catch(null),
+})
+export type ContributionReceipt = z.infer<typeof ContributionReceiptSchema>
+
 /* ------------------------------------------------------------- assistant */
 
 /** Citation shape returned by the assistant routes (`{source, ref, text, score}`). */
@@ -479,8 +678,16 @@ export const ToolCallSchema = z.object({
   latency_ms: num,
   turn: num,
   input: record,
-  data: record,
+  /**
+   * The handler's payload — a **list** for `rag_search` (rows), a **dict** for
+   * `dictionary_lookup`/`verse_lookup`. Typing this as `record` silently
+   * collapsed every list to `{}`, so the trace could never show what a search
+   * actually returned.
+   */
+  data: z.unknown(),
   error: str,
+  /** Stable failure class from the server (`invalid_argument`, `timeout`, …). */
+  error_code: str,
 })
 export type ToolCall = z.infer<typeof ToolCallSchema>
 
@@ -507,6 +714,13 @@ export const ChatResponseSchema = z.object({
   requested_user_provider: bool,
   mode: str,
   retrieval_only: bool,
+  /**
+   * The public route pinned this request to retrieval because it carried no
+   * credential. Distinct from a deployment with no provider: when true,
+   * signing in is what generation was missing, so the UI must say so instead
+   * of "no active provider".
+   */
+  generation_requires_auth: bool,
   latency_ms: num,
   zvs: record,
   provider_error: str,
@@ -533,7 +747,10 @@ export type CorrectionResponse = z.infer<typeof CorrectionResponseSchema>
 export const AgentPhaseSchema = z.object({
   status: str,
   tools: strArray,
-  evidence_count: num,
+  // A phase that recorded nothing reports *absent*, not zero — `num`'s
+  // `.catch(0)` would fabricate "0 evidence" on the chip. `nullableNum` is the
+  // same tolerant pattern (never throws) that lets display render `—`.
+  evidence_count: nullableNum,
   outcome: str,
   latency_ms: num,
   error: str,

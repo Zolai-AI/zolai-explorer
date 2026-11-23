@@ -20,11 +20,11 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { Orchestra } from './Orchestra'
+import { Orchestra, RunResult } from './Orchestra'
 import { LEARNING_KEYS } from '../features/learning/api'
 import { ApiError } from '../lib/api'
 import { inPalette, pathOf, routeById, routeByPath } from '../lib/routes'
-import type { AuthMe } from '../lib/schemas'
+import type { AuthMe, LearningRun } from '../lib/schemas'
 
 // Identity is the input under test, so it is the thing that gets stubbed —
 // `can()` / `roleBadge()` stay real, so the gate must be derived, not faked.
@@ -43,12 +43,17 @@ vi.mock('../lib/auth', async (importOriginal) => {
 
 const APP_SOURCE = readFileSync(fileURLToPath(new URL('../App.tsx', import.meta.url)), 'utf8')
 
+const ORCHESTRA_SOURCE = readFileSync(
+  fileURLToPath(new URL('./Orchestra.tsx', import.meta.url)),
+  'utf8',
+).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+
 const ANON: AuthMe = {
   role: 'anonymous',
   key_prefix: null,
   scopes: [],
   mode: '',
-  auth_source: 'none',
+  auth_source: 'anonymous',
   username: null,
 }
 
@@ -237,5 +242,94 @@ describe('Orchestra — a deployment without the assignment routes', () => {
 
     expect(html).toContain('Assistant assignments are not available on this deployment')
     expect(html).not.toContain('No assistant surfaces yet')
+  })
+})
+
+describe('RunResult — the panel reads what the task actually returned', () => {
+  function renderResult(result: LearningRun): string {
+    return renderToStaticMarkup(<RunResult result={result} />)
+  }
+
+  it('shows the collocation payload under its real keys', () => {
+    // `_extract_collocations` returns `{total_collocations, top_collocations[]}`;
+    // reading `entries`/`vocabulary_size` (the old map) produced an empty panel.
+    const html = renderResult({
+      task: 'extract_collocations',
+      result: {
+        total_collocations: 7,
+        top_collocations: [{ word1: 'pasian', word2: 'itna', frequency: 3 }],
+      },
+      limit_applied: 10,
+      limit_clamped: false,
+    })
+
+    expect(html).toContain('total collocations')
+    expect(html).toContain('Word1')
+    expect(html).toContain('pasian')
+    expect(html).not.toContain('The task returned no fields')
+  })
+
+  it('shows the corrected sentence and the change count, not an absent confidence', () => {
+    const html = renderResult({
+      task: 'correct_grammar',
+      result: { original: 'ka hi', corrected: 'ka hi hi', changes: 1, is_valid: false },
+      limit_applied: 10,
+      limit_clamped: false,
+    })
+
+    expect(html).toContain('>changes<')
+    expect(html).toContain('ka hi hi')
+    expect(html).not.toContain('>confidence<')
+  })
+
+  it('renders a 200-with-error payload as the error it is', () => {
+    const html = renderResult({
+      task: 'translate',
+      result: { error: 'No source_text provided' },
+      limit_applied: 10,
+      limit_clamped: false,
+    })
+
+    expect(html).toContain('The task answered with an error')
+    expect(html).toContain('No source_text provided')
+    expect(html).not.toContain('The task returned no fields')
+  })
+
+  it('keeps a score’s decimals instead of truncating it to a count', () => {
+    const html = renderResult({
+      task: 'translate',
+      result: { translation: 'chang', source_lang: 'en', target_lang: 'zo', confidence: 0.85, cached: false },
+      limit_applied: 10,
+      limit_clamped: false,
+    })
+
+    expect(html).toContain('0.85')
+    expect(html).not.toContain('<dd class="mt-0.5 text-sm break-words">0</dd>')
+  })
+
+  it('keeps the raw payload reachable even when the result is empty', () => {
+    // The empty state promises "the raw payload below"; it must exist there.
+    const html = renderResult({
+      task: 'translate',
+      result: {},
+      limit_applied: 10,
+      limit_clamped: false,
+    })
+
+    expect(html).toContain('The task returned no fields')
+    expect(html).toContain('raw learning run')
+  })
+})
+
+describe('Orchestra — a run-result cell never hides its value behind a tooltip (candidate #8)', () => {
+  it('truncates through the shared disclosure, not a native title attribute', () => {
+    // The result rows render only after a task runs, so this is a source guard:
+    // a `title=` on any native element (a `<span>`/`<code>`/`<p>` cell) is the
+    // hover-only pattern WCAG 1.4.13 forbids. `<Card title=…>`/`<Empty title=…>`
+    // are visible-text props and are allowed, which is why the ban is scoped to
+    // lowercase elements — the same boundary `Review.test.tsx` draws.
+    expect(ORCHESTRA_SOURCE).not.toMatch(/<(?:span|div|p|code|kbd|svg|input|a)\b[^>]*\stitle=/i)
+    expect(ORCHESTRA_SOURCE).toContain('TruncatedValue')
+    expect(ORCHESTRA_SOURCE).not.toContain('max-w-[22rem] truncate')
   })
 })

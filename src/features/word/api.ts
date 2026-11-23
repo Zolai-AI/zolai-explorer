@@ -1,5 +1,5 @@
 /**
- * Endpoint bindings for the Word panel: the entry itself + 5 sub-resources.
+ * Endpoint bindings for the Word panel: the entry itself + 6 sub-resources.
  *
  * Paths come from the registry in `src/lib/endpoints.ts` — no literal route
  * string lives here, so the Links page, the README and the actual calls cannot
@@ -16,6 +16,7 @@ import {
   WordEvidenceSchema,
   WordFormsSchema,
   WordPatternsSchema,
+  WordRelatedSchema,
   WordSchema,
   parseOrThrow,
   type Word,
@@ -24,26 +25,33 @@ import {
   type WordEvidence,
   type WordForms,
   type WordPatterns,
+  type WordRelated,
 } from '../../lib/schemas'
 
 /**
  * Choices offered by the limit control. `forms/contexts/collocations/patterns`
- * are capped at 100 server-side, `evidence` at 200, so the shared choices stop
- * at 100 and the evidence row raises its own ceiling to 200.
+ * are capped at 100 server-side, `evidence` at 200, `related` at 50, so each
+ * tab exposes only values the server will accept.
  */
 export const WORD_LIMIT_CHOICES = [10, 20, 50, 100] as const
 export const EVIDENCE_LIMIT_CHOICES = [10, 20, 50, 100, 200] as const
+export const RELATED_LIMIT_CHOICES = [10, 12, 20, 50] as const
 export const DEFAULT_WORD_LIMIT = 20
 export const DEFAULT_EVIDENCE_LIMIT = 50
+export const DEFAULT_RELATED_LIMIT = 12
 
-/** Limit choices for one sub-resource tab (evidence has the 200 ceiling). */
+/** Limit choices for one sub-resource tab (evidence / related have own ceilings). */
 export function wordLimitChoices(sub: WordSubResource): readonly number[] {
-  return sub === 'evidence' ? EVIDENCE_LIMIT_CHOICES : WORD_LIMIT_CHOICES
+  if (sub === 'evidence') return EVIDENCE_LIMIT_CHOICES
+  if (sub === 'related') return RELATED_LIMIT_CHOICES
+  return WORD_LIMIT_CHOICES
 }
 
 /** Server default `limit` for one sub-resource tab. */
 export function defaultWordLimit(sub: WordSubResource): number {
-  return sub === 'evidence' ? DEFAULT_EVIDENCE_LIMIT : DEFAULT_WORD_LIMIT
+  if (sub === 'evidence') return DEFAULT_EVIDENCE_LIMIT
+  if (sub === 'related') return DEFAULT_RELATED_LIMIT
+  return DEFAULT_WORD_LIMIT
 }
 
 /** Clamp to one of the offered choices, falling back to that route's default. */
@@ -145,12 +153,27 @@ export function useWordEvidence(word: string, limit: number = DEFAULT_EVIDENCE_L
   })
 }
 
+export function useWordRelated(word: string, limit: number = DEFAULT_RELATED_LIMIT) {
+  const effective = clampLimit('word.related', limit)
+  return useQuery({
+    queryKey: ['word', wordKey(word), 'related', effective],
+    queryFn: async ({ signal }): Promise<WordRelated> =>
+      parseOrThrow(
+        WordRelatedSchema,
+        await apiGet<unknown>(queryLimitPath('word.related', { word }, effective), { signal }),
+        'word related',
+      ),
+    enabled: word.trim().length > 0,
+  })
+}
+
 export type WordSubResource =
   | 'contexts'
   | 'collocations'
   | 'patterns'
   | 'evidence'
   | 'forms'
+  | 'related'
 
 /** Registry id per sub-resource tab — the limit control clamps through it. */
 export const SUB_RESOURCE_ENDPOINT: Record<WordSubResource, EndpointId> = {
@@ -159,6 +182,7 @@ export const SUB_RESOURCE_ENDPOINT: Record<WordSubResource, EndpointId> = {
   patterns: 'word.patterns',
   evidence: 'word.evidence',
   forms: 'word.forms',
+  related: 'word.related',
 }
 
 export const WORD_SUB_RESOURCES: { key: WordSubResource; label: string; hint: string }[] = [
@@ -186,5 +210,10 @@ export const WORD_SUB_RESOURCES: { key: WordSubResource; label: string; hint: st
     key: 'forms',
     label: 'Forms',
     hint: 'GET /word/{w}/forms — observed surface forms (limit in the query string)',
+  },
+  {
+    key: 'related',
+    label: 'Related',
+    hint: 'GET /word/{w}/related — same-family then same-POS neighbours, capped at 50',
   },
 ]

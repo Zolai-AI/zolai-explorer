@@ -3,7 +3,8 @@
  *
  * Responsibilities:
  *   - attach `X-API-Key` when a key is stored in `localStorage` (never logged),
- *   - enforce a 15s timeout via AbortController,
+ *   - enforce a 15s timeout for ordinary requests, with explicit longer
+ *     budgets available to long-running surfaces,
  *   - throw a single `ApiError` shape for every failure mode so the UI can
  *     branch on `kind` instead of sniffing strings,
  *   - surface HTTP 401 as `needsKey` so callers can prompt for a key instead of
@@ -36,6 +37,9 @@ export const METRICS_URL: string = `${API_ORIGIN}/metrics`
 export const REVIEW_URL: string = `${API_ORIGIN}/review/`
 
 export const REQUEST_TIMEOUT_MS = 15_000
+
+/** Headroom for server-side agent, assistant, and RAG work (server budget: 60s). */
+export const LONG_RUNNING_TIMEOUT_MS = 65_000
 
 export type ApiErrorKind =
   | 'http'
@@ -111,6 +115,69 @@ function isAbortLike(err: unknown): boolean {
   return typeof err === 'object' && err !== null && (err as { name?: string }).name === 'AbortError'
 }
 
+/** Per-segment cap for a rendered `loc` path — field names are short, so this
+ *  only bounds server-supplied text (same spirit as the 300-char message cap). */
+const LOC_SEGMENT_MAX = 40
+
+/**
+ * Render a FastAPI `loc` array as the offending request location —
+ * `['body','question']` → `'body.question'`, `['body','items',0,'name']` →
+ * `'body.items.0.name'` (numeric segments are array indexes, printed as-is).
+ * Returns `''` when the loc is absent, empty, or not an array, so the caller
+ * falls back to the bare message and never emits `undefined.` or stray dots.
+ */
+function locPrefix(loc: unknown): string {
+  if (!Array.isArray(loc)) return ''
+  const parts: string[] = []
+  for (const seg of loc) {
+    if (typeof seg === 'string' || typeof seg === 'number') {
+      const s = String(seg).slice(0, LOC_SEGMENT_MAX)
+      if (s !== '') parts.push(s)
+    }
+  }
+  return parts.join('.')
+}
+
+/**
+ * Per-item cap for a 422 array item that carries no `msg`. The joined line is
+ * capped at 300 regardless; this stops one chatty item from spending the whole
+ * budget and burying the others.
+ */
+const DETAIL_ITEM_MAX = 120
+
+/**
+ * Compact rendering of a 422 array item that carries **no `msg`** — which
+ * pydantic/FastAPI does produce for some errors (`json_invalid`, the
+ * `input`/`ctx` shapes), along with the hand-rolled objects zolai-core raises
+ * on a few routes. `String({})` prints `[object Object]`, naming neither the
+ * field nor the problem, so: prefer the item's own scalar fields as
+ * `key=value` pairs; when nothing scalar survives, emit a short JSON fragment
+ * of the item minus the `loc` that is already shown as the prefix. `loc` and
+ * `msg` are never duplicated here — the caller owns the location prefix.
+ *
+ * This is a developer workbench, so a raw JSON fragment is honest and
+ * actionable; `[object Object]` is neither.
+ */
+function renderItemWithoutMsg(item: Record<string, unknown>): string {
+  const scalars: string[] = []
+  const rest: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(item)) {
+    if (key === 'loc' || key === 'msg') continue
+    rest[key] = value
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      scalars.push(`${key}=${value}`)
+    }
+  }
+  if (scalars.length > 0) return scalars.join(' ')
+  try {
+    // A payload that came from `JSON.parse` cannot be circular, but a
+    // hand-built `Response` (tests) or a BigInt-bearing object can throw.
+    return JSON.stringify(rest)
+  } catch {
+    return ''
+  }
+}
+
 /** Pull a short, human-readable message out of a FastAPI error envelope. */
 function detailFromPayload(payload: unknown): string {
   if (typeof payload === 'string') return payload.slice(0, 300)
@@ -122,17 +189,41 @@ function detailFromPayload(payload: unknown): string {
     // routes, so unwrap that envelope rather than dropping the message.
     if (detail && typeof detail === 'object' && !Array.isArray(detail)) {
       const inner = detail as Record<string, unknown>
+      // A role-guard refusal is `{"error": "<reason>", "detail": "<sentence>"}`.
+      // The reason is a machine token (`self_role_change`); the sentence is what
+      // the server authored for a human, so it wins and the token is the
+      // fallback for envelopes that carry only a code.
+      if (typeof inner.detail === 'string' && inner.detail !== '') {
+        return inner.detail.slice(0, 300)
+      }
       if (typeof inner.error === 'string') return inner.error.slice(0, 300)
       if (typeof inner.message === 'string') return inner.message.slice(0, 300)
     }
     if (Array.isArray(detail) && detail.length > 0) {
       return detail
         .map((item) => {
-          if (item && typeof item === 'object' && 'msg' in item) {
-            return String((item as { msg: unknown }).msg)
+          if (item && typeof item === 'object') {
+            const rec = item as Record<string, unknown>
+            // Prefix the offending location so a 422 names *which* part of the
+            // request the server rejected ("body.question: …"), not just what
+            // is wrong with it. Without the loc the message reads as if the
+            // feature itself is broken.
+            const where = locPrefix(rec.loc)
+            if ('msg' in rec) {
+              const msg = String(rec.msg)
+              return where ? `${where}: ${msg}` : msg
+            }
+            // Some pydantic/FastAPI items arrive without `msg`. Render the
+            // item itself rather than letting `String({})` print
+            // `[object Object]` into a user-facing message.
+            const rendered = renderItemWithoutMsg(rec)
+            if (rendered === '') return ''
+            const located = where ? `${where}: ${rendered}` : rendered
+            return located.slice(0, DETAIL_ITEM_MAX)
           }
           return String(item)
         })
+        .filter((part) => part !== '')
         .join('; ')
         .slice(0, 300)
     }
@@ -215,7 +306,7 @@ export async function apiFetch<T>(path: string, options: ApiRequestOptions = {})
     const message =
       detail ||
       (response.status === 401
-        ? 'API key required or rejected'
+        ? 'Credential required or rejected'
         : `Request failed with HTTP ${response.status}`)
     throw new ApiError(message, response.status, url, kind)
   }

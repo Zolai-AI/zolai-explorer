@@ -8,9 +8,14 @@
  * control to choose otherwise did not exist.
  */
 import { describe, expect, it } from 'vitest'
-import { ragBody } from './api'
+import { RAG_REQUEST_OPTIONS, RAG_TIMEOUT_MS, ragBody } from './api'
 
 describe('ragBody — the override must reach the wire', () => {
+  it('uses a longer explicit budget than ordinary data requests', () => {
+    expect(RAG_TIMEOUT_MS).toBeGreaterThan(60_000)
+    expect(RAG_REQUEST_OPTIONS).toEqual({ timeoutMs: RAG_TIMEOUT_MS })
+  })
+
   it('sends only question and limit when nothing is chosen', () => {
     expect(ragBody('What is pasian?', 5)).toEqual({ question: 'What is pasian?', limit: 5 })
   })

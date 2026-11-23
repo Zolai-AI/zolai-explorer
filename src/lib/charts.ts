@@ -100,7 +100,7 @@ export function knowledgePipeline(
  * Curation/review counters from `/foundation/stats`, when it is reachable.
  *
  * Returns `[]` for a missing payload or a response without any of the documented
- * counters, so `CurationChart` renders nothing instead of a chart of nothing.
+ * counters, so `CurationChart` draws its explicit empty state instead of a chart of nothing.
  */
 export function curationPipeline(
   stats: Record<string, number> | null | undefined,
