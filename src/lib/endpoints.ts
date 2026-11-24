@@ -112,6 +112,17 @@ export const ENDPOINTS: readonly EndpointSpec[] = [
     note: 'Public identity probe — role, key prefix, scopes and auth mode. Never 401s.',
   },
   {
+    id: 'identity.capabilities',
+    method: 'GET',
+    template: '/auth/capabilities',
+    area: 'identity',
+    scope: '',
+    limitDefault: null,
+    limitMax: null,
+    limit: 'none',
+    note: 'Public additive capability contract — server-authoritative role/capabilities/feature flags. Never 401s; no secrets.',
+  },
+  {
     id: 'identity.login',
     method: 'POST',
     template: '/auth/login',

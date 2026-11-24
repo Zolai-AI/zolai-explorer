@@ -18,9 +18,16 @@ import { apiGet } from './api'
 import { endpointPath } from './endpoints'
 import { getApiKey, subscribeApiKey } from './key'
 import { hasSession, subscribeSession } from './sessionAuth'
-import { AuthMeSchema, parseOrThrow, type AuthMe, type Role } from './schemas'
+import {
+  AuthCapabilitiesSchema,
+  AuthMeSchema,
+  parseOrThrow,
+  type AuthCapabilities,
+  type AuthMe,
+  type Role,
+} from './schemas'
 
-export type { AuthMe, Role }
+export type { AuthCapabilities, AuthMe, Role }
 
 /** Least → greatest privilege, mirroring `zolai.api.rbac.ROLES`. */
 export const ROLES: readonly Role[] = ['anonymous', 'member', 'admin', 'superadmin']
@@ -189,6 +196,15 @@ export async function fetchAuthMe(signal?: AbortSignal): Promise<AuthMe> {
   return parseOrThrow(AuthMeSchema, await apiGet<unknown>(endpointPath('identity.me'), { signal }), 'auth/me')
 }
 
+/** The `/auth/capabilities` transport — additive, public, never 401. */
+export async function fetchAuthCapabilities(signal?: AbortSignal): Promise<AuthCapabilities> {
+  return parseOrThrow(
+    AuthCapabilitiesSchema,
+    await apiGet<unknown>(endpointPath('identity.capabilities'), { signal }),
+    'auth/capabilities',
+  )
+}
+
 const ANONYMOUS: AuthMe = {
   role: 'anonymous',
   key_prefix: null,
@@ -196,6 +212,17 @@ const ANONYMOUS: AuthMe = {
   mode: '',
   auth_source: 'anonymous',
   username: null,
+}
+
+const ANONYMOUS_CAPABILITIES: AuthCapabilities = {
+  role: 'anonymous',
+  canonical_role: 'anonymous',
+  scopes: [],
+  capabilities: {},
+  feature_flags: {},
+  auth_source: 'anonymous',
+  mode: '',
+  contract_version: '',
 }
 
 /** The identity query itself, for callers that must tell "unknown" from "none". */
@@ -230,4 +257,30 @@ export function useAuthMe(): AuthMe {
 /** Reactive role only — `useAuthMe()` when the payload itself is needed. */
 export function useRole(): Role {
   return useAuthMe().role
+}
+
+/** Query key for capabilities; shares identity generation with /auth/me. */
+export function authCapabilitiesQueryKey(): readonly [string, string, number] {
+  return ['auth', 'capabilities', generation]
+}
+
+/** Additive capabilities query (public-safe, server-authoritative). */
+export function useAuthCapabilitiesQuery() {
+  useSyncExternalStore(subscribeIdentity, identityGeneration, serverSnapshot)
+  return useQuery({
+    queryKey: authCapabilitiesQueryKey(),
+    queryFn: ({ signal }) => fetchAuthCapabilities(signal),
+    staleTime: 30_000,
+    retry: false,
+  })
+}
+
+/** Capabilities with anonymous fallback; use query for loading/error states. */
+export function useAuthCapabilities(): AuthCapabilities {
+  return useAuthCapabilitiesQuery().data ?? ANONYMOUS_CAPABILITIES
+}
+
+/** Small UX helper: capability flag with server truth, default false. */
+export function hasCapability(capabilities: AuthCapabilities | null | undefined, key: string): boolean {
+  return capabilities?.capabilities?.[key] === true
 }

@@ -1,4 +1,6 @@
 # Zolai Explorer
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+![Version: 0.1.0](https://img.shields.io/badge/Version-0.1.0-blue.svg)
 
 A **studio workbench** for the live [Zolai Core](https://github.com/Zolai-AI/zolai-core) API — a
 React + Vite + TypeScript + shadcn/ui + TanStack Query app served on its own host at
@@ -136,6 +138,7 @@ used, or if this table drifts.
 | Method | Path | Scope | `limit` |
 |--------|------|-------|---------|
 | GET | `/api/v1/auth/me` | public | — |
+| GET | `/api/v1/auth/capabilities` | public | — |
 | GET | `/api/v1/word/{word}` | `dataset:read` | — |
 | GET | `/api/v1/word/{word}/forms` | `dataset:read` | query, 1–100 (default 20) |
 | GET | `/api/v1/word/{word}/contexts` | `dataset:read` | query, 1–100 (default 20) |

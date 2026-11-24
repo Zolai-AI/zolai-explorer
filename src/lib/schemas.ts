@@ -432,6 +432,36 @@ export const ProviderSelectionSchema = z.object({
 })
 export type ProviderSelection = z.infer<typeof ProviderSelectionSchema>
 
+/* --------------------------------------------------------- capabilities */
+
+/** Additive capability booleans (server-derived, tolerant). */
+export const AuthCapabilitiesMapSchema = z
+  .record(z.string(), z.boolean().catch(false))
+  .catch({})
+export type AuthCapabilitiesMap = z.infer<typeof AuthCapabilitiesMapSchema>
+
+/** Additive public-safe feature flags (tolerant). */
+export const AuthFeatureFlagsSchema = z
+  .record(z.string(), z.boolean().catch(false))
+  .catch({})
+export type AuthFeatureFlags = z.infer<typeof AuthFeatureFlagsSchema>
+
+/**
+ * `GET /api/v1/auth/capabilities` — public, additive, server-authoritative.
+ * Never 401s. Tolerant: unknown/missing fields degrade safely.
+ */
+export const AuthCapabilitiesSchema = z.object({
+  role: RoleSchema,
+  canonical_role: RoleSchema.catch('anonymous'),
+  scopes: strArray,
+  capabilities: AuthCapabilitiesMapSchema,
+  feature_flags: AuthFeatureFlagsSchema,
+  auth_source: z.enum(AUTH_SOURCE_VALUES).catch('anonymous'),
+  mode: str,
+  contract_version: str,
+})
+export type AuthCapabilities = z.infer<typeof AuthCapabilitiesSchema>
+
 /* -------------------------------------------------------------- api keys */
 
 /**
