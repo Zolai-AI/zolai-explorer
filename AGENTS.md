@@ -253,6 +253,7 @@ Language ground truth: **ZVS 2018** — SOV word order, ergative `in`, `kei` for
 persons, `hiam` for yes/no questions, `bang hang` + V + S + `hiam` for content questions. Do not
 introduce deprecated forms (`pathian`, `ram`, `fapa`, `bawipa`, `siangpahrang`, `cu/cun`) into UI
 copy or test fixtures.
+
 ## Workspace alignment (2026-11-24)
 
 `zolai-explorer` is the live React + Vite + shadcn/ui Studio workbench at
