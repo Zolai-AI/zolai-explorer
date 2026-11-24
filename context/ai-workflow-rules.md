@@ -2,11 +2,13 @@
 
 ## Approach
 
-[Describe the overall development approach — e.g. Build
-this project incrementally using a spec-driven workflow.
-Context files define what to build, how to build it, and
-the current state of progress. Always implement against
-these specs — do not infer or invent behavior from scratch.]
+Build incrementally against the committed context files and the
+one-source-of-truth registries they describe. `project-overview.md` defines the
+workbench scope, `architecture.md` fixes boundaries, `ui-context.md` holds the
+committed token layer, `code-standards.md` defines the conventions, and
+`progress-tracker.md` records state. Never invent data, keep endpoint and route
+paths in their registries, and take roles only from the server. Source: AGENTS.md,
+HEAD context files, README.md.
 
 ## Scoping Rules
 
@@ -28,10 +30,9 @@ these specs — do not infer or invent behavior from scratch.]
 
 Split an implementation step if it combines:
 
-- [Concern one — e.g. UI changes and background task changes]
-- [Concern two — e.g. Multiple unrelated API routes]
-- [Concern three — e.g. Behavior not clearly defined in
-  the context files]
+- Panel markup in `src/routes/` or `src/components/` versus transport code in `src/features/<area>/api.ts` (source: AGENTS.md, git ls-tree -r HEAD -- src).
+- Endpoint registry changes in `src/lib/endpoints.ts` versus route registry changes in `src/lib/routes.ts` (source: AGENTS.md).
+- Token changes in `src/index.css` versus component composition, including the blocking theme script (source: AGENTS.md, src/index.css).
 
 If a change cannot be verified end to end quickly,
 the scope is too broad — split it.
@@ -69,8 +70,9 @@ implementing:
 
 Do not modify the following unless explicitly instructed:
 
-- [e.g. components/ui/* — generated UI library components]
-- [e.g. Any third-party library internals]
+- `src/lib/endpoints.ts` — single source of truth for every endpoint this app calls; tests fail if a literal reappears (source: AGENTS.md).
+- `src/index.css` — the committed CSS-first token layer; verify both `:root` and `.dark` blocks ship after any change (source: AGENTS.md, src/index.css).
+- `src/lib/routes.ts`, `src/components/ui/` and `bun.lock` — registry, vendored primitives and pinned dependency tree; do not rewrite casually (source: AGENTS.md, git ls-tree -r HEAD).
 
 ## Keeping Docs in Sync
 
@@ -98,18 +100,18 @@ changes — **mandatory, not optional**:
 1. The current unit works end to end within its defined scope
 2. No invariant defined in `architecture.md` was violated
 3. `progress-tracker.md` reflects the completed work
-4. `npm run build` passes
+4. `bun run build` passes, with `bun run typecheck` and `bun run test` (source: README.md, AGENTS.md).
 
 ## Environment Divergence
 
 When a check passes in one environment but fails in another
 (e.g. local vs CI vs on-box), record the delta before adjudicating:
 
-- [runtime version — e.g. `node --version` here vs there]
-- [dependency tree — lockfile hash here vs there]
-- [env vars and secret presence — names only, never values]
-- [network reachability — what the failing step must reach]
-- [filesystem paths — what the failing step must read/write]
+- Runtime version — bun is required and the node runtime is declared in `project.yaml`; exact versions are UNKNOWN — source: README.md, project.yaml.
+- Dependency tree — `bun.lock` is committed at the repo root and dependencies are pinned (source: git ls-tree -r HEAD, AGENTS.md).
+- Env vars and secret presence — names only, never values: `VITE_API_BASE`, `ZOLAI_UPSTREAM`; `.env.production` is committed and must contain no credential (source: README.md, AGENTS.md).
+- Network reachability — `api.zolai.space`, `studio.zolai.space` and the `pcore-server` deploy host are named in HEAD docs (source: README.md, AGENTS.md).
+- Filesystem paths — `dist/`, `/var/www/zolai-studio`, `deploy/nginx/zolai-explorer.conf` and the reference nginx vhost (source: README.md, AGENTS.md).
 
 A failure explained entirely by a recorded delta is an environment gap,
 not a code regression — fix the environment or pin the dependency.
@@ -138,3 +140,4 @@ bash scripts/session-claims.sh release "$PWD"
 
 Claims auto-expire after 30 min without heartbeat (`gc` purges them). Set
 `PCORE_SESSION_ID` in your session env for stable identity across shells.
+
