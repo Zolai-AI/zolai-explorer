@@ -60,7 +60,7 @@
 | **Load Balancing** | N/A — source: README.md | nginx serves a single static root | README.md |
 | **Microservices** | Separate Zolai Core API | Cross-origin reads and proxied role-gated writes | README.md, AGENTS.md |
 | **Observability** | N/A — source: package.json | No observability dependency in HEAD | package.json |
-| **Search** | API-backed `/api/v1/search` | Transport in `src/features/search`-adjacent API modules | README.md, src tree |
+| **Search** | API-backed `/api/v1/search` | Transport in `src/features/analyze/api.ts` (`useSearch`) | README.md, src tree |
 | **Streaming / Realtime** | Health polling | `HealthObserver` / `healthPoll` over the public `/health` route | src tree, AGENTS.md |
 
 ## Scaling & Performance Constraints
