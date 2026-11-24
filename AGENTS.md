@@ -253,3 +253,25 @@ Language ground truth: **ZVS 2018** — SOV word order, ergative `in`, `kei` for
 persons, `hiam` for yes/no questions, `bang hang` + V + S + `hiam` for content questions. Do not
 introduce deprecated forms (`pathian`, `ram`, `fapa`, `bawipa`, `siangpahrang`, `cu/cun`) into UI
 copy or test fixtures.
+## Workspace alignment (2026-11-24)
+
+`zolai-explorer` is the live React + Vite + shadcn/ui Studio workbench at
+studio.zolai.space. This repo follows the workspace-canonical 7-stage SDLC and
+document map; no stage gate is skipped.
+
+### ALIGNMENT RECORD — zolai-explorer
+
+- Canonical SDLC: [`../docs/SDLC.md`](../docs/SDLC.md)
+- Canonical source-of-truth: [`../docs/governance/source-of-truth.md`](../docs/governance/source-of-truth.md)
+- Status: aligned 2026-11-24; React + Vite architecture unchanged. Next.js → Vite
+  and React + Vite + API decoupling are issues only, not implemented.
+
+### FRONTEND ALIGNMENT RECORD — zolai-explorer
+
+- Existing shadcn/ui + Tailwind layer is primary; no Ant Design added.
+- React + Vite + shadcn/ui retained; no framework migration or new component kit.
+
+### REUSE-FIRST RECORD — zolai-explorer
+
+- New components / UI kits: `none created — reused existing`.
+- Reused existing shadcn components and styling utilities; no dependency edits.
