@@ -13,6 +13,11 @@
  */
 
 import { authHeaderEntry } from './credentials'
+import { ApiError, isApiError } from '@zolai/ai-kit/client'
+import type { ApiErrorKind } from '@zolai/ai-kit/types'
+
+export { ApiError, isApiError }
+export type { ApiErrorKind }
 
 const RAW_BASE = import.meta.env.VITE_API_BASE ?? '/api/v1'
 
@@ -40,37 +45,6 @@ export const REQUEST_TIMEOUT_MS = 15_000
 
 /** Headroom for server-side agent, assistant, and RAG work (server budget: 60s). */
 export const LONG_RUNNING_TIMEOUT_MS = 65_000
-
-export type ApiErrorKind =
-  | 'http'
-  | 'unauthorized'
-  | 'timeout'
-  | 'aborted'
-  | 'network'
-  | 'parse'
-
-export class ApiError extends Error {
-  readonly status: number
-  readonly url: string
-  readonly kind: ApiErrorKind
-
-  constructor(message: string, status: number, url: string, kind: ApiErrorKind) {
-    super(message)
-    this.name = 'ApiError'
-    this.status = status
-    this.url = url
-    this.kind = kind
-  }
-
-  /** True when the server rejected the request because a key is missing/invalid. */
-  get needsKey(): boolean {
-    return this.status === 401
-  }
-}
-
-export function isApiError(value: unknown): value is ApiError {
-  return value instanceof ApiError
-}
 
 export type ApiMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 

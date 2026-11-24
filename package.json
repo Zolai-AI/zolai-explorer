@@ -19,6 +19,7 @@
     "test:serve": "bun run scripts/test-origin.ts"
   },
   "dependencies": {
+    "@zolai/ai-kit": "link:@zolai/ai-kit",
     "@fontsource-variable/cormorant-garamond": "5.3.0",
     "@fontsource-variable/geist": "5.3.0",
     "@hookform/resolvers": "5.9.1",
