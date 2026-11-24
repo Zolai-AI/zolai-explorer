@@ -257,7 +257,7 @@ absent branch *was* confirmed in a screenshot.
 **The harness first, because loop 4 ended with an admission.** `vite preview` proxies nothing, so every
 data panel rendered its API-unreachable state and "verified in the browser" could only ever mean the
 shell. A same-origin mock now serves the built bundle *and* answers `/api/v1/*` from fixtures
-(`/home/peter/studio-probe/mock-server.mts`, outside the repo — the app still ships no mock layer, per
+(``$TMPDIR/studio-probe/mock-server.mts``, outside the repo — the app still ships no mock layer, per
 `AGENTS.md`): three instances on `:4181/:4182/:4183` for `auth_source = api-key | session | none`, and
 anything unmocked 404s with a FastAPI-shaped `detail` so an unexercised path looks broken rather than
 silently empty. That is what let this loop's claims be *seen* rather than asserted.
