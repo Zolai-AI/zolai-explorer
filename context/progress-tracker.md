@@ -1,5 +1,6 @@
 # Progress Tracker
 
+**Last reviewed:** 2026-11-25 (workspace plan refresh; verify statuses against current repo evidence before execution)
 Update this file after every meaningful implementation change.
 
 ## Current Phase
@@ -42,5 +43,6 @@ and trade-offs.
 
 ## Session Notes
 
+- 2026-11-28 — oc-zolai-studio-login-1791676759: Fixed password login shape mismatch (root cause A) and confirmed session-driven role refresh (root cause B already in place). `src/lib/schemas.ts`: `LoginResponseSchema` now nested (`token`, `expires_at` string|number, `user.{id,username,display_name,role,scopes}`). `src/lib/session.ts`: added `'malformed'` failure reason for 200 responses missing token/expiry, stores nothing. `src/lib/session.test.ts`: malformed body test + all five failure modes distinguished. `src/lib/auth.ts` already subscribes to both `subscribeApiKey` and `subscribeSession`; `src/lib/session.test.ts` already covers identity cache coherence on session sign-in/sign-out. `src/routes/Login.tsx` already has password show/hide toggle (aria-label), sign-out button, dual-path copy. `src/components/Sidebar.tsx` already has GitHub org link. Verified: `bun typecheck` 0, `bun run test` green, `bun run build` OK. Deployed to `studio.zolai.space`. Commits: `fix(studio): map nested /auth/login payload; session-driven role refresh` and `feat(studio): password toggle, sign-out affordance, GitHub org link, honest copy`. zolai-core untouched.
 - Verify with `bun run typecheck`, `bun run test` and `bun run build`; after deploy, check both host responses and both theme token blocks (source: README.md, AGENTS.md).
 - Do not modify `zolai-core`, `zolai-web` or `zolai-landing` from this repo (source: AGENTS.md).
