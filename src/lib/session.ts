@@ -261,12 +261,15 @@ export type PasswordVerifyFailure =
   | 'blank'
   /** Too many attempts — the server responded 429. */
   | 'rate_limited'
+  /** The server answered but the payload did not match the expected shape. */
+  | 'malformed'
 
 const PASSWORD_FAILURE_COPY: Record<PasswordVerifyFailure, string> = {
   blank: 'Enter both username and password — nothing was sent.',
   rejected: 'Invalid username or password.',
   unreachable: 'Could not reach the API to verify the credentials. Nothing was stored.',
   rate_limited: 'Too many attempts. Wait a moment and try again.',
+  malformed: 'The API answered but the login payload was not understood — nothing was stored.',
 }
 
 export type PasswordVerifyNotice = {
@@ -298,6 +301,12 @@ const PASSWORD_FAILURE_NOTICE: Record<PasswordVerifyFailure, { tone: PasswordVer
     title: 'Rate limited — try again shortly',
     body:
       'The API responded 429 (too many requests). This is a temporary limit, not a verdict on the credentials. Wait a moment and retry — nothing was stored.',
+  },
+  malformed: {
+    tone: 'error',
+    title: 'Login payload not understood',
+    body:
+      'The API answered, but the response did not match the shape this build expects — nothing was stored. This is a client/server version mismatch, not a wrong password: report it and try again after a reload.',
   },
 }
 
@@ -375,7 +384,7 @@ export async function signInWithPassword(
   if (!response.token || expiresAt === null) {
     return {
       ok: false,
-      reason: 'unreachable',
+      reason: 'malformed',
       message: 'The server replied without a usable session token. Nothing was stored.',
     }
   }

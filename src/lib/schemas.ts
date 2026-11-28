@@ -318,8 +318,18 @@ export type LoginRequest = z.infer<typeof LoginRequestSchema>
 /** `POST /auth/login` response — session token + metadata. */
 export const LoginResponseSchema = z.object({
   token: z.string().catch(''),
-  expires_at: z.number().catch(0),
-  username: z.string().catch(''),
+  token_type: z.string().catch(''),
+  expires_at: z.union([z.string(), z.number()]).catch(''),
+  user: z
+    .object({
+      id: z.number().nullish().catch(null),
+      username: z.string().nullish().catch(null),
+      display_name: z.string().nullish().catch(null),
+      role: RoleSchema,
+      scopes: strArray,
+    })
+    .catch({ id: null, username: null, display_name: null, role: 'anonymous', scopes: [] }),
+  username: z.string().nullish().catch(null),
   role: RoleSchema,
 })
 export type LoginResponse = z.infer<typeof LoginResponseSchema>

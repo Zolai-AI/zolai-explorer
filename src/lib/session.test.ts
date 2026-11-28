@@ -439,6 +439,22 @@ describe('signInWithPassword — username/password session flow', () => {
   })
 })
 
+  it('treats a 200 body missing token and expires_at as malformed and stores nothing', async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({ token: '', expires_at: '', user: { id: 1, username: 'alice', role: 'member', scopes: [] } }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await signInWithPassword('alice', 'secret123')
+
+    expect(result).toMatchObject({ ok: false, reason: 'malformed' })
+    if (!result.ok) expect(result.message).toMatch(/nothing was stored/i)
+    expect(sessionStorage.dump()[SESSION_STORAGE_KEY]).toBeUndefined()
+  })
+
 describe('signOutSession — best-effort logout then clear', () => {
   it('calls POST /auth/logout then clears session and cache', async () => {
     const logoutMock = vi.fn(async () => new Response(null, { status: 204 }))
@@ -506,7 +522,8 @@ describe('passwordVerifyFailureMessage — one honest line per failure mode', ()
     expect(passwordVerifyFailureMessage('rejected')).toMatch(/invalid username or password/i)
     expect(passwordVerifyFailureMessage('unreachable')).toMatch(/could not reach/i)
     expect(passwordVerifyFailureMessage('rate_limited')).toMatch(/too many attempts/i)
-    for (const reason of ['blank', 'rejected', 'unreachable', 'rate_limited'] as const) {
+    expect(passwordVerifyFailureMessage('malformed')).toMatch(/not understood|nothing was stored/i)
+    for (const reason of ['blank', 'rejected', 'unreachable', 'rate_limited', 'malformed'] as const) {
       expect(passwordVerifyFailureMessage(reason), reason).not.toMatch(/login failed/i)
     }
   })
@@ -537,6 +554,20 @@ describe('passwordVerifyFailureNotice — a refused credential and an unanswered
     expect(notice.tone).toBe('warn')
     expect(notice.title).toMatch(/rate limited/i)
     expect(notice.body).toMatch(/nothing was stored/i)
+  })
+
+  it('malformed is an error tone and says nothing was stored', () => {
+    const notice = passwordVerifyFailureNotice('malformed')
+    expect(notice.tone).toBe('error')
+    expect(notice.title).toMatch(/payload|understood/i)
+    expect(notice.body).toMatch(/nothing was stored/i)
+    expect(notice.body).not.toMatch(/invalid username or password/i)
+  })
+
+  it('keeps all five modes distinguishable', () => {
+    const reasons = ['blank', 'rejected', 'unreachable', 'rate_limited', 'malformed'] as const
+    const titles = reasons.map((r) => passwordVerifyFailureNotice(r).title)
+    expect(new Set(titles).size).toBe(5)
   })
 
   it('keeps the modes distinguishable — no generic "login failed" anywhere', () => {
